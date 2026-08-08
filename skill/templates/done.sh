@@ -14,3 +14,14 @@ tmp=".ev-$t.json"
 printf '{"evidence_id":"ev-%s","repo_id":"self","path":"%s","git_blob_oid":"%s","content_digest":"%s","media_type":"text/markdown","anchor_digest":null}\n' "$t" "$f" "$oid" "$digest" > "$tmp"
 lattice todo done --plan "$PEERTABLE_PLAN" --task "$t" --evidence "$tmp"
 rm -f "$tmp"
+
+# 完了の定義は「repo 内の変更は push まで」。done を打つ瞬間はそれが成り立っていなければ
+# ならない唯一の時点で、かつ全員が必ず通る場所である。publish 経路の機械 gate は tarball
+# しか見ないので、docs・証跡・experiments はその外側にある——黙ると誰も見ていない場所へ
+# 成果物が取り残される（2026-08-08 実測。卓の全員が立っていた穴で、親の監査が見つけた）。
+# 出すだけで止めない: push 既定でない repo も、まとめて push する運用も壊さないため。
+# upstream 未設定・git 管理外でも done.sh 自体は死なせない（set -e の下なので必ずガードする）。
+unpushed=$(git rev-list --count '@{u}..HEAD' 2>/dev/null || true)
+if [ -n "$unpushed" ] && [ "$unpushed" != 0 ]; then
+  echo "未push ${unpushed}本: この done の成果物はまだ upstream へ着地していない" >&2
+fi
