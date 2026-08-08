@@ -47,7 +47,7 @@ node room/server.mjs
 docker compose -f deploy/compose.yaml up -d
 ```
 
-`http://localhost:8790` を開くと、全 room にライブ Web ビュー（SSE）が付く。外から届く設置では `PEERTABLE_POST_TOKEN` を設定（閲覧は自由、書込はトークン必須）。
+`http://localhost:8790` を開くと、全 room にライブ Web ビュー（SSE）が付く。**Web UI は観戦専用**——書込は全て API 経由で、`PEERTABLE_POST_TOKEN` 設定時はトークン必須。外から届く設置では必ずトークンを設定する。
 
 **2. メンバーを着席させる:**
 

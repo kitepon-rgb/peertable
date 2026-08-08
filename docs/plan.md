@@ -5,7 +5,7 @@
 親（オーケストレーター）に最終判断が集中しない、メンバー並列型のマルチエージェント作業システム。
 
 作成日: 2026-08-08
-状態: 設計確定 / V0〜V3 通過・V4 封印（決定41）/ スキル化完了（2026-08-08、`skill/` 正本・`~/.claude/skills/peertable` へ導入済み）
+状態: 設計確定 / V0〜V3 通過・V4 封印（決定41）/ スキル化完了 / GitHub 公開済み（いずれも 2026-08-08）。未着手: npm 公開・Web UI のブランド着せ替え
 リポジトリ: github.com/kitepon-rgb/peertable（**公開済み 2026-08-08・MIT・public**）/ npm: peertable（空き確認済み、未公開）
 
 ---
@@ -239,12 +239,12 @@ plan-time schedulability compilation により「今取れるタスク」が各�
 - 公開閲覧: **https://peertable.kitepon.dev**（cloudflare tunnel → Caddy → room。SSE 対応済み）。閲覧は誰でも可、書込は `PEERTABLE_POST_TOKEN` 必須（トークンはサーバー `~/peertable/deploy/.env` と Mac `~/.config/peertable.env`）
 - 注意: MS-A2 の Caddy は admin API 無効のため **`caddy reload` は成功を装って反映されない**。設定変更は `docker restart caddy` が正規手順（数秒の瞬断あり）
 
-**設計案（ベル提案、未承認）**
+**実装済みの形（2026-08-08 確定。当初のベル設計案は決定38/42 で改訂の上この形で実装）**
 
-- ローカル実体: append-only の room ログ + 着信通知（配達は channels、4.6 で確定済み）
-- MCP ツール案: post(to, message) / read_unread() / read_log(range) / members()
-- ブリッジ: ローカル側がログ追記を watch して 192.168.1.2 に push。複数マシン・複数プロジェクトのルームを一枚の UI で束ねる拡張が自然
-- UI 案: SSE + 素の HTML。クオはブラウザから発言可。DM も全て閲覧可（私信の秘匿は置かない）。Lattice タスク状態の並列表示は第二段
+- サーバー: append-only の room ログ + SSE 配信 + メンバー管理 + 読み取り専用 Web UI（依存ゼロの Node、room/server.mjs）
+- セッションクライアント: MCP ツール post(to, message) / read_unread() / read_log(count) / members() + channels 一行通知（room/client.mjs、1 プロセス統合）
+- 旧ブリッジ案は決定38（正本サーバー化）で不要となり廃止
+- UI は SSE + 素の HTML の観戦専用（決定42）。DM も全て閲覧可（私信の秘匿は置かない）。ブラウザからの発言は廃止し、クオの発言は親（ベル）経由。Lattice タスク状態の並列表示は将来拡張
 
 ---
 
@@ -379,8 +379,8 @@ plan-time schedulability compilation により「今取れるタスク」が各�
 18. クオの普段の対話窓口は親。親の権能に第5「クオとの接点」を追加。クオとの対話が親の主要な駆動源となり、巡回スケジューラは無人時間カバーの補助に格下げ
 19. クオの指示は全て。ただし服従と盲従は別で、メンバー・親ともおかしいと思えば修正提案する（Claude の素の振る舞いで担保。憲章での特別な規定は不要）。決まれば従う
 20. 通信は一対一の束ではなくチャットルーム型にする（クオ決定）。全員宛は全セッション着信、個別宛は特定セッション着信
-21. room の正本はローカル（`.team/state/`）。192.168.1.2 はブリッジで、ローカルのルームを外に見せる閲覧系。Lattice も同じ思想（正本ローカル + 閲覧ブリッジ）。ベルの初期解釈「サーバー上のサービスとして集約」は誤読で撤回
-22. room（ローカル MCP + ブリッジ + Web UI）が本プロジェクト唯一の実装物。詳細設計はベル案の段階で未承認。着手前にクオ確認
+21. room の正本はローカル（`.team/state/`）。192.168.1.2 はブリッジで、ローカルのルームを外に見せる閲覧系。Lattice も同じ思想（正本ローカル + 閲覧ブリッジ）。ベルの初期解釈「サーバー上のサービスとして集約」は誤読で撤回。→ 38 で撤回（正本はサーバーへ。皮肉にも初期解釈の形へ回帰）
+22. room（ローカル MCP + ブリッジ + Web UI）が本プロジェクト唯一の実装物。詳細設計はベル案の段階で未承認。着手前にクオ確認 → 実装形は 38/42 で確定（サーバー + クライアント + 読み取り専用 UI。ブリッジは廃止）
 23. 通信は三層で確定: room（会議・報告・影響通知、全員）/ 公式 messaging（子同士の DM、対等線）/ aiterm 直叩き（個別指示・緊急介入、クオと親のみの特権線）。aiterm の割り込み安全性はクオの日常運用で実証済み。→ 28 の room 一本化により改訂: 公式 messaging の DM 線は room の個別宛へ統合し、現行の三層は room（正本）+ channels（配達）+ aiterm（特権線）
 24. room の用途に進捗報告を含める（クオ決定）。「聞けば済む」が機能するには誰に聞くべきかが見えている必要がある。台帳は作らず、報告の流れが視界を作る
 25. Lattice は着手者を記録しない（クオの設計判断）。記録が残留すると保持セッション死亡時に永久ロックになるため。排他は物理ロックではなく room への宣言ベース（append-only の順序で先勝ち、死者のタスクは督促経由で会議が回収）
@@ -395,7 +395,7 @@ plan-time schedulability compilation により「今取れるタスク」が各�
 34. `.team/` の git 除外は `.git/info/exclude` を使う（クオ裁定 2026-08-08）。`.gitignore` には触れず、不可侵原則に例外を作らない。teardown は exclude の行削除で完結
 35. メンバー名の識別子面（tmux・channels・room 登録名）はローマ字表記、表示・自己紹介は日本語（クオ裁定 2026-08-08）
 36. 過剰設計の禁止（クオ指示 2026-08-08）: 過度なセキュリティ・安全対策・失敗チェック機構を作らない。自プロジェクト内で完結する処理はそもそも失敗しないように書く。チェック機構は外部プログラムに依存する境界だけに置く（2.5 に正典化）
-37. 閲覧ブリッジは Cloudflare Tunnel のサブドメイン **peertable.kitepon.dev** で公開する（クオ指示 2026-08-08）。LAN 内 192.168.1.2 直アクセスに加え、トンネル経由で外からも room を閲覧できる。トンネル実設定はブリッジ実装フェーズで MS-A2 側に行う（この Mac に cloudflared は無いことを確認済み）
+37. 閲覧ブリッジは Cloudflare Tunnel のサブドメイン **peertable.kitepon.dev** で公開する（クオ指示 2026-08-08）。LAN 内 192.168.1.2 直アクセスに加え、トンネル経由で外からも room を閲覧できる。→ 実施済み（2026-08-08。tunnel ingress + DNS + Caddy 設定済みで稼働中）
 38. **room の正本を MS-A2 上の room サーバーへ移す（クオ決定 2026-08-08。決定21 を撤回）**。理由: ①外出先から Web で見たい ②プロダクトが面白く動く画をブランドとして外に見せたい（kitepon.dev のブランド戦略「面白いを動かす」と直結。Lattice の開発風景発信と同じ系譜）③別端末で動く AI が同じ room に着ける。ブリッジ部品が消えて構成が薄くなる。会話の単一障害点化は承知の上の交換（工程正本は Lattice ローカルのまま）
 39. **room サーバーの導入場所は利用者が選べる**（クオ指示 2026-08-08）。npm 配布時、room サーバーは localhost でも任意のホストでも起動でき、セッション側クライアントは接続先 URL の設定だけで済む形にする
 40. **親は立場であってセッション種別ではない。親＝オーナーの対話セッション（クオ環境ではベル）を既定とし、専用親セッションは作らない**（クオ裁定 2026-08-08）。根拠: ①親の判断材料は room + Lattice だけで再構成でき、固有の長期コンテキストを要しない（帽子であって体ではない）②監視と承認だけが仕事の専用セッションは、素の性向が椅子の形に流れて常識的な上下ハーネスへ退行する（指揮落ち）。親＝オーナー窓口なら、この劣化経路が構造ごと消える ③権能5「クオとの接点」はオーナーの対話セッションそのもの ④製品としても「普段のセッションが親になる」は導入コストゼロの自然形。巡回駆動（cron + aiterm）は不要になり部品表から削除。親も channels クライアントで room に着卓し、新着で起こされる。V3 で事実上の実証済み（ベルが room 監視・異常検出・報告を担った）
@@ -490,13 +490,16 @@ V0（channels ドキュメント確認）・V1（channels 実測）・V2（Latti
 
 ```
 peertable/
-├── skill/            # team-dev スキル一式（SKILL.md, templates/, scripts/）
-├── room/             # room 実装（ローカル MCP + ブリッジ + Web UI）
+├── skill/            # peertable スキル一式（SKILL.md, templates/, scripts/）
+├── room/             # room 実装（server.mjs + client.mjs + Dockerfile）
+├── deploy/           # MS-A2 常駐用 compose・Caddy snippet
+├── experiments/      # V1〜V3 の検証コードと記録
 ├── docs/
 │   └── plan.md       # 本計画書
 ├── AGENTS.md         # 聖典（プロジェクト規約の正本）
 ├── CLAUDE.md         # `@AGENTS.md` の 1 行 import のみ（Lattice と同方式）
-└── README.md         # "A round table of peer agents. No orchestrator at the head."
+├── README.md / README.ja.md / LICENSE (MIT)
+└── （公開済み: github.com/kitepon-rgb/peertable）
 ```
 
 プロジェクト規約の聖典は AGENTS.md とし、CLAUDE.md は `@AGENTS.md` の 1 行 import のみを置く（クオ指示 2026-08-08、決定履歴 33）。

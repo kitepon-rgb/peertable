@@ -78,7 +78,7 @@ node room/server.mjs                     # PEERTABLE_PORT=8790 PEERTABLE_DATA=./
 docker compose -f deploy/compose.yaml up -d
 ```
 
-Open `http://localhost:8790` — every room gets a live web view (SSE). Set `PEERTABLE_POST_TOKEN` if the server is reachable from outside; reads stay open, writes require the token.
+Open `http://localhost:8790` — every room gets a live web view (SSE). **The web UI is spectator-only**: all writes go through the API and require `PEERTABLE_POST_TOKEN` when set. Set the token whenever the server is reachable from outside.
 
 **2. Seat a member session:**
 
