@@ -50,7 +50,7 @@ Three layers, cleanly separated:
 | Layer | Owner | What it holds |
 |---|---|---|
 | **Conversation** | room server (this repo) | meetings, claims, progress reports, impact notices — every message, all-addressed or DM, in one append-only log |
-| **Plan** | [Lattice](https://www.npmjs.com/package/@quolu/lattice) | the task graph: dependencies, states, evidence. What's *ready* is computed, so conversation is spent only on judgment |
+| **Plan** | [Lattice](https://www.npmjs.com/package/@quolu/lattice) *(optional — see below)* | the task graph: dependencies, states, evidence. What's *ready* is computed, so conversation is spent only on judgment |
 | **Artifacts** | git | code, docs, commits — per member, path-scoped |
 
 Delivery uses **Claude Code channels** (research preview): each member session runs a tiny MCP client that turns room activity into a one-line "new message — go read" nudge. Idle sessions wake up on their own; busy sessions pick it up at the next tool boundary. Verified against the real behavior, not the docs alone.
@@ -58,6 +58,19 @@ Delivery uses **Claude Code channels** (research preview): each member session r
 ### Coordination without locks
 
 Task exclusivity is **declaration-based**: claiming is a `[claim] task-id` message in the room. The log is append-only, so ordering settles races — later claimants withdraw or convert to `[join]`. No assignee field, no leases, no lock to orphan when a session dies. Joint work is a first-class outcome, not a conflict.
+
+### Two modes: with Lattice, or standalone
+
+The round table itself never depended on Lattice — only the *work intake* did. So setup asks which one you want:
+
+| | **With Lattice** (default) | **Standalone** |
+|---|---|---|
+| Work intake | dependency-aware ready set, computed | `.team/tasks.md` — a read-only agenda written at setup |
+| Claim & completion | room declaration + `todo start` / `done` records | room declaration only |
+| Completion binding | evidence descriptor, digest-verified against a committed git object | commit + a completion report in the room |
+| Done judgment | audit gate (all tasks done ≠ finished) | the parent reads the log and calls the table adjourned |
+
+Standalone gives up machine-guaranteed scheduling across tasks — nothing else. Room, charter, and declaration-based cooperation are unchanged. Use it for shallow, short-lived work, or when you don't want another tool in the project; use Lattice when dependencies, staged acceptance, or evidence matter.
 
 ## What's in this repo
 
@@ -98,11 +111,11 @@ The `room` entry in `.team/mcp.json` is just `{ "command": "peertable-client" }`
 
 > 円卓を立てて / "set up a peertable for this project"
 
-It interviews you, names the members, scaffolds `.team/` (charter + roles, isolated from your project, `.git/info/exclude`d), seeds the Lattice plan, launches the member sessions, and seats itself beside the table. `teardown` restores your project to a zero diff.
+It interviews you, names the members, scaffolds `.team/` (charter + roles, isolated from your project, `.git/info/exclude`d), seeds the Lattice plan — or writes the read-only `.team/tasks.md` agenda if you chose standalone — launches the member sessions, and seats itself beside the table. `teardown` restores your project to a zero diff.
 
 ## Status
 
-Working, verified end-to-end on 2026-08-08 — including a full no-orchestrator loop: two members consulted, claimed, negotiated an interface, shared a discovered pitfall, cross-reviewed and shipped a small project with **zero external intervention**. The design document and decision log (41 decisions, in Japanese) live in [docs/plan.md](docs/plan.md).
+Working, verified end-to-end on 2026-08-08 — including a full no-orchestrator loop: two members consulted, claimed, negotiated an interface, shared a discovered pitfall, cross-reviewed and shipped a small project with **zero external intervention**. The design document and decision log (51 decisions, in Japanese) live in [docs/plan.md](docs/plan.md).
 
 Depends on Claude Code **channels**, currently a research preview — flags and protocol may change.
 
