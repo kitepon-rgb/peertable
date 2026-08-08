@@ -660,10 +660,13 @@ consumer contract 4面の明文化（→ §12 と Lattice `docs/00_product-contr
   idle       は手が空いている証拠にならない 許可ダイアログで固着した席が idle と表示される
   ready      は動く証拠にならない          下記
   state=None は「空」の証拠にならない       下記
+  STORE_INCONSISTENT は store が壊れている証拠にならない  下記
   ```
 
   - **`ready` は動く証拠にならない。** 0.3.2 の publish 受入は `diagnostics` が `ready` を返すことで閉じたが、その `skill_bundle` は**必須15ファイルが在ることの確認**であって、**`setup` が通ることでも卓が立つことでもない**。**測った物＝出した物＝降りてきた物**は shasum の4点鎖で閉じている（bytes まで同一）が、**その物で誰かが実際に円卓を立てられるかは 0.3.2 では一度も測っていない**——**publish した本人が最後に自分でこれを書いた**。塞ぐなら「install 直後の使い捨て project で setup→teardown を1往復させる」だが、**使い捨て先の用意と、本番 room を触らない保証**が要るので次の campaign が決める
   - **`state=None` は「空」の証拠にならない。** CLI のエラー JSON を素直な `d.get('<欲しい欄>')` で読むと、**エラーが「値が無い＝空」へ化ける**。6 plan を照会して6回とも `None` を得て「全部空だ」と結論しかけ、その直後に別コマンドで同型をもう一度踏んだ（1ターンに2回）。**この CLI はエラーを二重に signal している**——`rc=2` と `{"schema":"lattice.cli_error.v2"}`——**読む側がその両方を捨てた**のが形である。**この項目を書くための実測でも同じ穴を踏みかけた**: `cmd | head -c 400; echo $?` は **`head` の `rc=0`** を返すので、**CLI が rc=2 で落ちていることが消える**（パイプを外して測り直して rc=2 を確認。測定器を先に疑う・決定60）。あわせて**入口の形**が1つ: **`lattice todo phase status --plan <key>` は既定で JSON を出すので `--json` を付けると `INVALID_ARGUMENTS` で落ちる**——**JSON が欲しくて `--json` を付けると JSON が出なくなる**。`--plan` は `todo status` の引数ではなく `todo phase status` の引数である（実測 2026-08-09）
+  - **`STORE_INCONSISTENT` は store が壊れている証拠にならない。** 存在しない plan key を引くと `{"code":"STORE_INCONSISTENT","message":"plan_not_active"}` が `rc=1` で返る（`lattice-integration` を `lattice-integration-20260808` と綴った実例。実測 2026-08-09）。**受け取った側は「store が壊れているかもしれない」と読み、次の campaign への宿題として親へ渡しかけた**——**実際は入力が間違っていただけ**である。**エラーが返ってきた時、最初に疑うのは自分の引数**。**この誤読をしたのは、その直前に `state=None` を「エラーを空へ化けさせた形」として整理して見せた本人**だった——**形を言葉にできることと、自分がその形を踏まないことは別**である。**CLI 側の非も併記する**: **原因が「引数が悪い」なのに、語彙が「store が壊れている」を指している**。`INVALID_ARGUMENTS` か `PLAN_NOT_FOUND` であれば、読む側が最初に自分を疑えた
+- **deploy 受入②（本番ホストで build が走らない）は、「本番が動いていること」では証明できない。** `build:` が効くのは**次に `up` を叩いた時**なので、**すでに上がっている container は、転送先の compose に `build:` が在っても無くても同じように動く**。t16 ではこれを**転送先の実物（`~/peertable/deploy/compose.yaml`）を実装者以外が実読する**ことで埋めたが、**`deploy/README.md` には手順として書いてあるだけで、「なぜ動作確認では代替できないか」が書かれていない**——**次に deploy する人が「動いてるから大丈夫」で②を飛ばす余地が残っている**。実装者本人が名指しした穴で、**campaign 完走後に出たので追記していない**
 - **Lattice 側の公開工程表にも同型の SSE 沈黙欠陥がある**（決定58 と同じ形）。lattice.kitepon.dev も EventSource で head digest の変化を受けて reload する作りだが、server から心拍を送らず client も受信途絶を見張っていない。**オーナーが同時に見ている2つの公開面が、両方とも同じ理由で静かに古くなりうる**。Peertable 側の変更で持ち込んだものではなく元からある性質なので、直すなら Lattice 側の別 release の話
 
 ---
