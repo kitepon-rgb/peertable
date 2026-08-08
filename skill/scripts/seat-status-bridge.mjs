@@ -39,9 +39,15 @@ if (stop) {
   if (!existsSync(pidPath)) { console.error('seat-status-bridge: 起動記録が無い（既に停止）'); process.exit(0) }
   const { pid } = JSON.parse(readFileSync(pidPath, 'utf8'))
   if (alive(pid)) {
+    // SIGTERM 5秒 → SIGKILL 3秒（wakeup-bridge.mjs と同じ形）。**昇格が無いと、SIGTERM を無視する
+    // 常駐が居た時に teardown が `set -e` の2段目で即死して、[未実施] も [手当] も要約も出ない**
     process.kill(pid, 'SIGTERM')
     for (let i = 0; i < 50 && alive(pid); i++) execFileSync('sleep', ['0.1'])
-    if (alive(pid)) { console.error(`SEAT_STATUS_BRIDGE_STOP_FAILED: pid ${pid} が止まらない`); process.exit(1) }
+    if (alive(pid)) {
+      process.kill(pid, 'SIGKILL')
+      for (let i = 0; i < 30 && alive(pid); i++) execFileSync('sleep', ['0.1'])
+    }
+    if (alive(pid)) { console.error(`SEAT_STATUS_BRIDGE_STOP_FAILED: pid ${pid} が SIGKILL でも止まらない`); process.exit(1) }
   }
   // 止めた側の SIGTERM handler が先に消していることがある。生の traceback を出さない（それ自体が
   // 「何が起きたか分からない失敗」になる——今日 teardown で同じ形を叩いたばかり）

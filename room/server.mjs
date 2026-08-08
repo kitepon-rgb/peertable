@@ -93,6 +93,10 @@ http.createServer(async (req, res) => {
 
     if (req.method === 'POST' && rest === 'messages') {
       const { from, to, body: text } = JSON.parse(body)
+      // 本文が無ければ **書かずに 400**。ここを素通しにすると `JSON.stringify` が欄ごと落として、
+      // append-only の正本へ**本文の無い行**が入る——しかも送信側には 200 と seq が返るので
+      // 「送れた」と表示される（2026-08-08 に本番で2件実測。消せない）
+      if (typeof text !== 'string') return json(res, 400, { error: 'body_required' })
       return json(res, 200, post(room, from, to ?? 'all', text))
     }
     if (req.method === 'POST' && rest === 'members') {
