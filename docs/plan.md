@@ -5,7 +5,7 @@
 親（オーケストレーター）に最終判断が集中しない、メンバー並列型のマルチエージェント作業システム。
 
 作成日: 2026-08-08
-状態: 設計確定 / V0・V1 通過（2026-08-08）・V2 未着手
+状態: 設計確定 / V0・V1・V2 通過（2026-08-08）・V3 未着手
 リポジトリ: github.com/kitepon-rgb/peertable（作成予定）/ npm: peertable（空き確認済み 2026-08-08）
 
 ---
@@ -295,10 +295,18 @@ plan-time schedulability compilation により「今取れるタスク」が各�
 - aiterm: 作業中のセッションへの入力流し込みの再現性（クオの日常観測を、親の自動操作として系統確認）
 - `.team/CLAUDE.md` 自動読み込み: `.team/` 内ファイルを読んだセッションが憲章を積むか
 
-### V2: Lattice の並行アクセス
+### V2: Lattice の並行アクセス — 通過（2026-08-08）
 
 - 複数セッションからの同時のタスク追加・分割・完了更新での整合性
 - （claim の排他は宣言ベースに変更したため、Lattice の atomic claim 検証は不要になった）
+
+**結果（実測。検証コードは experiments/v2-lattice/。Lattice 0.46.2）**:
+
+- 8 独立タスクの plan に対し、**別 actor を名乗る 7 ワーカーの同時書込（start→note→done）+ 5 並行読取**を実行
+- **store は壊れない**。同時書込の敗者は明示エラーで弾かれる（`STORE_WRITE_CONFLICT/store_locked`、一過性の `STORE_INCONSISTENT/manifest_journal_head_mismatch`）。黙った巻き込み・破損はゼロ。フォールバックせず fail-loud する設計どおりの挙動
+- **弾かれた操作は単純リトライで全て 1 回目に成功**。最終状態は全タスク done・journal 連番 16・`todo verify` グリーン
+- **設計への帰結**: メンバーの行動規定に「Lattice 書込が WRITE_CONFLICT 系で弾かれたら再実行する」の一行が必要（外部プログラム境界のチェックであり規範 2.5 に適合）
+- setup スキルに焼き込むべき運用要件を副次発見: ① actor 環境変数 3 点（`LATTICE_TODO_ACTOR_HOST/SESSION/AGENT`）をセッションごとに設定 ② ready 複数時の start は `--parallel-frontier` 宣言が必要 ③ done の evidence は記述子 JSON（repo_id は manifest の `self`、git blob は commit から到達可能なこと）
 
 ### V3: 最小構成の統合
 
