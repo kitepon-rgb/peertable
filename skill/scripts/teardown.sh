@@ -24,8 +24,13 @@ yes_() { [ "$1" = "True" ] || [ "$1" = "true" ]; }
 
 # Codex 席の起床ブリッジ（決定54）。常駐 process なので、`.team/` を消す前に確実に止める
 if [ -f "$proj/.team/wakeup-bridge.json" ]; then
-  node "$(dirname "$0")/wakeup-bridge.mjs" "$proj" --stop
-  did "wakeup-bridge 停止"
+  # 停止に失敗しても **ここで止まらない**。`set -e` で落ちると、t6 の契約（各段の実施・未実施を
+  # 1行ずつ出す／黙って中断しない）が丸ごと破れる——[未実施] も [手当] も要約も出ずに撤去が全部残る
+  if node "$(dirname "$0")/wakeup-bridge.mjs" "$proj" --stop; then
+    did "wakeup-bridge 停止"
+  else
+    miss "wakeup-bridge 停止に失敗（常駐が残る）— 上の _STOP_FAILED を見て手で止める"
+  fi
 else
   skip "wakeup-bridge（起動記録なし）"
 fi
@@ -34,8 +39,13 @@ fi
 # ここで止めないと、pid 記録が `.team/` ごと消えて **`--stop` でも止められなくなる**——しかも
 # 「起動記録が無い（既に停止）」と rc=0 で報告する＝**止めたと嘘をつく残骸**になる（実測）
 if [ -f "$proj/.team/seat-status-bridge.json" ]; then
-  node "$(dirname "$0")/seat-status-bridge.mjs" "$proj" --stop
-  did "seat-status-bridge 停止"
+  # 停止に失敗しても **ここで止まらない**。`set -e` で落ちると、t6 の契約（各段の実施・未実施を
+  # 1行ずつ出す／黙って中断しない）が丸ごと破れる——[未実施] も [手当] も要約も出ずに撤去が全部残る
+  if node "$(dirname "$0")/seat-status-bridge.mjs" "$proj" --stop; then
+    did "seat-status-bridge 停止"
+  else
+    miss "seat-status-bridge 停止に失敗（常駐が残る）— 上の _STOP_FAILED を見て手で止める"
+  fi
 else
   skip "seat-status-bridge（起動記録なし）"
 fi
