@@ -12,6 +12,7 @@ Peertable で働く全 AI エージェント共通のプロジェクト規約。
 - 計画・設計・決定履歴の正本: [docs/plan.md](docs/plan.md)。**作業前に必ず読む**
 - 実装物は room（サーバー + セッションクライアント + 読み取り専用 Web UI）と peertable スキルのみ。Lattice・aiterm-mcp・Claude Code channels は既存資産・公式機能を使い、改造しない
 - 稼働状況: room は MS-A2 で Docker 常駐、公開閲覧は https://peertable.kitepon.dev（読み取り専用・決定42）。書込は API + トークンのみ
+- 配布: npm **peertable**（bin: `peertable-room` / `peertable-client`）。publish はオーナーの明示指示時のみ。version bump と `npm pack --dry-run` の files 確認を publish 前に行う
 
 ## 開発規範
 
@@ -25,6 +26,7 @@ Peertable で働く全 AI エージェント共通のプロジェクト規約。
 peertable/
 ├── AGENTS.md             # 本書（聖典）
 ├── CLAUDE.md             # @AGENTS.md の 1 行 import のみ
+├── package.json          # npm: peertable（bin 2 種・files 限定）
 ├── README.md / README.ja.md / LICENSE(MIT)
 ├── docs/plan.md          # 計画書（設計・決定履歴の正本）
 ├── room/                 # room サーバー + セッションクライアント + Dockerfile

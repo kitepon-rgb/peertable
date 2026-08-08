@@ -9,6 +9,7 @@ description: 任意プロジェクトに Peertable チーム（対等メンバ�
 
 ## 前提
 
+- `npm install -g peertable` 済みであること（メンバーの `.team/mcp.json` は PATH 上の `peertable-client` を使う。サーバーも `peertable-room` で立てられる）
 - room サーバーが稼働していること（クオ環境: `http://192.168.1.2:18860`、公開閲覧 https://peertable.kitepon.dev）。書込トークンは `~/.config/peertable.env`（`PEERTABLE_POST_TOKEN=`）
 - `lattice` CLI が入っていること（工程正本）
 - aiterm-mcp（tmux）が使えること（メンバーの器）
