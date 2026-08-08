@@ -162,7 +162,15 @@ const UI = room => `<!doctype html><html lang="ja"><head><meta charset="utf-8"><
 .meta{display:flex;align-items:baseline;gap:7px;flex-wrap:wrap;margin:0 0 3px 2px;font-size:12px}
 .who{font-weight:700;color:hsl(var(--h) var(--sat) var(--name))}
 .to{color:var(--dim)}.ts{color:var(--dim);font-variant-numeric:tabular-nums}
-.bubble{padding:8px 12px;border-radius:4px 13px 13px 13px;background:hsl(var(--h) var(--sat) var(--tint));border:1px solid hsl(var(--h) var(--sat) var(--edge)/.45);white-space:pre-wrap;overflow-wrap:anywhere}
+.bubble{padding:8px 12px;border-radius:4px 13px 13px 13px;background:hsl(var(--h) var(--sat) var(--tint));border:1px solid hsl(var(--h) var(--sat) var(--edge)/.45);overflow-wrap:anywhere}
+.bubble>*{margin:0}.bubble>*+*{margin-top:7px}
+.bubble code{font:500 .92em ui-monospace,SFMono-Regular,Menlo,monospace;background:hsl(var(--h) var(--sat) var(--edge)/.22);border-radius:3px;padding:.1em .35em}
+.bubble pre{background:hsl(var(--h) var(--sat) var(--edge)/.16);border:1px solid hsl(var(--h) var(--sat) var(--edge)/.4);border-radius:5px;padding:7px 10px;overflow-x:auto}
+.bubble pre code{background:none;padding:0;white-space:pre}
+.bubble ul{padding-left:1.25em}.bubble li{margin:1px 0}
+.bubble table{border-collapse:collapse;display:block;overflow-x:auto;max-width:100%;font-size:.94em}
+.bubble th,.bubble td{border:1px solid hsl(var(--h) var(--sat) var(--edge)/.5);padding:3px 8px;text-align:left;vertical-align:top}
+.bubble th{background:hsl(var(--h) var(--sat) var(--edge)/.18);font-weight:650}
 .msg.cont .bubble{border-radius:13px}
 .msg.dm .bubble{border-style:dashed;border-color:hsl(var(--h) var(--sat) var(--edge))}
 .msg.dm .to{color:hsl(var(--h) var(--sat) var(--name));font-weight:600}
@@ -176,6 +184,57 @@ const ROOM=${JSON.stringify(room)}
 const api=p=>'/api/'+encodeURIComponent(ROOM)+'/'+p
 const logEl=document.getElementById('log'),membersEl=document.getElementById('members')
 const el=(tag,cls,text)=>{const e=document.createElement(tag);if(cls)e.className=cls;if(text!=null)e.textContent=text;return e}
+// Markdown サブセットを DOM で組む。文字列を連結して innerHTML へ入れる形は取らない——
+// エスケープを1箇所忘れた瞬間に穴が開く構造を選ばない（本文は常に textContent 経由で入る）。
+// 対応: fenced code / 表 / 箇条書き / インラインコード / **強調** / 改行。リンクは入れない。
+const RE_FENCE=/^\\u0060{3}/,RE_ROW=/^\\s*\\|.*\\|\\s*$/,RE_SEP=/^\\s*\\|[-: |]+\\|\\s*$/,RE_LI=/^\\s*[-*]\\s+/
+const RE_INLINE=/\\u0060([^\\u0060\\n]+)\\u0060|\\*\\*([^*\\n]+)\\*\\*/g
+function inline(parent,text){
+  RE_INLINE.lastIndex=0
+  let i=0,m
+  while((m=RE_INLINE.exec(text))){
+    if(m.index>i)parent.appendChild(document.createTextNode(text.slice(i,m.index)))
+    parent.appendChild(m[1]!=null?el('code',null,m[1]):el('strong',null,m[2]))
+    i=RE_INLINE.lastIndex
+  }
+  if(i<text.length)parent.appendChild(document.createTextNode(text.slice(i)))
+}
+const isTable=(ls,i)=>RE_ROW.test(ls[i])&&i+1<ls.length&&RE_SEP.test(ls[i+1])
+function md(src){
+  const frag=document.createDocumentFragment(),ls=String(src).split('\\n')
+  let i=0
+  while(i<ls.length){
+    if(RE_FENCE.test(ls[i])){
+      const buf=[];i++
+      while(i<ls.length&&!RE_FENCE.test(ls[i]))buf.push(ls[i++])
+      i++
+      const pre=el('pre');pre.appendChild(el('code',null,buf.join('\\n')));frag.appendChild(pre);continue
+    }
+    if(isTable(ls,i)){
+      const cells=r=>r.trim().replace(/^\\||\\|$/g,'').split('|').map(c=>c.trim())
+      const table=el('table'),head=el('tr')
+      cells(ls[i]).forEach(c=>{const th=el('th');inline(th,c);head.appendChild(th)})
+      const thead=el('thead');thead.appendChild(head);table.appendChild(thead)
+      const tbody=el('tbody');i+=2
+      while(i<ls.length&&RE_ROW.test(ls[i])){
+        const tr=el('tr');cells(ls[i++]).forEach(c=>{const td=el('td');inline(td,c);tr.appendChild(td)});tbody.appendChild(tr)
+      }
+      table.appendChild(tbody);frag.appendChild(table);continue
+    }
+    if(RE_LI.test(ls[i])){
+      const ul=el('ul')
+      while(i<ls.length&&RE_LI.test(ls[i])){const li=el('li');inline(li,ls[i++].replace(RE_LI,''));ul.appendChild(li)}
+      frag.appendChild(ul);continue
+    }
+    if(!ls[i].trim()){i++;continue}
+    const buf=[]
+    while(i<ls.length&&ls[i].trim()&&!RE_FENCE.test(ls[i])&&!RE_LI.test(ls[i])&&!isTable(ls,i))buf.push(ls[i++])
+    const p=el('p')
+    buf.forEach((l,k)=>{if(k)p.appendChild(el('br'));inline(p,l)})
+    frag.appendChild(p)
+  }
+  return frag
+}
 const hue=n=>{let h=5381;for(let i=0;i<n.length;i++)h=(h*33+n.charCodeAt(i))|0;return Math.abs(h)%360}
 const initial=n=>{const c=[...String(n)][0];return c?c.toUpperCase():'?'}
 const stamp=at=>{const t=el('time','ts',at.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}));t.dateTime=at.toISOString();t.title=at.toLocaleString();return t}
@@ -192,7 +251,8 @@ function render(m){
   meta.appendChild(el('span','who',m.from))
   if(m.to!=='all')meta.appendChild(el('span','to','→ '+m.to))
   meta.appendChild(stamp(at))
-  body.appendChild(meta);body.appendChild(el('div','bubble',m.body))
+  const bub=el('div','bubble');bub.appendChild(md(m.body))
+  body.appendChild(meta);body.appendChild(bub)
   d.appendChild(body);logEl.appendChild(d);last=m
 }
 async function refreshMembers(){
