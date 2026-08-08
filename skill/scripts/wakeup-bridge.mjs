@@ -75,8 +75,8 @@ async function wake(seat, msgs) {
     await run('tmux', ['-S', sock, 'send-keys', '-t', `peer-${seat}`, 'Enter'])
     log(`起こした: ${seat} ← ${msgs.length} 件（最新 seq ${last.seq}）`)
   } catch (error) {
-    // 席が畳まれていれば tmux が落ちる。黙って飲まず、毎回出す
-    log(`起こせなかった: ${seat}（${error.message.split('\n')[0]}）`)
+    // 席が畳まれていれば tmux が落ちる。黙って飲まず、毎回出す（何件落としたかも出す）
+    log(`起こせなかった: ${seat} ← ${msgs.length} 件（最新 seq ${last.seq}）: ${error.message.split('\n')[0]}`)
   }
 }
 
@@ -96,33 +96,90 @@ function dispatch(msg) {
   }
 }
 
+// 再接続で取りこぼさないために、配達済みの最大 seq を持つ。
+// SSE は切れている間の発言を後から届けてくれないので、繋ぎ直したら必ず穴を埋める。
+let lastSeq = 0
+function dispatchNew(msg) {
+  // seq の無いイベントで lastSeq を汚さない。`undefined <= 数値` は false なので、
+  // 素通しにすると lastSeq が undefined に化け、以後の比較が全部 false になって
+  // 「取りこぼし回収が毎回 since=undefined で 0 件」という静かな故障になる（実測で踏んだ）
+  if (typeof msg.seq !== 'number') {
+    log(`seq を持たないイベントを捨てた: ${JSON.stringify(msg).slice(0, 120)}`)
+    return
+  }
+  if (msg.seq <= lastSeq) return
+  lastSeq = msg.seq
+  dispatch(msg)
+}
+
+// 繋がったまま黙って死ぬ接続を検出する。SSE は無音でも生きていられるので、
+// 「切れた」ではなく「一定時間なにも届かない」を異常として扱い、自分から切って繋ぎ直す。
+// 直後に since で追いつくので、無音が正常だった場合も取りこぼしは出ない。
+const IDLE_MS = 90_000
+
+// 起動直後の1回だけは配達しない。既に流れ終わった過去ログで席を起こしても意味がなく、
+// 卓が長いほど巨大な起床通知になる。初回は「ここまでは読んだこと」にして頭出しするだけ。
+let primed = false
+async function catchUp() {
+  const res = await fetch(`${url}/api/${room}/messages?since=${lastSeq}`)
+  if (!res.ok) throw new Error(`messages ${res.status}`)
+  const { messages } = await res.json()
+  if (!primed) {
+    primed = true
+    if (messages.length > 0) lastSeq = messages[messages.length - 1].seq
+    log(`頭出し: seq ${lastSeq} まで既読として開始する`)
+    return
+  }
+  log(`再接続後の取りこぼし確認（since ${lastSeq}）: ${messages.length} 件`)
+  for (const msg of messages) dispatchNew(msg)
+}
+
 let failures = 0
 log(`bridge start: room=${room} seats=${seats.join(',')} pid=${process.pid}`)
 for (;;) {
   try {
-    const res = await fetch(`${url}/api/${room}/events`)
-    if (!res.ok) throw new Error(`events ${res.status}`)
-    failures = 0
-    log('SSE 接続')
-    let buf = ''
-    for await (const chunk of res.body) {
-      buf += Buffer.from(chunk).toString('utf8')
-      const parts = buf.split('\n\n')
-      buf = parts.pop()
-      for (const part of parts) {
-        const line = part.split('\n').find(l => l.startsWith('data: '))
-        if (line) dispatch(JSON.parse(line.slice(6)))
+    const abort = new AbortController()
+    let lastByteAt = Date.now()
+    const watchdog = setInterval(() => {
+      if (Date.now() - lastByteAt > IDLE_MS) {
+        log(`受信途絶 ${Math.round(IDLE_MS / 1000)} 秒。接続が黙って死んだとみなして繋ぎ直す`)
+        abort.abort()
       }
+    }, 5000)
+    try {
+      const res = await fetch(`${url}/api/${room}/events`, { signal: abort.signal })
+      if (!res.ok) throw new Error(`events ${res.status}`)
+      failures = 0
+      log('SSE 接続')
+      await catchUp()
+      let buf = ''
+      for await (const chunk of res.body) {
+        lastByteAt = Date.now()
+        buf += Buffer.from(chunk).toString('utf8')
+        const parts = buf.split('\n\n')
+        buf = parts.pop()
+        for (const part of parts) {
+          const line = part.split('\n').find(l => l.startsWith('data: '))
+          if (line) dispatchNew(JSON.parse(line.slice(6)))
+        }
+      }
+      log('SSE 切断（再接続する）')
+    } finally {
+      clearInterval(watchdog)
     }
-    log('SSE 切断（再接続する）')
   } catch (error) {
-    failures++
-    log(`SSE 失敗 ${failures} 回目: ${error.message}`)
-    // 落ちっぱなしを黙って再試行し続けない。連続失敗が続いたら記録を外して落ちる
-    if (failures >= 10) {
-      console.error('WAKEUP_BRIDGE_UNREACHABLE: room の SSE へ10回連続で繋げない')
-      if (existsSync(record)) unlinkSync(record)
-      process.exit(1)
+    // 自分で切った時（watchdog の abort）は失敗ではない——数えると健全な再接続で落ちてしまう
+    if (error.name === 'AbortError') {
+      log('再接続する')
+    } else {
+      failures++
+      log(`SSE 失敗 ${failures} 回目: ${error.message}`)
+      // 落ちっぱなしを黙って再試行し続けない。連続失敗が続いたら記録を外して落ちる
+      if (failures >= 10) {
+        console.error('WAKEUP_BRIDGE_UNREACHABLE: room の SSE へ10回連続で繋げない')
+        if (existsSync(record)) unlinkSync(record)
+        process.exit(1)
+      }
     }
   }
   await sleep(2000)
