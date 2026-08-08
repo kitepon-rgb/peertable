@@ -18,9 +18,24 @@ const preexisting = existsSync(identity)
 const current = preexisting ? JSON.parse(readFileSync(identity, 'utf8')) : {}
 if (preexisting) copyFileSync(identity, join(proj, '.team', 'project.json.bak'))
 
-// project_id は Lattice store が持つ値が正。setup 時点では store がまだ無いので、
-// 既存 identity → プロジェクトディレクトリ名 の順で決める（make-plan-input.mjs の既定と同じ）。
-const projectId = current.project_id ?? basename(realpathSync(proj))
+// project_id は Lattice store が持つ値が正。store があるのにディレクトリ名を書くと、
+// identity 検証が落ちて `lattice todo status` ごと死ぬ（PascalCase ディレクトリ × kebab-case store で実測）。
+// 順序: 既存 identity（人が書いた値は書き換えない）→ store manifest → ディレクトリ名。
+function storeProjectId() {
+  const ref = join(proj, '.lattice', 'todo', 'manifest.json')
+  if (!existsSync(ref)) return null
+  const id = JSON.parse(readFileSync(ref, 'utf8')).project_id
+  return typeof id === 'string' && id.length > 0 ? id : null
+}
+
+const stored = storeProjectId()
+const projectId = current.project_id ?? stored ?? basename(realpathSync(proj))
+// 食い違いは黙って通さない。書き換えはしない（人の書いた identity が正）が、
+// このまま進むと `lattice todo status` が死ぬので、setup の画面へ出す。
+if (current.project_id && stored && current.project_id !== stored) {
+  process.stderr.write(`警告: 既存 project.json の project_id="${current.project_id}" が Lattice store の "${stored}" と食い違っている。`
+    + `このままでは lattice todo status が PROJECT_IDENTITY_INVALID で落ちる。project.json 側を直してから setup し直すこと\n`)
+}
 const root = base.replace(/\/+$/, '')
 const pane = { title: '円卓', url: `${root}/${room}`, probe_url: `${root}/api/${room}/members` }
 
