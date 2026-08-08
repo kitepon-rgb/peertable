@@ -24,6 +24,11 @@ if (preexisting) copyFileSync(identity, join(proj, '.team', 'project.json.bak'))
 function storeProjectId() {
   const ref = join(proj, '.lattice', 'todo', 'manifest.json')
   if (!existsSync(ref)) return null
+  // manifest が壊れていると、この `JSON.parse` が例外を投げて **setup の画面へ生の traceback が出る**。
+  // 直していない理由: 壊れた manifest を持つ project では `lattice status` が `state:"invalid"`、
+  // `todo status` が `STORE_INCONSISTENT` を返す＝**Lattice 自体が既に死んでいる**ので、
+  // setup が併用モードへ進む前に止まる経路のはず。実害はほぼ無いと判断した（2026-08-08）。
+  // ただし**失敗の見え方は惜しい**——typed error（`MANIFEST_UNREADABLE` 等）へ変えるなら、ここ。
   const id = JSON.parse(readFileSync(ref, 'utf8')).project_id
   return typeof id === 'string' && id.length > 0 ? id : null
 }
