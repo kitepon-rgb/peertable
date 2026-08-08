@@ -26,7 +26,10 @@ fi
 tmux -S "$sock" kill-session -t "$sess" 2>/dev/null || true
 tmux -S "$sock" new-session -d -s "$sess" -x 200 -y 50 -c "$proj"
 
+# 素性は席の env にも入れる。client が**登録のたびに**載せるので、member の状態が失われても戻る
 env_line="export PEERTABLE_URL=$url PEERTABLE_ROOM=$room PEERTABLE_MEMBER=$name PEERTABLE_POST_TOKEN=$PEERTABLE_POST_TOKEN"
+env_line="$env_line PEERTABLE_VENDOR=$vendor PEERTABLE_MODEL=$model"
+[ -n "$effort" ] && env_line="$env_line PEERTABLE_EFFORT=$effort"
 if [ "$mode" = "lattice" ]; then
   env_line="$env_line PEERTABLE_PLAN=$plan LATTICE_TODO_ACTOR_HOST=${LATTICE_TODO_ACTOR_HOST:-mac} LATTICE_TODO_ACTOR_SESSION=$name LATTICE_TODO_ACTOR_AGENT=$name"
 fi
@@ -109,12 +112,16 @@ if curl -sf -o /dev/null -X POST "$url/api/$room/members" \
     -H "X-Peertable-Token: ${PEERTABLE_POST_TOKEN:-}" -H 'content-type: application/json' -d "$meta"; then
   # **200 は保存の証拠にならない**。素性欄を知らない server も 200 {"ok":true} を返して黙って捨てる
   # （登録が `if (!members.has(name))` の no-op になる経路もある）。読み返して実際に載ったかを見る。
-  stored=$(curl -sf "$url/api/$room/members" | python3 - "$name" <<'PY'
+  # **パイプと heredoc を同じ stdin へ重ねない**。`curl | python3 - <<'PY'` は
+  # 「プログラムを stdin から読む」と「データを stdin から読む」が衝突して、必ず失敗する
+  # （そして try/except で包むと、失敗が「保存されていない」という**もっともらしい答え**に化ける。実測）
+  listing=$(curl -sf "$url/api/$room/members" || true)
+  stored=$(python3 - "$name" "$listing" <<'PY'
 import json, sys
 # 読み返しに失敗しても生の traceback を出さない。ここは「保存されたか」を見るだけの確認段で、
 # 判定不能は「保存されていない」と同じ扱いでよい（席は既に着席している）
 try:
-    members = json.load(sys.stdin)['members']
+    members = json.loads(sys.argv[2])['members']
 except Exception:
     members = []
 m = next((x for x in members if x.get('name') == sys.argv[1]), {})

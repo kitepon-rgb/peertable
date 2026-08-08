@@ -107,8 +107,16 @@ mcp.setRequestHandler(CallToolRequestSchema, async req => {
 
 await mcp.connect(new StdioServerTransport())
 
-// 参加登録し、現在のログ末尾から未読を数え始める
-await fetch(api('members'), { method: 'POST', headers, body: JSON.stringify({ name: ME }) })
+// 参加登録し、現在のログ末尾から未読を数え始める。
+// 素性（vendor/model/effort）は launch-seat.sh が env へ入れる。**登録のたびに載せる**——
+// 登録は client の起動ごとに繰り返し起きるので、1回きりの経路に置くと
+// member の状態が失われた時に二度と戻らない（server 側は渡された欄だけ更新する upsert）
+const IDENTITY = Object.fromEntries(Object.entries({
+  vendor: process.env.PEERTABLE_VENDOR,
+  model: process.env.PEERTABLE_MODEL,
+  effort: process.env.PEERTABLE_EFFORT,
+}).filter(([, v]) => v))
+await fetch(api('members'), { method: 'POST', headers, body: JSON.stringify({ name: ME, ...IDENTITY }) })
 {
   const { messages } = await (await fetch(api('messages'))).json()
   cursor = messages.length ? messages[messages.length - 1].seq : 0

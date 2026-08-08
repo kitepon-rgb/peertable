@@ -27,7 +27,9 @@ function loadRoom(name, create = false) {
   const logPath = join(dir, 'log.jsonl')
   const seq = existsSync(logPath) ? readFileSync(logPath, 'utf8').split('\n').filter(Boolean).length : 0
   const membersPath = join(dir, 'members.json')
-  const members = new Map(existsSync(membersPath) ? Object.entries(JSON.parse(readFileSync(membersPath, 'utf8'))) : [])
+  // members の値は `{ joined_at, …任意欄 }`。旧形式（値が ISO 文字列）もそのまま読める
+  const stored = existsSync(membersPath) ? Object.entries(JSON.parse(readFileSync(membersPath, 'utf8'))) : []
+  const members = new Map(stored.map(([n, v]) => [n, typeof v === 'string' ? { joined_at: v } : v]))
   const room = { name, dir, logPath, membersPath, seq, members, streams: new Set() }
   rooms.set(name, room)
   return room
@@ -71,7 +73,7 @@ http.createServer(async (req, res) => {
       return json(res, 200, { messages: readMessages(room, Number(url.searchParams.get('since') ?? 0)) }, CORS)
 
     if (req.method === 'GET' && rest === 'members')
-      return json(res, 200, { members: [...room.members].map(([name, joined_at]) => ({ name, joined_at })) }, CORS)
+      return json(res, 200, { members: [...room.members].map(([name, meta]) => ({ name, ...meta })) }, CORS)
 
     if (req.method === 'GET' && rest === 'events') {
       res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive', ...CORS })
@@ -94,9 +96,16 @@ http.createServer(async (req, res) => {
       return json(res, 200, post(room, from, to ?? 'all', text))
     }
     if (req.method === 'POST' && rest === 'members') {
-      const { name } = JSON.parse(body)
-      if (!room.members.has(name)) { room.members.set(name, new Date().toISOString()); saveMembers(room) }
-      post(room, 'system', 'all', `${name} が参加した`)
+      const { name, ...meta } = JSON.parse(body)
+      // 素性（vendor/model/effort）や稼働状態は、名前以外の欄をそのまま任意欄として持つ。
+      // **渡された欄だけ更新し、渡されなかった欄は既存を保つ**——席の client は `{name}` だけで
+      // 登録するので、これが無いと再接続のたびに素性が消える。`joined_at` は最初の登録を保つ。
+      const known = room.members.get(name)
+      room.members.set(name, { joined_at: known?.joined_at ?? new Date().toISOString(), ...known, ...meta })
+      saveMembers(room)
+      // **system 発言は本当に新規の時だけ**。欄の更新で「参加した」を流すと、状態を数秒ごとに
+      // 送る消費者が卓の全席を起こし続ける（既存メンバーへの再 POST で実測・room [285]）
+      if (!known) post(room, 'system', 'all', `${name} が参加した`)
       return json(res, 200, { ok: true })
     }
     if (req.method === 'DELETE' && seg[2] === 'members' && seg[3]) {
@@ -149,6 +158,10 @@ const UI = room => `<!doctype html><html lang="ja"><head><meta charset="utf-8"><
 .top{position:sticky;top:0;z-index:2;background:var(--bg);border-bottom:1px solid var(--line);padding:12px 16px 0}
 .top>div{max-width:760px;margin:0 auto}
 .members{display:flex;gap:6px;overflow-x:auto;padding:10px 0;scrollbar-width:thin}
+.chip.has-meta{cursor:pointer}
+.metapop{position:fixed;z-index:20;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:8px 10px;font-size:12px;box-shadow:0 6px 20px rgba(0,0,0,.18);max-width:70vw}
+.metapop .metaname{font-weight:600;margin-bottom:2px}
+.metapop .metaline{color:var(--dim)}
 .chip{flex:none;display:flex;align-items:center;gap:7px;padding:3px 11px 3px 3px;border:1px solid var(--line);border-radius:999px;background:var(--surface);font-size:12px;font-weight:600}
 .chip .av{width:22px;height:22px;font-size:11px}
 .chip.recent{border-color:hsl(var(--h) var(--sat) var(--edge))}
@@ -276,11 +289,33 @@ async function refreshMembers(){
   for(const m of r.members){
     const c=el('span','chip'+(m.name===recent?' recent':''))
     c.style.setProperty('--h',hue(m.name));c.dataset.name=m.name
-    c.title=m.name+'（参加 '+new Date(m.joined_at).toLocaleString()+'）'
+    // 素性は任意欄。名乗っていない席は行ごと出ない（空欄を「不明」として見せない）
+    const meta=[m.model&&(m.vendor?m.vendor+' / '+m.model:m.model),m.effort&&('effort '+m.effort)].filter(Boolean)
+    c.title=m.name+'（参加 '+new Date(m.joined_at).toLocaleString()+'）'+(meta.length?'\n'+meta.join('\n'):'')
     c.appendChild(el('span','av',initial(m.name)));c.appendChild(el('span','nm',m.name))
+    // タップ環境には hover が無いので、押した時に同じ内容を出す（ホバーは title が担う）
+    if(meta.length){c.classList.add('has-meta');c.addEventListener('click',ev=>{ev.stopPropagation();showMeta(c,m,meta)})}
     membersEl.appendChild(c)
   }
 }
+// タップ用の popover。hover が無い環境でも素性が読める。中身は title と同じ
+let metaPop=null
+function hideMeta(){if(metaPop){metaPop.remove();metaPop=null}}
+function showMeta(chip,m,lines){
+  if(metaPop&&metaPop.dataset.name===m.name){hideMeta();return}
+  hideMeta()
+  const p=el('div','metapop');p.dataset.name=m.name
+  p.appendChild(el('div','metaname',m.name))
+  for(const t of lines)p.appendChild(el('div','metaline',t))
+  document.body.appendChild(p)
+  const r=chip.getBoundingClientRect()
+  p.style.left=Math.max(8,Math.min(r.left,innerWidth-p.offsetWidth-8))+'px'
+  p.style.top=(r.bottom+6)+'px'
+  metaPop=p
+}
+addEventListener('click',hideMeta)
+addEventListener('scroll',hideMeta,true)
+
 // 直近の発言者を光らせる＝いま手を動かしている子が一覧で見える
 function markActive(name){
   recent=name;let known=false
