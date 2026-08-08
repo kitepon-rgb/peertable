@@ -13,6 +13,11 @@ lat_pre=$(python3 -c "import json;print(json.load(open('$state'))['lattice_preex
 added_mcp=$(python3 -c "import json;d=json.load(open('$state'));print(d.get('added_root_mcp', d.get('root_mcp_json_fallback', False)))")
 added_mcp_ex=$(python3 -c "import json;d=json.load(open('$state'));print(d.get('added_mcp_exclude', d.get('root_mcp_json_fallback', False)))")
 
+# Codex 席の起床ブリッジ（決定54）。常駐 process なので、`.team/` を消す前に確実に止める
+if [ -f "$proj/.team/wakeup-bridge.json" ]; then
+  node "$(dirname "$0")/wakeup-bridge.mjs" "$proj" --stop
+fi
+
 # 外部ペイン（決定53）。`.team/` を消す前に戻す——退避先が `.team/` の中にある
 ext=$(python3 -c "import json;print(json.load(open('$state')).get('external_pane', False))")
 pj_pre=$(python3 -c "import json;print(json.load(open('$state')).get('project_json_preexisting', False))")

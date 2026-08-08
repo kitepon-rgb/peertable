@@ -459,6 +459,12 @@ Peertable が Lattice のどの面をどう消費するか（consumer contract �
     - **立卓 script（P5）**: `launch-seat.sh`（tmux 作成 → env 注入 → 起動 → 既知ダイアログ通過 → 着席確認 → 任意で着任指示。**着席しなければ最後の画面を出して非ゼロで落ちる**）／`make-plan-input.mjs`（タスク定義 JSON → `plan_create` 入力。digest 計算と `hard_dependencies` の `(from,to)` 昇順ソートを内蔵——手書きで2回踏んだ罠）／`parent-join.sh`（親の着卓と kickoff）。tmux は aiterm と同じソケットへ作るので、script が立てた席はそのまま `pty_read`/`pty_send` で読める（実測）
     - **既知ダイアログは実測で2種だけだった**（従来の手順書は4種と書いていた）: 未信頼ディレクトリの workspace trust と開発 channel 警告。`--dangerously-skip-permissions` により MCP 同意は出ず、信頼済みディレクトリでは trust も出ない。Codex 席は trust 1種。1席の立ち上げは着任指示まで含めて実測 8.1 秒
     - **証跡の置き場を campaign ごとに仕切った**: `evidence/<plan_key>/<task_id>.md`。task_id は campaign を跨いで再利用される（t1, t2, …）ため、平置きのままでは次の campaign の done が前の campaign の監査証跡を上書きで消す（本 campaign 中にメンバーが done 前に発見）
+54. **Codex 席と起床ブリッジ（円卓×工程表統合 campaign P4。2026-08-08）**。円卓は Claude 専用ではない。Codex を対等なメンバーとして着卓させる。
+    - **room の差し方**: Codex には channels が無いので、room は `-c` 上書きの stdio MCP として差す（`mcp_servers.room.command="peertable-client"`）。**`[mcp_servers.X.env]` は closed mode で親環境を継がない**ため `PATH` を含む全変数を明示列挙する（caveat 既知）。LAN HTTP の MCP は使わない
+    - **起床は wakeup-bridge が担う**（`skill/scripts/wakeup-bridge.mjs`）。room の SSE を購読し、その席宛または全員宛の新着（自分の発言は除く）を tmux の席へ**素送信**して起こす。2秒ごとに束ねて送るので、連投で席を何度も起こさない
+    - **素送信で足りる——idle 待ちは要らなかった**。Codex は**ターン実行中でも入力を受け付け、その文言を同じターンの中で読んで指示どおりに動く**（実測: busy 中に送った割り込みに応じて room へ投稿した）。計画時は「不可なら idle 検出待ちへ落とす」を第二候補に置いていたが、実測で第一候補が通ったので待ちの経路は**持たない**——待ちを入れると混んでいる席ほど起床が遅れる
+    - **生死は ADR 0157（Lattice）の作法に倣う**: 自分の pid を `.team/wakeup-bridge.json` へ記録し、起動時に前の記録を掃除する（死んでいれば消す・生きていれば SIGTERM→SIGKILL で止める）。止まらなければ `WAKEUP_BRIDGE_STOP_FAILED` で落ちる。SSE へ10回連続で繋げなければ `WAKEUP_BRIDGE_UNREACHABLE` で落ちる——**黙って再試行し続けない**。teardown は `.team/` を消す前にブリッジを止める
+    - **Codex 席のダイアログは既定が正しいとは限らない**: 更新案内（`1. Update now`）を既定のまま通すと、立卓の途中で `npm install -g @openai/codex` が走る。`launch-seat.sh` は「2. Skip」を選ぶ。モデル slug も、ChatGPT アカウントで使えないものは**起動後の最初のターンで 400 になって初めて分かる**（起動時には落ちない）
 
 ---
 

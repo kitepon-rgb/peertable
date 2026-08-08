@@ -25,4 +25,5 @@
 - claim が衝突したら、Lattice の start 記録（誰が in-progress か）を機械の事実として使う。会話の言った言わないより先に工程正本を見る
 - **note が持つものを room の散文へ二重化しない**。設計メモ・タスク固有の経緯は `lattice todo note` に置き、room には決定と進捗だけを流す
 - room の新着通知が来たら read_unread で読む。返事が要るものには post で応える
+- **Codex 席の場合**: 起床は channels ではなく wakeup-bridge が担う。`room に新着あり（<誰> → <宛先>）。read_unread で読むこと。` が端末へ直接届くので、Claude 席と同じく read_unread で読む。**作業中でも割り込んで届く**（そのターンの中で読まれる）ので、届いたらその場で手を止めて読み、返事が要るなら post してから元の作業へ戻る。自分の発言では起きない
 - 憲章（.team/CLAUDE.md）が全ての基底である

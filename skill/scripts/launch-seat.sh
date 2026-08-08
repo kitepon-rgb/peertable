@@ -71,6 +71,12 @@ while [ $SECONDS -lt $deadline ]; do
     case "$screen" in *"OpenAI Codex (v"*) seated=true; break ;; esac
   fi
   case "$screen" in
+    # Codex の更新案内だけは既定（1. Update now）が誤り——立卓の途中で
+    # `npm install -g @openai/codex` が走る。1つ下の「2. Skip」を選ぶ
+    *"1. Update now"*)
+      tmux -S "$sock" send-keys -t "$sess" Down
+      sleep 1
+      tmux -S "$sock" send-keys -t "$sess" Enter ;;
     *"1. Yes, I trust this folder"*|*"1. I am using this for local development"*|*"1. Yes, continue"*)
       tmux -S "$sock" send-keys -t "$sess" Enter ;;
   esac

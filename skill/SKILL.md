@@ -21,6 +21,7 @@ description: 任意プロジェクトに Peertable チーム（対等メンバ�
 - git 除外は `.git/info/exclude` を使う（`.gitignore` には触れない。決定34）
 - teardown 後にプロジェクトの diff がゼロになること
 - 例外は Lattice store（`.lattice/`）: Lattice 自身の作法に従う。setup が新規作成した場合だけ teardown で削除し、既存 store には plan の追加・削除とも Lattice の正規コマンド以外で触れない
+- もう1つの例外は `.lattice/project.json` の `external_pane` 欄（**Lattice 併用モードのみ**。決定53）。既存文書は `.team/project.json.bak` へ退避し、teardown が書き戻す。文書が無かった project では teardown が `project.json` ごと削除する
 
 ## setup
 
@@ -40,8 +41,10 @@ description: 任意プロジェクトに Peertable チーム（対等メンバ�
    - 起動前に `pty_list` で既存の `peer-*` 席を確認する（前の卓の残骸を99席実測したことがある）。同名の席は launch-seat.sh が落としてから立て直す
    - 着任指示を第6引数に渡すと着席後に送る。文面: 「あなたは「<日本語名>」。.team/roles/member.md を読んで着任し、作業ループを開始せよ。全タスク完了の宣言まで自律的に続けること。」
    - 席が読む env は script が組み立てる（`PEERTABLE_URL` / `PEERTABLE_ROOM` / `PEERTABLE_MEMBER` / `PEERTABLE_POST_TOKEN`、Lattice 併用なら `PEERTABLE_PLAN` と actor 3点）。**channels は `--mcp-config` の MCP server を解決しない**（実測 2026-08-08・Claude Code v2.1.226・決定44）ため、room の MCP 定義は setup.sh が project root へ置く `.mcp.json` が正。project に既存 `.mcp.json` があった場合 setup.sh は上書きせず警告を出すので、AI が手動 merge して teardown で復元する
-6. **親の着卓**（このセッション）: `scripts/parent-join.sh <project> [name] [kickoff_file]` で member 登録と kickoff 投稿を行い、SSE を Monitor で張る。以後の post も API 直（下記「親の operating notes」）
-7. **起動確認**: room の members に全員いる / 最初の claim が room に流れる（Lattice 併用モードはそれが Lattice へ到達している＝`lattice todo status --json` の active に出ることも確認する。単独モードは room の claim 宣言だけが到達の証拠）/ Web UI で観測できる、をチェックして報告する
+   - **Codex 席**（`vendor=codex`）: Codex には channels が無いので、room は `-c` 上書きの stdio MCP として差す（`mcp_servers.room.command="peertable-client"` と `mcp_servers.room.env={…}`）。**env は closed mode で親環境を継がない**ので `PATH` を含む全変数を明示列挙する。モデル名は ChatGPT アカウントで使える slug を渡す（`~/.codex/config.toml` の `model` が既定値の参考。使えない slug は起動後の最初のターンで 400 になって初めて分かる）。Codex 席を混ぜたら**必ず起床ブリッジを立てる**（下記）——立てないと room の新着で起きない
+6. **起床ブリッジ（Codex 席がある時だけ）**: `nohup node scripts/wakeup-bridge.mjs <project> <codex席名>… > <project>/.team/wakeup-bridge.log 2>&1 &`。room の SSE を購読し、その席宛/全員宛の新着（自分の発言は除く）を tmux へ素送信して起こす。**Codex はターン実行中でも素送信を受け付け、その文言をそのターンの中で読む**（実測）ので idle 待ちはしない。停止は `node scripts/wakeup-bridge.mjs <project> --stop`（teardown.sh が自動で行う）
+7. **親の着卓**（このセッション）: `scripts/parent-join.sh <project> [name] [kickoff_file]` で member 登録と kickoff 投稿を行い、SSE を Monitor で張る。以後の post も API 直（下記「親の operating notes」）
+8. **起動確認**: room の members に全員いる / 最初の claim が room に流れる（Lattice 併用モードはそれが Lattice へ到達している＝`lattice todo status --json` の active に出ることも確認する。単独モードは room の claim 宣言だけが到達の証拠）/ Web UI で観測できる、をチェックして報告する
 
 ## teardown
 
@@ -68,6 +71,8 @@ description: 任意プロジェクトに Peertable チーム（対等メンバ�
 - 同時書込は `STORE_WRITE_CONFLICT` 等で明示的に負ける。1〜2 秒待って再実行すれば通る（正常系）
 - evidence は記述子 JSON。記述子ファイル自体も repo 内相対パスに置く（repo 外絶対パスは INVALID_ARGUMENTS）。`.team/scripts/done.sh` が正規経路。証跡の置き場は **`evidence/<plan_key>/<task_id>.md`**——task_id は campaign を跨いで再利用されるので、平置きにすると前の campaign の監査証跡を上書きで消す（2026-08-08 実測）
 - **外部ペイン（決定53）は Lattice 0.50.0 以降が要る。** それ以前の Lattice に `external_pane` 入りの `project.json` を差すと、identity 検証が完全一致キーで落ちて `lattice todo status` ごと死ぬ（`PROJECT_IDENTITY_INVALID / identity_schema_invalid`・0.49.0 で実測）。工程正本が読めなくなる＝卓が止まるので、Lattice が古い環境では Lattice 併用 setup を走らせない
-- **メンバー起動の既知ダイアログは2種だけ**（実測 2026-08-08）: 未信頼ディレクトリの workspace trust（`1. Yes, I trust this folder`）と開発 channel 警告（`1. I am using this for local development`）。`--dangerously-skip-permissions` を付けているので MCP 同意ダイアログは出ない。信頼済みディレクトリでは trust も出ない。Codex 席は trust（`1. Yes, continue`）1種（Codex CLI v0.146.0）
+- **メンバー起動の既知ダイアログは2種だけ**（実測 2026-08-08）: 未信頼ディレクトリの workspace trust（`1. Yes, I trust this folder`）と開発 channel 警告（`1. I am using this for local development`）。`--dangerously-skip-permissions` を付けているので MCP 同意ダイアログは出ない。信頼済みディレクトリでは trust も出ない
+- **Codex 席のダイアログは2種で、片方は既定が誤り**（Codex CLI v0.146.0・実測）: ディレクトリ trust（`1. Yes, continue`＝既定で正しい）と、**更新案内（`1. Update now`）は既定のまま Enter を押すと立卓の途中で `npm install -g @openai/codex` が走る**。1つ下の「2. Skip」を選ぶ。更新案内は毎回は出ないので、出た時だけ通す
+- **Codex はターン実行中でも素送信を受け付ける**（実測 2026-08-08）。busy 中に送った文言はそのターンの中で読まれ、指示どおりに動く（steering）。よって起床ブリッジは idle 待ちを持たない。busy の判定が要る場面では画面の `esc to interrupt` の有無が使える
 - **シェルスクリプトで `$var` の直後に全角括弧を書かない**。bash が高位バイトを変数名の一部として食い、変数が空のまま何も言わずに出力から消える（2026-08-08 実測）。`${var}（…）` と閉じる。同様に `python3 -c` へ `{...}` を含む式をインラインで渡さない——シェルのブレース展開が刻む。ヒアドキュメントで渡す
 - channels はリサーチプレビュー。構文が変わったら V0 の要領で公式ドキュメント（code.claude.com/docs/en/channels-reference.md）を再確認する

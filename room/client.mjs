@@ -213,6 +213,7 @@ async function runDiagnostics(asJson) {
       'scripts/launch-seat.sh',
       'scripts/make-plan-input.mjs',
       'scripts/parent-join.sh',
+      'scripts/wakeup-bridge.mjs',
       'templates/gen-plan.mjs',
       'templates/done.sh',
       'templates/charter.md',
