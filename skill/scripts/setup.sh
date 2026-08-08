@@ -51,6 +51,36 @@ else
   mode=lattice
 fi
 
+# Lattice 併用モードは、登録に使う公開CLIと同梱work-order binaryを、projectへ
+# 何か置く前に確定する。通常はglobal installされた lattice の隣を使う。
+# release前のsource treeを実測する時だけ、2つのenvで同じtreeのbinを明示できる。
+lattice_cli=""
+work_order_binary=""
+if [ "$mode" = "lattice" ]; then
+  lattice_cli="${LATTICE_CLI:-$(command -v lattice 2>/dev/null || true)}"
+  [ -n "$lattice_cli" ] || { echo "ERROR: lattice CLI が見つからない" >&2; exit 1; }
+  [ -x "$lattice_cli" ] || { echo "ERROR: lattice CLI が実行可能fileでない: $lattice_cli" >&2; exit 1; }
+  lattice_cli=$(node -e 'process.stdout.write(require("node:fs").realpathSync(process.argv[1]))' "$lattice_cli")
+
+  work_order_binary="${LATTICE_WORK_ORDER_ADAPTER_BINARY:-$(dirname "$lattice_cli")/lattice-work-order-adapter.mjs}"
+  [ -f "$work_order_binary" ] && [ -x "$work_order_binary" ] || {
+    echo "ERROR: Lattice work-order adapter binary が見つからないか実行不能: $work_order_binary" >&2
+    exit 1
+  }
+  work_order_binary=$(node -e 'process.stdout.write(require("node:fs").realpathSync(process.argv[1]))' "$work_order_binary")
+
+  # config_refはgit root相対の公開契約。subdirectoryをprojectとして受けると別の
+  # `.lattice/` を作ってしまうので、黙って親repoへ登録せずtypedに止める。
+  project_root=$(node -e 'process.stdout.write(require("node:fs").realpathSync(process.argv[1]))' "$proj")
+  git_root=$(git -C "$proj" rev-parse --show-toplevel 2>/dev/null || true)
+  [ -n "$git_root" ] || { echo "ERROR: Lattice 併用モードのprojectはgit repositoryでなければならない: $proj" >&2; exit 1; }
+  git_root=$(node -e 'process.stdout.write(require("node:fs").realpathSync(process.argv[1]))' "$git_root")
+  [ "$project_root" = "$git_root" ] || {
+    echo "ERROR: project_dirはgit rootを指さなければならない: project=$project_root git_root=$git_root" >&2
+    exit 1
+  }
+fi
+
 mkdir -p "$tdir/roles"
 cp "$tpl/charter.md" "$tdir/CLAUDE.md"
 if [ "$mode" = "standalone" ]; then
@@ -93,6 +123,54 @@ fi
 lattice_preexisting=false
 [ -d "$proj/.lattice" ] && lattice_preexisting=true
 
+# managed run の仕事口をLattice runtime stateとして用意する。configを`.team/`
+# に置くとarchive teardownでregistryだけが残って壊れるため、registryと同じ
+# `.lattice/runtime/`の寿命へ揃える。席はこのspoolへ直接触れない。
+work_order_adapter=false
+work_order_spool_ref=""
+if [ "$mode" = "lattice" ]; then
+  work_order_root="$proj/.lattice/runtime/work-order-adapter"
+  work_order_spool="$work_order_root/spool"
+  work_order_config="$work_order_root/config.json"
+  work_order_registration="$tdir/work-order-adapter-registration.json"
+  work_order_config_ref=".lattice/runtime/work-order-adapter/config.json"
+  work_order_spool_ref=".lattice/runtime/work-order-adapter/spool"
+
+  mkdir -p "$work_order_spool/orders" "$work_order_spool/reports"
+  chmod 700 "$work_order_root" "$work_order_spool" "$work_order_spool/orders" "$work_order_spool/reports"
+  work_order_spool=$(node -e 'process.stdout.write(require("node:fs").realpathSync(process.argv[1]))' "$work_order_spool")
+
+  node -e '
+    const { writeFileSync } = require("node:fs");
+    const [target, spool] = process.argv.slice(1);
+    writeFileSync(target, `${JSON.stringify({
+      schema: "lattice.work_order_adapter_config.v1",
+      spool_dir: spool,
+    })}\n`, { mode: 0o600 });
+  ' "$work_order_config" "$work_order_spool"
+  chmod 600 "$work_order_config"
+  node -e '
+    const { writeFileSync } = require("node:fs");
+    const [target, binary, configRef] = process.argv.slice(1);
+    writeFileSync(target, `${JSON.stringify({
+      schema: "lattice.runtime_adapter_registration_input.v1",
+      adapter_kind: "work-order",
+      launch_kind: "host_binary",
+      binary_path: binary,
+      argv: [],
+      config_ref: configRef,
+    })}\n`, { mode: 0o600 });
+  ' "$work_order_registration" "$work_order_binary" "$work_order_config_ref"
+  chmod 600 "$work_order_registration"
+
+  (
+    cd "$proj"
+    "$lattice_cli" run adapter register --input "$work_order_registration"
+  )
+  work_order_adapter=true
+  echo "work-order adapter: binary=$work_order_binary config=$work_order_config_ref spool=$work_order_spool_ref" >&2
+fi
+
 # Lattice 併用モードだけ、工程表の右ペインへ円卓を差す（決定53・明示的コネクタ）。
 # 公開URL基底は `PEERTABLE_PUBLIC_URL`（クオ環境: https://peertable.kitepon.dev）。
 # 未設定なら room サーバーの URL をそのまま使う——LAN URL は Lattice を外から見た時に開けないので、
@@ -113,6 +191,6 @@ if [ ${#phases[@]} -gt 0 ]; then
   phases_json="[${phases_json%,}]"
 fi
 
-printf '{"room":"%s","server_url":"%s","public_url":"%s","mode":"%s","plan_key":"%s","phases":%s,"added_exclude":%s,"lattice_preexisting":%s,"added_root_mcp":%s,"added_mcp_exclude":%s,"external_pane":%s,"project_json_preexisting":%s}\n' \
-  "$room" "$url" "$public_url" "$mode" "$plan" "$phases_json" "$added_exclude" "$lattice_preexisting" "$added_root_mcp" "$added_mcp_exclude" "$external_pane" "$project_json_preexisting" > "$tdir/setup-state.json"
+printf '{"room":"%s","server_url":"%s","public_url":"%s","mode":"%s","plan_key":"%s","phases":%s,"added_exclude":%s,"lattice_preexisting":%s,"added_root_mcp":%s,"added_mcp_exclude":%s,"external_pane":%s,"project_json_preexisting":%s,"work_order_adapter":%s,"work_order_spool_ref":"%s"}\n' \
+  "$room" "$url" "$public_url" "$mode" "$plan" "$phases_json" "$added_exclude" "$lattice_preexisting" "$added_root_mcp" "$added_mcp_exclude" "$external_pane" "$project_json_preexisting" "$work_order_adapter" "$work_order_spool_ref" > "$tdir/setup-state.json"
 echo "scaffold done: $tdir"
