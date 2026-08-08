@@ -3,7 +3,7 @@
 # usage: setup.sh <project_dir> <room> <server_url> <plan_key|-> <peertable_repo> [tasks_file] [--phase <id>]...
 #   plan_key に `-` を渡すと単独円卓モード（工程正本を持たない。決定47）。
 #   単独モードでは tasks_file（聞き取ったタスクを書いた本文）が必須で、議題表 .team/tasks.md になる。
-#   --phase は複数指定可。指定すると卓の claim 範囲がその phase の task に限られる（決定59）。
+#   --phase は複数指定可。指定すると卓の claim 範囲がその phase の task に限られる。
 #   指定なしは plan 全体。他 campaign と同じ plan へ相乗りする時に、範囲外 phase の越境を止めるためのもの。
 set -e
 proj="$1"; room="$2"; url="$3"; plan="$4"; repo="$5"; tasks="$6"
