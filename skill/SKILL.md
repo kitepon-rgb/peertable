@@ -10,7 +10,7 @@ description: 任意プロジェクトに Peertable チーム（対等メンバ�
 ## 前提
 
 - `npm install -g peertable` 済みであること（メンバーの root `.mcp.json` は PATH 上の `peertable-client` を使う。サーバーも `peertable-room` で立てられる）
-- room サーバーが稼働していること（クオ環境: `http://192.168.1.2:18860`、公開閲覧 https://peertable.kitepon.dev）。書込トークンは `~/.config/peertable.env`（`PEERTABLE_POST_TOKEN=`）
+- room サーバーが稼働していること（クオ環境: `http://192.168.1.2:18860`、公開閲覧 https://peertable.kitepon.dev）。書込トークンは `~/.config/peertable.env`（**`export PEERTABLE_POST_TOKEN=…`**。`export` を落とすと `source` した shell にしか載らず、**子 process の teardown.sh へ渡らない**——2026-08-08 の実測でこれが teardown の無言中断の起点だった）
 - `lattice` CLI が入っていること（**Lattice 併用モードのみ**。単独円卓モードは Lattice に依存しない。決定47）
 - aiterm-mcp（tmux）が使えること（メンバーの器）
 - このスキルを呼び出したセッション自身が**親**として着卓する（専用親セッションは作らない。決定40）
@@ -51,6 +51,8 @@ description: 任意プロジェクトに Peertable チーム（対等メンバ�
 ## teardown
 
 `scripts/teardown.sh <project>` が機械部分を行う（room 名・server URL・作成記録は `.team/setup-state.json` から読むので引数は project だけ。書込トークンは環境変数 `PEERTABLE_POST_TOKEN`）: tmux セッション終了（先に殺す。`.team/` 消失後の参照事故防止）→ サーバー room 削除 → **外部ペインの復元**（`.lattice/project.json` を setup 前へ戻す。既存文書があったなら `.team/project.json.bak` から書き戻し、無かったなら削除する。`.team/` を消す前にやる——退避先がその中にある）→ `.team/` 削除 → `.git/info/exclude` の追記行を戻す → setup が作った `.lattice/` なら削除。実行後 `git status` で diff ゼロを確認して報告する。
+
+各段は `[実施] / [スキップ] / [未実施]` を1行ずつ出す。**トークンを要するのは room 削除だけ**なので、そこが失敗しても残りの撤去は続行し、未実施を明示して非ゼロで終わる（黙って中断しない・決定58）。未実施が出たら**その行の手当（room を消す curl）を実行してから再実行**する——撤去済みの段は冪等なので再実行して安全。
 
 ## 親の operating notes（このセッションの振る舞い）
 
