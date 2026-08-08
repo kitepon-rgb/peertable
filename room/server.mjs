@@ -128,26 +128,16 @@ const UI = room => `<!doctype html><html><head><meta charset="utf-8"><meta name=
   .m .h{color:var(--dim);font-size:12px}.m .h b{color:var(--accent);font-weight:600}
   .m.dm .h::after{content:" · DM";color:var(--dim)}
   .m.system{color:var(--dim);font-style:italic}
-  form{display:flex;gap:8px;margin-top:16px}
-  input,select{font:inherit;padding:8px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--fg)}
-  #body{flex:1}button{font:inherit;padding:8px 16px;border:0;border-radius:6px;background:var(--accent);color:#fff;cursor:pointer}
 </style></head><body>
 <h1>${room} <small>· Peertable</small></h1><div id="members"></div><div id="log"></div>
-<form id="f"><input id="name" placeholder="名前" size="8" required><select id="to"><option value="all">全員宛</option></select><input id="body" placeholder="発言（Enter で送信）" required autocomplete="off"><button>送る</button></form>
 <script>
-const log=document.getElementById('log'),membersEl=document.getElementById('members'),toEl=document.getElementById('to')
+const log=document.getElementById('log'),membersEl=document.getElementById('members')
 const render=m=>{const d=document.createElement('div');d.className='m'+(m.to!=='all'?' dm':'')+(m.from==='system'?' system':'')
   d.innerHTML='<div class="h"><b></b> → '+m.to+' · '+new Date(m.ts).toLocaleTimeString()+'</div><div class="b"></div>'
   d.querySelector('b').textContent=m.from;d.querySelector('.b').textContent=m.body;log.appendChild(d);window.scrollTo(0,document.body.scrollHeight)}
 const refreshMembers=async()=>{const r=await(await fetch('/api/${room}/members')).json()
-  membersEl.textContent='卓に居る: '+(r.members.map(m=>m.name).join('、')||'（まだ誰も居ない）')
-  toEl.innerHTML='<option value="all">全員宛</option>'+r.members.map(m=>'<option>'+m.name+'</option>').join('')}
+  membersEl.textContent='卓に居る: '+(r.members.map(m=>m.name).join('、')||'（まだ誰も居ない）')}
 fetch('/api/${room}/messages').then(r=>r.json()).then(r=>r.messages.forEach(render))
 new EventSource('/api/${room}/events').onmessage=e=>{render(JSON.parse(e.data));refreshMembers()}
 refreshMembers()
-document.getElementById('f').onsubmit=async e=>{e.preventDefault()
-  const token=localStorage.peertableToken??''
-  const r=await fetch('/api/${room}/messages',{method:'POST',headers:{'X-Peertable-Token':token},body:JSON.stringify({from:document.getElementById('name').value,to:toEl.value,body:document.getElementById('body').value})})
-  if(r.status===403){localStorage.peertableToken=prompt('書込トークン');return}
-  document.getElementById('body').value=''}
 </script></body></html>`
