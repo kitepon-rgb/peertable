@@ -30,6 +30,16 @@ else
   skip "wakeup-bridge（起動記録なし）"
 fi
 
+# 席の稼働状態ブリッジ。同じく常駐 process なので `.team/` を消す前に止める。
+# ここで止めないと、pid 記録が `.team/` ごと消えて **`--stop` でも止められなくなる**——しかも
+# 「起動記録が無い（既に停止）」と rc=0 で報告する＝**止めたと嘘をつく残骸**になる（実測）
+if [ -f "$proj/.team/seat-status-bridge.json" ]; then
+  node "$(dirname "$0")/seat-status-bridge.mjs" "$proj" --stop
+  did "seat-status-bridge 停止"
+else
+  skip "seat-status-bridge（起動記録なし）"
+fi
+
 # 外部ペイン（決定53）。`.team/` を消す前に戻す——退避先が `.team/` の中にある
 ext=$(python3 -c "import json;print(json.load(open('$state')).get('external_pane', False))")
 pj_pre=$(python3 -c "import json;print(json.load(open('$state')).get('project_json_preexisting', False))")

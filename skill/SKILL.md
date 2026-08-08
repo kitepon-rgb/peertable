@@ -48,6 +48,9 @@ description: 任意プロジェクトに Peertable チーム（対等メンバ�
 6. **起床ブリッジ（Codex 席がある時だけ）**: `nohup node scripts/wakeup-bridge.mjs <project> <codex席名>… > <project>/.team/wakeup-bridge.log 2>&1 &`。room の SSE を購読し、その席宛/全員宛の新着（自分の発言は除く）を tmux へ素送信して起こす。**Codex はターン実行中でも素送信を受け付け、その文言をそのターンの中で読む**（実測）ので idle 待ちはしない。停止は `node scripts/wakeup-bridge.mjs <project> --stop`（teardown.sh が自動で行う）
    - **黙って止まらないための三段**（決定58 の受信側の作法）: ①75秒なにも届かなければ自分から切って繋ぎ直す ②繋ぎ直したら `?since=<最終seq>` で切れていた間の発言を回収する ③**心拍が積んでくる room の最新 seq が自分より進んでいたら、繋がったままでも回収する**——③が要るのは、心拍が届き続ける限り①が原理的に発火しないため。**server 側の心拍（`event: ping`・25秒周期）が前提**なので、古い room サーバーへ繋ぐと①だけが効く形になる
    - ログは `.team/wakeup-bridge.log`。**0件でも0件と出す**ので、起こせているか・取りこぼしていないかはログを見れば分かる。再現ハーネスは `experiments/bridge-catchup-repro.mjs`
+6.5 **席の稼働状態ブリッジ（任意）**: `nohup node scripts/seat-status-bridge.mjs <project> > <project>/.team/seat-status-bridge.log 2>&1 &`。**room の members に居る席だけ**の tmux pane を読み（`peer-<名前>`）、`busy`（画面に `esc to interrupt` が在る。**Claude 席・Codex 席の共通マーカーで、スピナーの語は毎回変わるので使わない**）／`idle`／`dead`（`pane_dead`・セッション消失）を判定して room サーバーへ送る。**AI は使わず、席へは1バイトも送らない**。参加者一覧に点が出て、**報告が途絶えたら `unknown`（中空の輪）へ落ちる**——古い状態を出し続けない。**server が稼働状態を保持しない版なら1件も送らない**（送ると保存されないうえに system 発言を撒く）。停止は `node scripts/seat-status-bridge.mjs <project> --stop`（**teardown.sh が自動で行う**）
+   - **起こすかは卓の任意**（setup は自動で起こさない）。起こしたら**必ず teardown で止まる**——止め忘れると、`.team/` と一緒に pid 記録が消えて **`--stop` でも止められない常駐**が残る
+
 7. **親の着卓**（このセッション）: `scripts/parent-join.sh <project> [name] [kickoff_file]` で member 登録と kickoff 投稿を行い、SSE を Monitor で張る。以後の post も API 直（下記「親の operating notes」）
 8. **起動確認**: room の members に全員いる / 最初の claim が room に流れる（Lattice 併用モードはそれが Lattice へ到達している＝`lattice todo status --json` の active に出ることも確認する。単独モードは room の claim 宣言だけが到達の証拠）/ Web UI で観測できる、をチェックして報告する
 
