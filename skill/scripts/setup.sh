@@ -6,8 +6,13 @@
 #   --phase は複数指定可。指定すると卓の claim 範囲がその phase の task に限られる。
 #   指定なしは plan 全体。他 campaign と同じ plan へ相乗りする時に、範囲外 phase の越境を止めるためのもの。
 set -e
-proj="$1"; room="$2"; url="$3"; plan="$4"; repo="$5"; tasks="$6"
-[ $# -ge 6 ] && shift 6 || shift $#
+proj="$1"; room="$2"; url="$3"; plan="$4"; repo="$5"
+[ $# -ge 5 ] && shift 5 || shift $#
+# 第6引数の tasks_file は単独円卓モードだけが使う。`--` で始まるものはオプションなので
+# 位置引数として食わない——食うと Lattice 併用モードの `… <repo> --phase p2` が
+# 「未知の引数: p2」という原因を指さないエラーで落ちる（2026-08-08 実測・kotoha 監査）。
+tasks=""
+if [ $# -gt 0 ] && [ "${1#--}" = "$1" ]; then tasks="$1"; shift; fi
 
 phases=()
 while [ $# -gt 0 ]; do
