@@ -91,6 +91,41 @@ description: 任意プロジェクトに Peertable チーム（対等メンバ�
 - **worktree には gitignore 済みの資産が無い**（`node_modules` 等）が、**席に install させない**。checkpoint 観測は `git status --ignored=matching` で撮る（gitignore 経由の scope 迂回を塞ぐ設計）ので、install した file が全部 `undeclared_write` になり、diff entry 上限 256 を超えた時点で観測ごと落ちる（実測: ignored 300本で `diff entry数が上限を超える`）。**依存は install 無しで解決する**——worktree が repo 配下（`<repo>/.lattice/runs/…/tree`）に切られるので、Node の bare specifier 解決が親を遡って canonical の `node_modules` に当たる（repo の外へ置くと `ERR_MODULE_NOT_FOUND`）。当たるのは canonical の版なので、lockfile を動かす task の検証結果は疑う。canonical tree で回させない——測りたい木ではない
 - **`scope_writes` の外への書き込みは黙って弾かれず、`undeclared_write` として観測に出る。** 席へは「隠すな、room で言え」と伝わっている
 
+## 線（共有プロトコル）を資源として宣言する（Lattice 併用モード）
+
+**path が1つも重ならない2つの task が壊れ合うことがある。** 2026-08-08 の卓で実際に起きた: 片方が SSE のワイヤへ新しい event 種別を足した瞬間、そのストリームを読む側が壊れた。compile から見て完全に独立で、実際そう扱われていた。**依存は path ではなく共有プロトコルにあった。**
+
+これを宣言できるのが**線**である。witness set を書く時、path・symbol の owns/reads/writes に加えて `lines` を書く（**省略可。省略＝線の宣言なし**）。受理するのは witness set v5 / run_request v5 / boundary manifest v4 以降だけで、旧版へ書けば typed reject になる。
+
+```json
+"lines": [
+  {
+    "line_id": "src.runtime-diff-observer.mjs--finding-kind",
+    "role": "writes",
+    "anchors": [
+      { "kind": "path",   "path": "src/runtime-diff-observer.mjs" },
+      { "kind": "symbol", "name": "detectCheckpointFindings", "path": "src/runtime-diff-observer.mjs" }
+    ]
+  }
+]
+```
+
+- **`role`** は `writes`（線の形を変える側）か `reads`（その形に依存する側）。同じ `line_id` を別 task が持つ時、**`writes`×`reads` と `writes`×`writes` は直列化される。並列でいられるのは `reads`×`reads` だけ**——形を変える側が2人居るなら、その2人こそ揃えないと壊れるからである
+- **`line_id` が一致した時だけ交差する。** 機械は anchor の重なりから「同じ線だろう」と推測しない——推測を装置に入れない設計であり、**綴りを揃える責任は宣言する側（AI）にある**
+- **命名は錨から機械的に導く**: 主たる錨の repo-relative path の `/` を `.` に置換し、必要なら `--<種別>` を suffix する。`line_id` に使える文字は `[0-9A-Za-z._-]`（先頭は英数字・128文字まで）で、`/` も `:` も入らないのでこの置換が要る。**思いつきで名前を付けない**——揃わなければ交差は素通りする
+- **綴りが揃わなかった分は実行時が拾う。** 実際の変更 diff を錨の path へ近似して finding にし、その線の読み手を hold 閉包へ入れる。**計画時の宣言と実行時の観測の二段構え**であって、宣言だけで閉じる設計ではない。だから宣言漏れは致命ではないが、**漏れた分は「変更した後」にしか分からない**
+- **錨は同じ repo の relative path だけ**（絶対 path は typed reject・`anchors` は最低1本）。越境 task（別 repo の file）を錨にすると**形式は通る**が、その path はこの repo に存在しないので**実行時の近似は永久に当たらない**。越境の線は「計画時の宣言としてだけ効く」と理解して使う（欠陥ではなく境界）
+- **1つの task が同じ `line_id` を2本書くことはできない**（typed reject）。自分が writer でも reader でもある線は **`writes` を選ぶ**——読むだけの task はその形の変更を知る必要があり、それを教えられるのは writer 側の宣言だけだからである
+
+**宣言する時の見つけ方**（席・親のどちらが witness を書く卓でも同じ）:
+
+1. 自分の変更が**他の誰かが読む形**を変えるかを問う: wire format・event 種別・schema の欄・CLI 出力の key・room の語彙・ファイル書式
+2. 変えるなら `role: "writes"`、その形に依存して読むだけなら `role: "reads"`
+3. 錨は「その形が書かれている file」。symbol まで特定できるなら symbol 錨も足す（実行時の近似が細かくなる）
+4. **迷ったら宣言する。** 宣言は判定を厳しくするだけで、緩めることはできない
+
+witness をどう生成するかは**対象 project 側の作法に従う**（Lattice repo なら `.lattice/todo/witness/<plan_key>.json` へ書いて `lattice todo independence compile --plan <key> --input <ref>`）。線はその witness の各 task entry へ足す欄であって、別の置き場を作らない。
+
 ## 親の operating notes（このセッションの振る舞い）
 
 - 親は MCP を後付けできないため room へは HTTP API 直で参加する:
