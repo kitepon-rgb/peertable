@@ -91,6 +91,45 @@ fi
 
 echo "seated: ${sess}（${vendor} / ${model}${effort:+ / $effort} / room=${room} / mode=${mode}）"
 
+# 席の素性（vendor / model / effort）を room へ渡す。参加者一覧のホバー表示に使う。
+# 席自身の client も起動時に `{name}` だけで登録するので、server 側は
+# **欄が無い登録で既存の素性を消さない**（upsert）ことが前提である。
+# effort は渡された時だけ入れる——欄が無い＝「不明」ではなく「CLI 既定で走っている」。
+# ここが失敗しても席は着席済みなので落とさない。ただし黙っては飲まない。
+meta=$(python3 - "$name" "$vendor" "$model" "$effort" <<'PY'
+import json, sys
+name, vendor, model, effort = sys.argv[1:5]
+body = {'name': name, 'vendor': vendor, 'model': model}
+if effort:
+    body['effort'] = effort
+print(json.dumps(body))
+PY
+)
+if curl -sf -o /dev/null -X POST "$url/api/$room/members" \
+    -H "X-Peertable-Token: ${PEERTABLE_POST_TOKEN:-}" -H 'content-type: application/json' -d "$meta"; then
+  # **200 は保存の証拠にならない**。素性欄を知らない server も 200 {"ok":true} を返して黙って捨てる
+  # （登録が `if (!members.has(name))` の no-op になる経路もある）。読み返して実際に載ったかを見る。
+  stored=$(curl -sf "$url/api/$room/members" | python3 - "$name" <<'PY'
+import json, sys
+# 読み返しに失敗しても生の traceback を出さない。ここは「保存されたか」を見るだけの確認段で、
+# 判定不能は「保存されていない」と同じ扱いでよい（席は既に着席している）
+try:
+    members = json.load(sys.stdin)['members']
+except Exception:
+    members = []
+m = next((x for x in members if x.get('name') == sys.argv[1]), {})
+print('yes' if m.get('model') else 'no')
+PY
+)
+  if [ "$stored" = yes ]; then
+    echo "metadata: ${vendor} / ${model}${effort:+ / $effort}"
+  else
+    echo "metadata は保存されなかった: この room サーバーは素性欄を持たない版（席は着席済み・一覧に素性が出ないだけ）" >&2
+  fi
+else
+  echo "metadata の登録に失敗した: 席は着席済みで、参加者一覧に素性が出ないだけ（room の到達性とトークンを確認）" >&2
+fi
+
 if [ -n "$brief" ]; then
   sleep 2
   tmux -S "$sock" send-keys -t "$sess" "$brief"
