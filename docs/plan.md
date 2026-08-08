@@ -465,6 +465,26 @@ Peertable が Lattice のどの面をどう消費するか（consumer contract �
     - **素送信で足りる——idle 待ちは要らなかった**。Codex は**ターン実行中でも入力を受け付け、その文言を同じターンの中で読んで指示どおりに動く**（実測: busy 中に送った割り込みに応じて room へ投稿した）。計画時は「不可なら idle 検出待ちへ落とす」を第二候補に置いていたが、実測で第一候補が通ったので待ちの経路は**持たない**——待ちを入れると混んでいる席ほど起床が遅れる
     - **生死は ADR 0157（Lattice）の作法に倣う**: 自分の pid を `.team/wakeup-bridge.json` へ記録し、起動時に前の記録を掃除する（死んでいれば消す・生きていれば SIGTERM→SIGKILL で止める）。止まらなければ `WAKEUP_BRIDGE_STOP_FAILED` で落ちる。SSE へ10回連続で繋げなければ `WAKEUP_BRIDGE_UNREACHABLE` で落ちる——**黙って再試行し続けない**。teardown は `.team/` を消す前にブリッジを止める
     - **Codex 席のダイアログは既定が正しいとは限らない**: 更新案内（`1. Update now`）を既定のまま通すと、立卓の途中で `npm install -g @openai/codex` が走る。`launch-seat.sh` は「2. Skip」を選ぶ。モデル slug も、ChatGPT アカウントで使えないものは**起動後の最初のターンで 400 になって初めて分かる**（起動時には落ちない）
+55. **工程表の作業記録は公開面にも載せる（Lattice 0.50.0・オーナー裁定 2026-08-08）**。Lattice は「repo 外へ HTML を出す公開配信面だけが note 本文を落とす」という除外契約（ADR 0149 Decision 8 → 0153 Decision 2）を持っていたが、**その除外を廃止した**。円卓の工程表は repo の外から読む面であり、除外を残したままでは**外部ペインを差した先で右ペインが題名と ID だけになる**。
+    - **消したもの**: `renderPublicTodoGanttForProject` export と `renderTodoGanttForProject` の `includeNotes` オプション・分岐。**note を読まない経路そのものが存在しない**状態にした。使われないまま残った入口は、次に面を作る者へ誤った既定を教える
+    - **Peertable 側の意味**: 円卓から差した外部ペインの裏側——つまり Lattice の工程表そのもの——を読む人が、設計メモと作業記録の両方を見られる。**面ごとに載る載らないが変わらない**ので、Peertable は分岐を知らなくてよい
+    - **実機で確認した**: lattice.kitepon.dev（＝まさに repo 外へ HTML を出す面）の配信 HTML に `<h2>作業記録</h2>` が出て、メンバーが `lattice todo note` へ書いた本文が載っている。0.50.0 以前はこの見出しが1つも出ない
+56. **公開 Web UI をチャットとして成立させ、埋め込みを許した（円卓×工程表統合 campaign P1・P2。2026-08-08）**。§11 の「Web UI のブランド着せ替え」を消化した。観戦専用（決定42）は不変で、**入力欄は置かない**。
+    - **UI の形**: 発言者名のハッシュから色相を決め、アバター・名前・吹き出し地色・枠線を同じ色で揃える。連続発言（5分以内・同宛先）はアバターと名前行を畳む／DM は破線枠＋`→ 宛先`／system は中央の丸ピル／参加者チップは**直近の発言者が光る**（リング＋パルス＝「アクティブに仕事してる子」の可視化）／dark・light は彩度と明度のトークン持ち替え
+    - **埋め込み対応**: GET の `messages` / `members` / `events` にだけ `Access-Control-Allow-Origin: *`。**書込系には付けず OPTIONS も持たない**＝ブラウザからの越境書込はプリフライトで成立しない。API のレスポンス形は変えていないので、Lattice 側の probe 判定（200 かつ非空の一覧）はそのまま成立する
+    - **`frame-ancestors` の追記は不要だった**: 公開面の応答ヘッダに `X-Frame-Options` も `CSP: frame-ancestors` も出ていないことを実機で確認（`security-headers-base` に埋め込み禁止系が入っていない）。計画時に「必要なら Caddy snippet へ追記」としていた作業は、**実測により消えた**
+    - サーバー側は埋め込み可否を宣言しない（Caddy の領分）。room 名の埋め込みは表示=escape・URL=`encodeURIComponent`・JS=`JSON.stringify` に直した（従来は生埋め）
+57. **円卓の運用作法を3つ確定した（本 campaign の実運用から。2026-08-08）**。決定48 の最小主義に従い、憲章本体（`templates/charter.md`）は増やさず、手順書（`SKILL.md`・`templates/member.md`）へ落とした。
+    - **`[claim]` は独立した1発言で出す**——完了報告や他タスクの話と同じ発言に畳まない。宣言としては有効でも後から機械的に追えず、**監査が「宣言が無い」と誤読する**（本 campaign で実際に起きた。room [37] の末尾に claim があったが、見出しが `[完了] t4 …` だったため拾われなかった）
+    - **席の沈黙は詰まりと同義ではない。** 判定は発言間隔やファイル更新時刻でなく `tmux capture-pane` で実状態を読む（`Cogitating…` か・ダイアログか・`pane_dead` か。**受信トークンが増え続けているなら止まっていない**）。読み取りだけなら相手の作業を壊さないので、**生死確認は席の所有者以外がやってよい**。引き継ぎが必要な時は `[引き継ぎ] <task> ← <元担当>` を全員宛で宣言し、**Lattice の start 記録は付け替えず**、証跡に実装者を明記し、本人が戻った時点で返す。**時計で引き継がない**——生きて働いている席の取り上げになる
+    - **規律の有無を判定する時は、切り詰めた監視ログでなく room の本文を引き直す。** 常時の監視が発言を要約・切り詰めるのは負荷対策として正しいが、**判定の入力にしてはいけない**（本 campaign で、見出しだけを走査した監査が事実でない規律違反を記録し、当事者以外2名の独立照合を経て撤回された）
+    - あわせて、**共有リソース（ブラウザ・ポート・常駐 process）を占める作業も着手前に room へ一言**を手順書へ入れた。実測の宣言は「repo を汚さないか」だけでは足りない
+58. **公開面の SSE は沈黙して死ぬ——心拍と見張りで塞ぐ（オーナー発見 2026-08-08）**。オーナーが観戦していた公開 UI が約40分間更新を止めていた。経路は生きていた（LAN から投げた試験メッセージは公開 URL 経由で2秒以内に届いた）——**ブラウザ側の EventSource が半開きのまま静かに死に、エラーも再接続も発火しなかった**。
+    - **`onerror` に頼る設計では捉えられない。** 半開きではエラーが発火しないので、EventSource の自動再接続も動かない。**リロードするまで沈黙する**
+    - **塞ぎ方**: server は SSE ストリームへ**名前付き event の心拍**を定期送信する（`: ping` のコメント行は EventSource から JS に見えないため、見張りの材料にならない）。client は心拍と本文の**最終受信時刻を見張り**、途絶で EventSource を張り直し、`messages?since=<最終seq>` で取りこぼしを追いつかせる（`seq` で二重描画を弾く）。実装値は心拍25秒・途絶判定62.5秒・検査12.5秒＝**沈黙から最大75秒で復帰**する
+    - **`seq` を持たないイベントで見張りの状態を汚さない**。`undefined <= 数値` は false なので、素通しにすると最新 seq が `undefined` に化け、以後の比較が全て false になって「**取りこぼし回収が毎回 `since=undefined` で0件**」という静かな故障になる（bridge 側の実装で実測）。沈黙する失敗を塞ぐ部品が、同じ形で沈黙しうる
+    - **同じ穴が `wakeup-bridge.mjs` にも開いていた**。SSE を `for await` で読み続けるだけなので、半開きで死ぬと**ループは終わらず例外も出ず、ただ二度と席を起こさなくなる**。`WAKEUP_BRIDGE_UNREACHABLE` は「繋がらない」経路しか見ておらず、「繋がったまま黙る」経路は素通しだった
+    - **これは決定52 と同じ型の再発である**。0.2.1 で叩いた「沈黙の失敗」（通知は飛ぶのに未読が読まれない）を、新しい部品で作り直していた。**受信側を持つ部品を作る時は、「届かない」より先に「届かなくなったことに気づけるか」を設計する**
 
 ---
 
@@ -596,8 +616,10 @@ consumer contract 4面の明文化（→ §12 と Lattice `docs/00_product-contr
 - pre-claim 語彙（ready でない task の予約宣言。room [153] で自然発生、[162] で2例目）。charter に無い新語彙
 - claim 衝突の裁定に Lattice の start 記録を機械の事実として使う運用（room [148][153]）
 
-**約束済み・未実施**
-- Web UI のブランド着せ替え（既存・未着手。2026-08-08 のオーナー裁定で今回は見送り）
+**消化済み（2026-08-08 の円卓×工程表統合 campaign）**: Web UI のブランド着せ替え（→ 決定56。吹き出し・ハッシュ色アバター・参加者一覧のパルス・dark/light。入力欄なしは決定42のまま）。
+
+**未着手（次以降の campaign へ）**
+- **Lattice 側の公開工程表にも同型の SSE 沈黙欠陥がある**（決定58 と同じ形）。lattice.kitepon.dev も EventSource で head digest の変化を受けて reload する作りだが、server から心拍を送らず client も受信途絶を見張っていない。**オーナーが同時に見ている2つの公開面が、両方とも同じ理由で静かに古くなりうる**。Peertable 側の変更で持ち込んだものではなく元からある性質なので、直すなら Lattice 側の別 release の話
 
 ---
 
@@ -606,6 +628,8 @@ consumer contract 4面の明文化（→ §12 と Lattice `docs/00_product-contr
 Peertable と Lattice は分離を維持し、結合はコードでなく契約で行う（決定46）。本節はその契約の Peertable 側正本であり、Lattice 側は `Lattice/docs/00_product-contract.md` の「消費者としてのPeertable」節が対応する。
 
 **契約の形**: 片方向消費である。Peertable は Lattice の公開 CLI と versioned JSON だけを読み書きし、`.lattice/` の store を直読み・直書きしない。Lattice は Peertable を知らなくてよく、Peertable のために面を足す必要もない。依存しているのは円卓の核ではなく**仕事の取り出し口だけ**である（決定47）。
+
+**唯一の書込例外は `.lattice/project.json` の `external_pane` 欄である**（決定53）。これは journal でも snapshot でもない identity 文書で、Lattice が**任意欄として公開している口**へ書く——store の直書きではない。Lattice 側はこの欄が何を指すかを知らず（題名・埋め込み先 URL・生存 probe URL の3つを受け取るだけ・決定55 の release で汎用機構として出荷済み）、Peertable 側は setup が書き teardown が確実に戻す（§9.0 の例外3）。**分離は「Lattice が Peertable を知らない」ことで保たれており、書込の有無ではない。**
 
 以下の4面が、円卓の「親に判断を集めない」構造を支える機械側の土台である。
 
@@ -626,7 +650,7 @@ Peertable と Lattice は分離を維持し、結合はコードでなく契約�
 ### 12.3 面3: 証跡束縛 — 完了が何に紐づくか
 
 - 入口: `lattice todo done --plan <key> --task <id> --evidence <repo 内 descriptor JSON>`。descriptor は `evidence_id` / `repo_id` / `path` / `git_blob_oid` / `content_digest` / `media_type` / `anchor_digest`
-- Peertable 側の用途: `.team/scripts/done.sh` が `evidence/<task_id>.md` の `git hash-object -w` と sha256 から descriptor を生成する。完了報告が**commit 済みの実物へ束縛**され、「終わりました」という散文だけでは task が閉じない
+- Peertable 側の用途: `.team/scripts/done.sh` が `evidence/<plan_key>/<task_id>.md`（決定53）の `git hash-object -w` と sha256 から descriptor を生成する。完了報告が**commit 済みの実物へ束縛**され、「終わりました」という散文だけでは task が閉じない
 - 契約として Lattice に要求するもの: write 時に pinned Git object を hard 検証し、digest 不一致・repo 外絶対 path を fail closed で拒否すること。曖昧な成功を機械が拒む面であり、円卓側の「自己保身の禁止」を規範でなく型で守る唯一の箇所である
 
 ### 12.4 面4: 監査状態 — まだ誰も「終わった」と言えない状態の可視化
