@@ -5,7 +5,7 @@
 親（オーケストレーター）に最終判断が集中しない、メンバー並列型のマルチエージェント作業システム。
 
 作成日: 2026-08-08
-状態: 設計確定 / V0・V1・V2 通過（2026-08-08）・V3 未着手
+状態: 設計確定 / V0・V1・V2・V3 通過（2026-08-08）・V4（親の追加）未着手
 リポジトリ: github.com/kitepon-rgb/peertable（作成予定）/ npm: peertable（空き確認済み 2026-08-08）
 
 ---
@@ -316,10 +316,24 @@ plan-time schedulability compilation により「今取れるタスク」が各�
 - **設計への帰結**: メンバーの行動規定に「Lattice 書込が WRITE_CONFLICT 系で弾かれたら再実行する」の一行が必要（外部プログラム境界のチェックであり規範 2.5 に適合）
 - setup スキルに焼き込むべき運用要件を副次発見: ① actor 環境変数 3 点（`LATTICE_TODO_ACTOR_HOST/SESSION/AGENT`）をセッションごとに設定 ② ready 複数時の start は `--parallel-frontier` 宣言が必要 ③ done の evidence は記述子 JSON（repo_id は manifest の `self`、git blob は commit から到達可能なこと）
 
-### V3: 最小構成の統合
+### V3: 最小構成の統合 — 通過（2026-08-08）
 
 - メンバー 2 + 小さな実タスクで、相談→claim→作業→完了の一周
-- 親なしで回す（親の権能が本当に「なくても進む」ことの確認を兼ねる）
+- 親なしで回す（親の権能が本当に「なくても進む」ことの確認を兼ねる)
+
+**結果（実測。構成: Sonnet セッション 2（ひなた・さくら）+ MS-A2 room `v3` + Lattice 3 タスク（t1 greet 関数 → t2 CLI、t3 README 独立）。検証資材は experiments/v3-team/）**:
+
+- **親なしで一周が完走した**。claim 宣言 → 着手記録 → 実装 → evidence 付き done → room 報告 → 次タスク取得 → 全タスク完了宣言まで、外部介入なし（下記の1件を除く）
+- **観測できた設計原則の実働**:
+  - claim/宣言: 両名とも全員宛で宣言してから着手。二重 claim は発生せず（取り下げ/join の競合経路は未観測のまま）
+  - 影響通知: さくら が t1 完了時に greet のインターフェース仕様を自発的に全員宛で共有し、t2・t3 がそれに従った
+  - 台帳なしの知識伝播: ひなた が踏んだ done.sh の罠（下記）を room で共有 →「hinata の共有どおり」と さくら がそのまま回避。聞けば済む、が実際に機能
+  - 視野狭窄なし: さくら は t1 完了後に自発的に Lattice へ戻り t2 を claim。完了の定義（次を取る or 完了宣言）が守られた
+  - 相互検品: ひなた は t2 完了報告を受けて README と実挙動の齟齬チェックを自発実行。両名が独立に全タスク done を確認して宣言
+- **成果物検分**: cli 実行結果一致・node --test green・Lattice journal 連番 6 で全 done・verify 整合・commit は各自対象限定
+- **ベルの介入 1 件（正直な記録）**: 実験ハーネスの done.sh に mktemp 絶対パスの不具合（ひなた が発見・回避・共有）。ベルが修正版を作業ツリーへ置き、さくら が commit した。メンバーの判断への介入ではなくハーネス修理
+- **setup スキルへの還流**: evidence 記述子ファイル自体も repo 内相対パスに置くこと（repo 外絶対パスは INVALID_ARGUMENTS）。done ヘルパーと役割ファイルのドラフト（.team/CLAUDE.md・roles/member.md・scripts/done.sh）は実戦通過済みの雛形としてスキル template の母体にする
+- **未観測（V4 以降へ持ち越し）**: claim 競合時の取り下げ/join、詰まり報告と援軍 join、DM（個別宛）の使用（今回は全通信が全員宛で足りた）
 
 ### V4: 親の追加
 
