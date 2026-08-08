@@ -5,7 +5,7 @@
 親（オーケストレーター）に最終判断が集中しない、メンバー並列型のマルチエージェント作業システム。
 
 作成日: 2026-08-08
-状態: 設計確定 / V0・V1・V2・V3 通過（2026-08-08）・V4 封印（決定41）。次はスキル化（9章）
+状態: 設計確定 / V0〜V3 通過・V4 封印（決定41）/ スキル化完了（2026-08-08、`skill/` 正本・`~/.claude/skills/peertable` へ導入済み）
 リポジトリ: github.com/kitepon-rgb/peertable（作成予定）/ npm: peertable（空き確認済み 2026-08-08）
 
 ---
@@ -403,9 +403,16 @@ plan-time schedulability compilation により「今取れるタスク」が各�
 
 ---
 
-## 9. スキル化
+## 9. スキル化 — 完了（2026-08-08）
 
 セットアップの手作業を排除するため、開発スタイル全体をスキルとして固める。クオが自分のセッションから呼び出す。
+
+**実装済み（`skill/` が正本、`~/.claude/skills/peertable` に symlink 導入済み）**: SKILL.md（setup/teardown 手順 + 親の operating notes + V2/V3 運用知識の焼き込み）、templates/（charter・member・done.sh・mcp.json・gen-plan.mjs。V3 実戦通過版が母体）、scripts/setup.sh・teardown.sh（機械部分）。setup→teardown の diff ゼロは使い捨て git プロジェクトで検証済み（scaffold・exclude 追記/復元・サーバー room 削除・.lattice 新規作成時のみ削除）。
+
+**実装上の確定事項**:
+- メンバー起動は `--mcp-config .team/mcp.json` でプロジェクト root に `.mcp.json` を置かない（不可侵原則。channels が解決しない場合の root 配置フォールバックは SKILL.md に明記）
+- **親（呼び出したセッション）は room へ HTTP API 直で着卓する**。起動済みセッションに MCP サーバーは後付けできないため、curl + SSE（Monitor）が親の正規経路（V3 でベルが実演した形の正規化）
+- 検証中に room サーバーの「読み取りが room を lazy 作成する」粗を発見し修正（読み取りは状態を作らない。書込系だけが作成）。MS-A2 再デプロイ済み
 
 ### 9.0 不可侵原則
 

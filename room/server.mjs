@@ -14,10 +14,15 @@ mkdirSync(DATA, { recursive: true })
 // room 状態はプロセスが所有する（正本ファイルへの書込はこのプロセスだけ）
 const rooms = new Map() // name -> { seq, members: Map<name, joined_at>, streams: Set<res> }
 
-function loadRoom(name) {
-  if (rooms.has(name)) return rooms.get(name)
+// create=true は書込系だけが渡す。読み取りは room を作らない
+function loadRoom(name, create = false) {
+  const cached = rooms.get(name)
+  if (cached) {
+    if (create) mkdirSync(cached.dir, { recursive: true })
+    return cached
+  }
   const dir = join(DATA, name)
-  mkdirSync(dir, { recursive: true })
+  if (create) mkdirSync(dir, { recursive: true })
   const logPath = join(dir, 'log.jsonl')
   const seq = existsSync(logPath) ? readFileSync(logPath, 'utf8').split('\n').filter(Boolean).length : 0
   const membersPath = join(dir, 'members.json')
@@ -54,7 +59,7 @@ http.createServer(async (req, res) => {
 
   // API: /api/<room>/...
   if (seg[0] === 'api' && seg[1]) {
-    const room = loadRoom(seg[1])
+    const room = loadRoom(seg[1], req.method !== 'GET')
     const rest = seg.slice(2).join('/')
 
     if (req.method === 'GET' && rest === 'messages')
