@@ -143,8 +143,8 @@ const FAVICON = `<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://
 // 発言者ごとの色は名前ハッシュ（--h）から作る。彩度・明度だけテーマで持ち替えれば dark/light 両方が成立する
 const STYLE = `
 *{box-sizing:border-box}
-:root{color-scheme:light dark;--fg:#1a1a1a;--bg:#f7f6f3;--surface:#fff;--line:#e4e2dc;--accent:#1d4ed8;--dim:#8a877f;--sat:55%;--lum:45%;--name:32%;--tint:96%;--edge:82%}
-@media(prefers-color-scheme:dark){:root{--fg:#e8e6e0;--bg:#141418;--surface:#1e1e24;--line:#2c2c33;--accent:#7aa2ff;--dim:#8b8892;--sat:48%;--lum:56%;--name:75%;--tint:18%;--edge:32%}}
+:root{color-scheme:light dark;--fg:#1a1a1a;--bg:#f7f6f3;--surface:#fff;--line:#e4e2dc;--accent:#1d4ed8;--dim:#8a877f;--sat:55%;--lum:45%;--name:32%;--tint:96%;--edge:82%;--busy:#1f9d55;--idle:#b9b6ae;--dead:#d03b3b}
+@media(prefers-color-scheme:dark){:root{--fg:#e8e6e0;--bg:#141418;--surface:#1e1e24;--line:#2c2c33;--accent:#7aa2ff;--dim:#8b8892;--sat:48%;--lum:56%;--name:75%;--tint:18%;--edge:32%;--busy:#3ecf7e;--idle:#4d4b52;--dead:#ff6b6b}}
 body{margin:0;font-family:ui-sans-serif,system-ui,-apple-system,"Hiragino Kaku Gothic ProN","Noto Sans JP",sans-serif;font-size:14px;line-height:1.65;color:var(--fg);background:var(--bg)}
 a{color:var(--accent)}
 .brand{display:flex;align-items:center;gap:8px;font-size:15px;font-weight:650;letter-spacing:.01em}
@@ -159,6 +159,12 @@ const UI = room => `<!doctype html><html lang="ja"><head><meta charset="utf-8"><
 .top>div{max-width:760px;margin:0 auto}
 .members{display:flex;gap:6px;overflow-x:auto;padding:10px 0;scrollbar-width:thin}
 .chip.has-meta{cursor:pointer}
+/* 稼働状態の点。報告が途絶えたら unknown（中空）へ落として、古い状態を出し続けない */
+.chip .st{flex:none;width:7px;height:7px;border-radius:50%;margin-left:1px;background:var(--dim)}
+.chip .st.busy{background:var(--busy)}
+.chip .st.idle{background:var(--idle)}
+.chip .st.dead{background:var(--dead)}
+.chip .st.unknown{background:transparent;box-shadow:inset 0 0 0 1.5px var(--dim)}
 .metapop{position:fixed;z-index:20;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:8px 10px;font-size:12px;box-shadow:0 6px 20px rgba(0,0,0,.18);max-width:70vw}
 .metapop .metaname{font-weight:600;margin-bottom:2px}
 .metapop .metaline{color:var(--dim)}
@@ -291,8 +297,14 @@ async function refreshMembers(){
     c.style.setProperty('--h',hue(m.name));c.dataset.name=m.name
     // 素性は任意欄。名乗っていない席は行ごと出ない（空欄を「不明」として見せない）
     const meta=[m.model&&(m.vendor?m.vendor+' / '+m.model:m.model),m.effort&&('effort '+m.effort)].filter(Boolean)
-    c.title=m.name+'（参加 '+new Date(m.joined_at).toLocaleString()+'）'+(meta.length?'\n'+meta.join('\n'):'')
+    // 稼働状態は**報告が新しい時だけ**採る。途絶えたら unknown へ落とす——古い状態を出し続けるのが
+    // いちばん悪い（動いていない席を「動いている」と見せる）。閾値は bridge の心拍30秒の3倍
+    const age=m.status_at?Date.now()-Date.parse(m.status_at):Infinity
+    const st=(m.status&&age<STATUS_STALE_MS)?m.status:(m.status?'unknown':null)
+    if(st)meta.push('状態 '+({busy:'作業中',idle:'待機',dead:'停止',unknown:'不明（報告が途絶えている）'}[st]??st))
+    c.title=m.name+'（参加 '+new Date(m.joined_at).toLocaleString()+'）'+(meta.length?'\\n'+meta.join('\\n'):'')
     c.appendChild(el('span','av',initial(m.name)));c.appendChild(el('span','nm',m.name))
+    if(st)c.appendChild(el('span','st '+st))
     // タップ環境には hover が無いので、押した時に同じ内容を出す（ホバーは title が担う）
     if(meta.length){c.classList.add('has-meta');c.addEventListener('click',ev=>{ev.stopPropagation();showMeta(c,m,meta)})}
     membersEl.appendChild(c)
@@ -328,6 +340,7 @@ function markActive(name){
   if(!known)refreshMembers()
 }
 const BEAT=${HEARTBEAT_MS}
+const STATUS_STALE_MS=90000 // 稼働状態の鮮度。これを過ぎた報告は unknown（bridge 心拍30秒の3倍）
 let lastSeq=0,lastBeat=Date.now(),es=null,emptyEl=null,firstLoad=true,catching=false
 // seq で二重描画を弾く。張り直し後の追いつきと SSE の新着が重なっても同じ発言は1回しか出ない
 function apply(m){
