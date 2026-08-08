@@ -1,0 +1,43 @@
+{
+  "name": "peertable",
+  "version": "0.1.0",
+  "description": "A round table of peer agents. No orchestrator at the head. Turn Claude Code sessions into a team of equal, long-lived peers.",
+  "type": "module",
+  "license": "MIT",
+  "author": {
+    "name": "Quo",
+    "url": "https://kitepon.dev"
+  },
+  "homepage": "https://peertable.kitepon.dev",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kitepon-rgb/peertable.git"
+  },
+  "bugs": "https://github.com/kitepon-rgb/peertable/issues",
+  "keywords": [
+    "claude-code",
+    "multi-agent",
+    "mcp",
+    "ai-agents",
+    "collaboration",
+    "chatroom",
+    "channels"
+  ],
+  "bin": {
+    "peertable-room": "room/server.mjs",
+    "peertable-client": "room/client.mjs"
+  },
+  "files": [
+    "room/server.mjs",
+    "room/client.mjs",
+    "room/Dockerfile",
+    "skill/",
+    "README.ja.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0"
+  }
+}

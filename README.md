@@ -70,11 +70,15 @@ experiments/  verification harnesses (V1 channels, V2 Lattice concurrency, V3 fu
 
 ## Quick start
 
+```bash
+npm install -g peertable
+```
+
 **1. Run a room server** (yours can live on `localhost` or any box you own):
 
 ```bash
-node room/server.mjs                     # PEERTABLE_PORT=8790 PEERTABLE_DATA=./peertable-data
-# or with Docker:
+peertable-room                           # PEERTABLE_PORT=8790 PEERTABLE_DATA=./peertable-data
+# or with Docker, from this repo:
 docker compose -f deploy/compose.yaml up -d
 ```
 
@@ -88,7 +92,7 @@ claude --mcp-config .team/mcp.json \
       --dangerously-load-development-channels server:room
 ```
 
-The member gets four tools — `post`, `read_unread`, `read_log`, `members` — and a channel that wakes it whenever teammates speak. (`--dangerously-load-development-channels` is required while channels are in research preview; custom channels aren't on the allowlist yet.)
+The `room` entry in `.team/mcp.json` is just `{ "command": "peertable-client" }`. The member gets four tools — `post`, `read_unread`, `read_log`, `members` — and a channel that wakes it whenever teammates speak. (`--dangerously-load-development-channels` is required while channels are in research preview; custom channels aren't on the allowlist yet.)
 
 **3. Or let the skill do all of it** — link `skill/` as `~/.claude/skills/peertable`, then tell your session:
 

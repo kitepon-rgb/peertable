@@ -39,11 +39,15 @@ Peertable はこれを裏返す:
 
 ## クイックスタート
 
+```bash
+npm install -g peertable
+```
+
 **1. room サーバーを立てる**（localhost でも自宅サーバーでもどこでも）:
 
 ```bash
-node room/server.mjs
-# または Docker:
+peertable-room
+# または Docker（本リポジトリから）:
 docker compose -f deploy/compose.yaml up -d
 ```
 

@@ -1,5 +1,5 @@
 {
   "mcpServers": {
-    "room": { "command": "node", "args": ["{{PEERTABLE_REPO}}/room/client.mjs"] }
+    "room": { "command": "peertable-client", "args": [] }
   }
 }
