@@ -76,6 +76,21 @@ description: 任意プロジェクトに Peertable チーム（対等メンバ�
 
 各段は `[実施] / [スキップ] / [未実施]` を1行ずつ出す。**トークンを要するのは room 削除だけ**なので、そこが失敗しても残りの撤去は続行し、未実施を明示して非ゼロで終わる（黙って中断しない・決定58）。未実施が出ても**撤去そのものは済んでいる**。残りは表示された **[手当] の curl を手で叩く**だけで、`.team/` は既に消えているので **teardown.sh の再実行はできない**（2026-08-08 実測。再実行すると `setup-state.json` が読めず落ちる）。
 
+## managed run 経由の配車（Lattice 併用モード・実行層へ載せる卓だけ）
+
+卓を Lattice の実行層（managed run・隔離 worktree・実書き込み観測）へ載せると、task は席が自分で取るだけでなく **run から配車される**。**席は動かさない**——自分の project に座ったまま、worktree へ絶対パスで出入りする。cwd と env を動かすと room 接続と MCP 解決が壊れるためで、これは回避策ではなく設計そのものである。
+
+- **席と spool は接触しない。** 席が触るのは room と worktree だけで、`.lattice/` の直読み・直書き禁止の契約はそのまま。order は bridge が席の端末へ注入し、report は bridge が書く
+- **席が出す room 語彙は3つだけ**（bridge が行頭一致で機械 parse する。いずれも**独立した1発言**）: `[受諾] tN` / `[辞退] tN <理由>` / `[完了] tN`。辞退は正当な選択で、bridge が別の席へ再配車する
+- **席の作法の正本は `templates/member.md` の「配車で来た仕事」節**（注入文の書式・禁止操作・scope 外書込・検証の回し方・成果の正本）。ここに二重化しない
+- 前提は2つで、**どちらも立っていない卓には配車が来ない**（席の作法は無害に眠る）: Lattice 側 executor adapter の登録と spool dir、peertable 側の run-bridge 常駐。この2つは本スキルの setup 手順が持つようになるまで手当てが要る
+
+運用側が踏みやすい所（実測で確認した挙動）:
+
+- **worktree は run 終端で `git worktree remove --force` される。** 席の commit は base_sha の子孫だが、木ごと消えた後はどの参照からも辿れない（gc の対象）。**成果の正本は Lattice が撮った observed diff** であって席の commit ではない。着地は run の外の工程で、`[完了]` は着地の宣言ではない
+- **worktree には gitignore 済みの資産が無い**（`node_modules` 等）。席が「テストが動かない」と言い出したらこれを疑う。canonical tree で回させない——測りたい木ではない
+- **`scope_writes` の外への書き込みは黙って弾かれず、`undeclared_write` として観測に出る。** 席へは「隠すな、room で言え」と伝わっている
+
 ## 親の operating notes（このセッションの振る舞い）
 
 - 親は MCP を後付けできないため room へは HTTP API 直で参加する:

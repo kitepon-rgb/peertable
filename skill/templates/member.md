@@ -16,6 +16,30 @@
 7. **手が空いていて ready が無いなら、他の席の done を監査する。** 実装者以外なら誰でもよい。実物（diff・検証結果・ハーネス）を自分で走らせて所見を room へ出す——**報告を読むだけでは監査にならない**。親は所見を読んで受理を宣言するだけで、コードは読まない
 8. 1 へ戻る
 
+## 配車で来た仕事（Lattice の managed run に載っている卓だけ）
+
+卓が Lattice の実行層（managed run）に載っている時は、仕事が**自分で取る（claim）だけでなく、bridge から配車されて届く**。届き方は自分の端末への注入で、書式は次の1ブロックである。載っていない卓では配車は起きないので、この節は静かに眠る。
+
+```
+[work order] t7
+worktree: /abs/path/to/.lattice/runs/<run>/worktrees/<id>/tree
+base_sha: 8f0e…（40 hex）
+scope_writes: src/a.mjs, test/a.test.mjs
+verifier_refs: node --test test/a.test.mjs
+forbidden_operations: push, branch, merge, rebase, reset, stash
+packet_digest: 3a91…（64 hex）
+```
+
+1. **受諾か辞退を即返す。** `[受諾] t7` / `[辞退] t7 <理由>` を**独立した1発言**で room 全員宛へ。bridge は行頭一致で機械 parse するので、他の話と同じ発言に畳むと届かない。**辞退は正当な選択**（本筋の WIP が塞がっている・自分の測定器ではその検証ができない）で、bridge が別の席へ再配車する。黙殺だけはしない
+2. `lattice todo start` / `done` は**従来どおり自分で打つ**。配車は席の選定であって工程正本の代わりではない（Wave 1〜2 は会話 claim と機械記録の二重帳簿を残す設計）
+3. **worktree の中だけを、絶対パスで触る。** `cd` しない・env を書き換えない・別 project へ移らない。席の room 接続と MCP 解決は cwd と env に乗っているので、動かすと卓から落ちる（そのために席を動かさない設計になっている）。git は `git -C <worktree> …`、編集は絶対パスで開く
+4. **commit してよい。禁止は `push` / `branch` / `merge` / `rebase` / `reset` / `stash` の6つ**で、正は注入文の `forbidden_operations`（出所は Lattice engine が packet へ載せる実物・`src/runtime-engine.mjs` の `FORBIDDEN_OPERATIONS`）。worktree は `base_sha` の detached HEAD なので、そこへ積む commit は base の子孫のままで canonical branch を動かさない。逆に6つは HEAD を base の子孫から外すか、外部へ効果を出す操作なので、観測の前提か公開契約のどちらかを壊す
+5. **`scope_writes` の外へ書いても黙って弾かれない——`undeclared_write` として観測に出る。** 書く必要があると分かった時点で room へ言う。隠して書いても diff で見えるだけである
+6. **検証は worktree の中で回す。** worktree は `base_sha` の clean checkout なので、**gitignore 済みの資産（`node_modules` など）が無い**——`npm test` がそのまま動くとは限らない。要るなら worktree 内で install する（`node_modules` は観測の除外対象なので diff を汚さない）。**動かないからといって canonical tree で回さない**。それは測りたい木ではない
+7. 終わったら **`[完了] t7` を独立した1発言**で room 全員宛へ。bridge がこれを見て report を書き、Lattice が worktree の diff を独立に撮って receipt にする
+
+**成果の正本は席の commit ではなく、Lattice が撮った observed diff である。** worktree は run の終端で `git worktree remove --force` され、木ごと消える（commit object は残るが、どの参照からも辿れない＝gc の対象）。「commit したから残る」と思わないこと。canonical への着地は run の外の別工程であり、`[完了]` は着地の宣言ではない。
+
 ## 再着任（context が要約されたら）
 
 自分の context が要約された（＝会話の前半が手元に無い）と気づいたら、実装を続ける前に `.team/roles/member.md` と `.team/CLAUDE.md` を読み直して着任し直し、room へ `[再着任] <名前>` を一行投稿する。進行中 claim の状態は自分の記憶でなく**工程正本で取り直す**——`lattice todo status --json` の active に自分の task が居るかを確認し、`read_log` で自分の claim と完了報告を照合する。記憶と正本が食い違ったら、正本を正として食い違いを room で報告する。
