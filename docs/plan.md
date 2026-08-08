@@ -712,7 +712,7 @@ Peertable と Lattice は分離を維持し、結合はコードでなく契約�
 **実装中に見つかったコアプロダクト（Lattice・peertable 等）の不具合は、親の受理裁定を経て本 plan へ task 追加して直す**。
 
 工程正本は Lattice store の plan `refit-20260808`（本節から `todo migrate` で起票）。証跡は `evidence/refit-20260808/<task_id>.md`。
-push は両 repo とも既定どおり（工場管理 repo）。peertable 側の script/正典変更は campaign 末尾にまとめて npm patch release 1本で出す。
+push は Lattice repo は既定どおり、peertable repo は**オーナー明示裁定（2026-08-09「3つとも承認」・push/publish/colima）**による（決定45のとおり peertable はコア製品編入未完了で恒久既定の対象外。当初の「両 repo とも既定どおり（工場管理 repo）」は親の誤記で、卓の指摘 [377]-[398] を経て本裁定で上書きされた）。peertable 側の script/正典変更は campaign 末尾にまとめて npm patch release 1本で出す。
 
 ### タスク
 
