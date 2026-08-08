@@ -680,3 +680,42 @@ Peertable と Lattice は分離を維持し、結合はコードでなく契約�
 | 完走の判定 | 監査待ち（`audit_pending`）の機械可視化 | 全員の完了報告を親が確認して散会宣言 |
 
 単独モードで失うのは task 間スケジューリングの機械保証と、claim 裁定・完了束縛の機械的根拠である。**失わないのは円卓そのもの**——room・憲章・宣言ベースの協力は最初から Lattice 非依存であり（決定47）、task 内共同作業は Peertable の固有資産である。よって単独モードは、依存構造が浅く短命な作業に限って正当化される。長い campaign・多段の受入・証跡が要る作業では Lattice 併用が既定である。
+
+---
+
+## 13. 残課題対応 campaign（refit-20260808）— 計画正本
+
+前 campaign（円卓×工程表統合）と他セッション実戦（RootSitePromotion・mmobank 視覚監査）で出た残課題を消化する。
+オーナー裁定（2026-08-08）: 既存の円卓4席を温存のまま使う／Codex 席を実装メンバーとして新設し t1 を任せる／
+統合戦役は起票（構想文書）まで／**監査を卓内化する**（親が監査する形をやめ、実装者以外の席の相互監査＋親は受理判定のみ）／
+**実装中に見つかったコアプロダクト（Lattice・peertable 等）の不具合は、親の受理裁定を経て本 plan へ task 追加して直す**。
+
+工程正本は Lattice store の plan `refit-20260808`（本節から `todo migrate` で起票）。証跡は `evidence/refit-20260808/<task_id>.md`。
+push は両 repo とも既定どおり（工場管理 repo）。peertable 側の script/正典変更は campaign 末尾にまとめて npm patch release 1本で出す。
+
+### タスク
+
+- t1: Lattice 工程表 SSE の沈黙穴修正（`src/todo-gantt-live.mjs` へ決定58 の3点セット——`event: ping` 心拍25秒・途絶watchdog 62.5秒/検査12.5秒・心拍データ照合による取りこぼし回収——を移植。参照実装は `room/server.mjs:76-85`／`:244-261`。受入=focused test→push→npm publish→lattice.kitepon.dev deploy→本番で心拍観測と自動復帰の実測）
+- t2: done.sh へ未 push 本数の表示1行（`skill/templates/done.sh` と `.team/scripts/done.sh`。`git rev-list --count @{u}..HEAD` ≠0 なら「未push N本」を出すだけで止めない。upstream 未設定でも壊れない。§11 の該当項目を消化済みへ）
+- t3: 親の再着卓手順の SKILL.md 明文化（本 campaign の親再着卓の実測を焼き込む: room ログ読み→`lattice todo status`→member 登録が残っていれば parent-join.sh 省略→Monitor 再張り。決定51 の親版）
+- t4: 監査の卓内化の正典改訂（SKILL.md「親の operating notes」: 完了 task の監査は実装者以外の席が実物を読んで行い所見を room へ、親は受理判定のみ。本 campaign の全 task を新規律で実運用して検証）
+- t5: 円卓×Lattice 実行層統合戦役の起票（Lattice `docs/` へ次戦の構想文書のみ。同一tree摩擦・実行時競合検知・隔離worktree自動配布を装置へ移す設計方針と、特許請求項8・Lattice `docs/plan_backlog.md` の実行時競合項との接続。実装なし）
+- t6: teardown.sh の沈黙中断修正（真因確定済み: `PEERTABLE_POST_TOKEN` が export なしで子 process に渡らず curl 401→`set -e` 無言中断。対処3点=token 空の typed error 即時報告と SKILL.md env 規約の export 付き化／room DELETE の `|| true` 化+HTTP コード echo で冪等化／各撤去段の実施・スキップを1行ずつ echo。受入=token空・room既削除・正常の3ケースで完走+残存物ゼロ）
+- t7: setup.sh 外部ペイン登録の project_id 不一致修正（真因確定済み: `external-pane.mjs` がディレクトリ名をそのまま project_id に書き、store manifest の kebab-case と不一致で identity 検証が死ぬ。対処=書く前に `lattice status --json` から実 project_id を読む／既存 project.json の project_id は書き換えない。受入=PascalCase ディレクトリで setup→`lattice status --json` 正常応答）
+- t8: member claim 範囲の phase 束縛（setup.sh へ対象 phase 引数（複数可）を追加し、setup-state.json と roles/member.md へ「claim は指定 phase の task_id に限る。指定なしは plan 全体」を焼き込む。範囲外 phase claim の越境2回実測への恒久対処）
+- t9: 無人席のブラウザ選択ダイアログ停止対処の正典改訂（roles/member.md へ「ブラウザ検証は chrome-devtools MCP 優先・claude-in-chrome を使わない」、SKILL.md 親の督促手順へ「報告途絶→`pty_read(screen:true)` で席画面確認→選択ダイアログなら `pty_key` で解除」。script 変更なし）
+
+依存: t7→t8（setup.sh）、t8→t9（member.md）、t6→t4→t9→t3（SKILL.md の直列化）。初期 frontier は t1・t2・t5・t6・t7 の幅5＝5席。
+
+### 非目標
+
+- Codex 席の構造的反応差（channels 不在）は修正しない——wakeup-bridge で実用化済みで、t1 の実戦投入が観測を兼ねる
+- Lattice 本体 backlog の別系統3件（実行時競合の請求項8=t5 の次戦へ接続／Linux daemon／WASM parity 15件）
+- t5 は構想文書のみで実装・工程起票をしない
+
+### 既知の罠
+
+- SKILL.md へ書込む task が4つある（t6・t4・t9・t3）——依存で直列化済み。順序を崩して同時に触らない
+- setup.sh は t7・t8 の2つが触る——同上
+- t1 の心拍は名前付き `event: ping` にする（`: comment` 行は EventSource から JS に見えない。決定58）。seq/head を持たないイベントで見張り状態を汚さない
+- 証跡は `evidence/refit-20260808/<task_id>.md`（task_id は campaign 跨ぎで再利用される。平置き禁止）
