@@ -1,11 +1,13 @@
 # MS-A2 用の room サーバー常駐設定。
 # 書込トークンは compose と同じ場所の .env（PEERTABLE_POST_TOKEN=...）で渡す。
+#
+# image は開発マシンで焼いて `docker save | ssh docker load` で運ぶ（deploy/README.md）。
+# 本番ホストでは build しない——`build:` を書くと `compose up` が本番で焼き始めるので、置かない。
 name: peertable
 
 services:
   room:
-    build: ../room
-    image: peertable-room:local
+    image: peertable-room:20260809-7a601a1
     container_name: peertable-room
     restart: unless-stopped
     environment:
