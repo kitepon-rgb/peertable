@@ -95,7 +95,9 @@ else
 fi
 
 if [ "$fail" -ne 0 ]; then
-  echo "teardown: 未完了 — 上の [未実施] を解消すること。撤去済みの段は冪等なので、原因を直せば再実行して安全" >&2
+  # 「再実行すればいい」と書かないこと。`.team/` は上で消えているので、2回目は setup-state.json が
+  # 読めずに落ちる＝**再実行の経路は存在しない**。残っている道は上の [手当] の curl だけ（2026-08-08 実測）
+  echo "teardown: 未完了 — 撤去は上のとおり済んでいる。残りは上の [手当] を手で叩くこと（.team/ は削除済みなので teardown.sh の再実行はできない）" >&2
   exit 1
 fi
 echo "teardown done: $proj"
