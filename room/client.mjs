@@ -18,7 +18,7 @@ const relevant = m => m.from !== ME && (m.to === 'all' || m.to === ME)
 let cursor = 0 // read_unread 用。参加時点から数える
 
 const mcp = new Server(
-  { name: 'room', version: '0.1.0' },
+  { name: 'room', version: '0.2.0' },
   {
     capabilities: { experimental: { 'claude/channel': {} }, tools: {} },
     instructions:
