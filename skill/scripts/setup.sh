@@ -1,15 +1,36 @@
 #!/bin/bash
 # Peertable setup の機械部分: .team/ scaffold と git 除外。
-# usage: setup.sh <project_dir> <room> <server_url> <plan_key|-> <peertable_repo> [tasks_file]
+# usage: setup.sh <project_dir> <room> <server_url> <plan_key|-> <peertable_repo> [tasks_file] [--phase <id>]...
 #   plan_key に `-` を渡すと単独円卓モード（工程正本を持たない。決定47）。
 #   単独モードでは tasks_file（聞き取ったタスクを書いた本文）が必須で、議題表 .team/tasks.md になる。
+#   --phase は複数指定可。指定すると卓の claim 範囲がその phase の task に限られる（決定59）。
+#   指定なしは plan 全体。他 campaign と同じ plan へ相乗りする時に、範囲外 phase の越境を止めるためのもの。
 set -e
 proj="$1"; room="$2"; url="$3"; plan="$4"; repo="$5"; tasks="$6"
+[ $# -ge 6 ] && shift 6 || shift $#
+
+phases=()
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --phase)
+      shift
+      [ -n "$1" ] || { echo "ERROR: --phase には phase id が要る" >&2; exit 1; }
+      case "$1" in
+        *[!A-Za-z0-9._-]*) echo "ERROR: phase id に使えない文字がある: $1" >&2; exit 1 ;;
+      esac
+      phases+=("$1")
+      ;;
+    *) echo "ERROR: 未知の引数: $1（--phase <id> だけを受ける）" >&2; exit 1 ;;
+  esac
+  shift
+done
 tpl="$repo/skill/templates"
 tdir="$proj/.team"
 
 if [ "$plan" = "-" ] || [ -z "$plan" ]; then
   mode=standalone; plan=""
+  # 単独円卓モードに phase は無い（工程正本を持たないため）。黙って無視せず止める
+  [ ${#phases[@]} -eq 0 ] || { echo "ERROR: 単独円卓モードに --phase は使えない（工程正本を持たないため）" >&2; exit 1; }
   # 引数の検証は project へ何か置く前に済ませる（不可侵原則: 半端な .team/ を残さない）
   if [ -z "$tasks" ] || [ ! -f "$tasks" ]; then
     echo "ERROR: 単独円卓モードは議題表の本文ファイル（第6引数）が必須: setup.sh ... - <peertable_repo> <tasks_file>" >&2
@@ -26,7 +47,13 @@ if [ "$mode" = "standalone" ]; then
   cat "$tpl/tasks.md" "$tasks" > "$tdir/tasks.md"
 else
   mkdir -p "$tdir/scripts"
-  sed "s|{{PLAN_KEY}}|$plan|g" "$tpl/member.md" > "$tdir/roles/member.md"
+  # claim 範囲は席へ渡す文書に焼き込む。範囲の出典を「誰かの記憶」でなく role 文書にする
+  if [ ${#phases[@]} -eq 0 ]; then
+    scope="この卓の claim 範囲は plan 全体（phase 指定なしで立っている）。"
+  else
+    scope="**この卓の claim 範囲は phase ${phases[*]} の task だけ**。範囲外の phase の task は、ready に見えていても取らない——同じ plan へ別 campaign が相乗りしている時、範囲外を取ると他卓の工程を横取りする（越境が2回実測されたことへの対処）。範囲外に手を入れる必要が出たら room へ出して裁定を仰ぐ。"
+  fi
+  sed -e "s|{{PLAN_KEY}}|$plan|g" -e "s|{{CLAIM_SCOPE}}|$scope|g" "$tpl/member.md" > "$tdir/roles/member.md"
   cp "$tpl/done.sh" "$tdir/scripts/done.sh" && chmod +x "$tdir/scripts/done.sh"
 fi
 
@@ -68,6 +95,13 @@ if [ "$mode" = "lattice" ]; then
   external_pane=true
 fi
 
-printf '{"room":"%s","server_url":"%s","public_url":"%s","mode":"%s","plan_key":"%s","added_exclude":%s,"lattice_preexisting":%s,"added_root_mcp":%s,"added_mcp_exclude":%s,"external_pane":%s,"project_json_preexisting":%s}\n' \
-  "$room" "$url" "$public_url" "$mode" "$plan" "$added_exclude" "$lattice_preexisting" "$added_root_mcp" "$added_mcp_exclude" "$external_pane" "$project_json_preexisting" > "$tdir/setup-state.json"
+# phases は追加キー（既存の読み手は .get で読むので壊れない）。空配列＝plan 全体
+phases_json="[]"
+if [ ${#phases[@]} -gt 0 ]; then
+  phases_json=$(printf '"%s",' "${phases[@]}")
+  phases_json="[${phases_json%,}]"
+fi
+
+printf '{"room":"%s","server_url":"%s","public_url":"%s","mode":"%s","plan_key":"%s","phases":%s,"added_exclude":%s,"lattice_preexisting":%s,"added_root_mcp":%s,"added_mcp_exclude":%s,"external_pane":%s,"project_json_preexisting":%s}\n' \
+  "$room" "$url" "$public_url" "$mode" "$plan" "$phases_json" "$added_exclude" "$lattice_preexisting" "$added_root_mcp" "$added_mcp_exclude" "$external_pane" "$project_json_preexisting" > "$tdir/setup-state.json"
 echo "scaffold done: $tdir"
