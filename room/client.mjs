@@ -4,6 +4,29 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js'
+import { existsSync, readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+// client.mjs 側のハードコード版数。package.json の version と一致していることを
+// diagnostics の version_consistency が見る（2 つの版数源の drift 検出。決定45）
+const MCP_VERSION = '0.2.0'
+const PKG_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
+
+const USAGE = `usage:
+  peertable-client                       room MCP サーバーとして起動する（.mcp.json 経由の通常経路）
+  peertable-client diagnostics           診断を人間可読で出す（fail の理由はこちらに出る）
+  peertable-client diagnostics --json    schema peertable.native_factory_diagnostics.v1 の JSON で出す
+`
+
+// サブコマンドは引数がある時だけ解釈する。引数なし＝MCP stdio サーバー（本番の着席経路）は素通しで、
+// 診断のコードは一切走らない（起動ディレイを増やさない）
+const sub = process.argv[2]
+if (sub !== undefined) {
+  if (sub === 'diagnostics') process.exit(await runDiagnostics(process.argv.includes('--json')))
+  process.stderr.write(`unknown subcommand: ${sub}\n${USAGE}`)
+  process.exit(1)
+}
 
 const URL_BASE = process.env.PEERTABLE_URL
 const ROOM = process.env.PEERTABLE_ROOM
@@ -18,7 +41,7 @@ const relevant = m => m.from !== ME && (m.to === 'all' || m.to === ME)
 let cursor = 0 // read_unread 用。参加時点から数える
 
 const mcp = new Server(
-  { name: 'room', version: '0.2.0' },
+  { name: 'room', version: MCP_VERSION },
   {
     capabilities: { experimental: { 'claude/channel': {} }, tools: {} },
     instructions:
@@ -119,3 +142,116 @@ async function subscribe() {
   }
 }
 subscribe()
+
+// --- diagnostics（決定45 の契約。read-only。呼ばれた時だけ走る）-------------------------
+// 関数宣言なので巻き上げられ、ファイル冒頭のサブコマンド分岐から呼べる。
+// checks の値は契約どおり状態そのもの（pass / fail / not_applicable / unverified）。
+// 外部 adapter が exact allowlist で検証するため JSON へ理由を混ぜず、理由は人間可読出力に出す。
+async function runDiagnostics(asJson) {
+  const checks = {}
+  const why = {}
+  const run = async (name, fn) => {
+    try {
+      const [status, reason] = await fn()
+      checks[name] = status
+      why[name] = reason
+    } catch (e) {
+      checks[name] = 'unverified'
+      why[name] = `判定不能: ${e.message}`
+    }
+  }
+
+  let pkg = null
+  let pkgError = null
+  try {
+    pkg = JSON.parse(readFileSync(join(PKG_ROOT, 'package.json'), 'utf8'))
+  } catch (e) {
+    pkgError = e
+  }
+  const needPkg = () => {
+    if (!pkg) throw pkgError
+    return pkg
+  }
+
+  await run('version_consistency', () => {
+    const v = needPkg().version
+    return v === MCP_VERSION
+      ? ['pass', `package.json と client.mjs がどちらも ${v}`]
+      : ['fail', `package.json=${v} / client.mjs=${MCP_VERSION} で食い違っている`]
+  })
+
+  await run('bin_integrity', () => {
+    const bins = Object.entries(needPkg().bin ?? {})
+    if (!bins.length) throw new Error('package.json に bin が無い')
+    const broken = bins.filter(([, rel]) => {
+      const p = join(PKG_ROOT, rel)
+      if (!existsSync(p)) return true
+      return !readFileSync(p, 'utf8').startsWith('#!')
+    })
+    return broken.length
+      ? ['fail', `不在または shebang 無し: ${broken.map(([n]) => n).join(', ')}`]
+      : ['pass', `${bins.map(([n]) => n).join(' / ')} が存在し shebang を持つ`]
+  })
+
+  await run('node_runtime', () => {
+    const want = needPkg().engines?.node
+    const min = /^>=\s*(\d+)/.exec(want ?? '')
+    if (!min) throw new Error(`engines.node を解釈できない: ${want}`)
+    const major = Number(process.version.slice(1).split('.')[0])
+    return major >= Number(min[1])
+      ? ['pass', `${process.version} が ${want} を満たす`]
+      : ['fail', `${process.version} は ${want} を満たさない`]
+  })
+
+  await run('skill_bundle', () => {
+    const required = [
+      'SKILL.md',
+      'scripts/setup.sh',
+      'scripts/teardown.sh',
+      'templates/gen-plan.mjs',
+      'templates/done.sh',
+      'templates/charter.md',
+      'templates/member.md',
+      'templates/member-standalone.md',
+      'templates/tasks.md',
+      'templates/mcp.json',
+    ]
+    const missing = required.filter(f => !existsSync(join(PKG_ROOT, 'skill', f)))
+    return missing.length
+      ? ['fail', `skill/ に不足: ${missing.join(', ')}`]
+      : ['pass', `必須 ${required.length} ファイルが揃っている`]
+  })
+
+  await run('room_reachability', async () => {
+    const url = process.env.PEERTABLE_URL
+    if (!url) return ['not_applicable', 'PEERTABLE_URL 未設定（npm 単体利用の平常状態）']
+    try {
+      const res = await fetch(`${url}/`, { signal: AbortSignal.timeout(3000) })
+      return res.ok
+        ? ['pass', `${url}/ が ${res.status} を返した`]
+        : ['fail', `${url}/ が ${res.status} を返した`]
+    } catch (e) {
+      // 到達しないことは判定不能ではなく確定した fail（unverified へ丸めない）
+      return ['fail', `${url}/ へ到達できない: ${e.message}`]
+    }
+  })
+
+  const values = Object.values(checks)
+  const overall = values.includes('unverified') ? 'unverified'
+    : values.includes('fail') ? 'not_ready'
+      : 'ready'
+
+  const report = {
+    schema: 'peertable.native_factory_diagnostics.v1',
+    product: { name: pkg?.name ?? 'peertable', version: pkg?.version ?? null },
+    checks,
+    overall,
+  }
+  if (asJson) {
+    console.log(JSON.stringify(report))
+  } else {
+    console.log(`peertable ${report.product.version ?? '(version 不明)'} — ${overall}`)
+    for (const [name, status] of Object.entries(checks)) console.log(`  ${status.padEnd(15)} ${name}: ${why[name]}`)
+  }
+  return overall === 'ready' ? 0 : 1
+}
