@@ -88,7 +88,7 @@ description: 任意プロジェクトに Peertable チーム（対等メンバ�
 運用側が踏みやすい所（実測で確認した挙動）:
 
 - **worktree は run 終端で `git worktree remove --force` される。** 席の commit は base_sha の子孫だが、木ごと消えた後はどの参照からも辿れない（gc の対象）。**成果の正本は Lattice が撮った observed diff** であって席の commit ではない。着地は run の外の工程で、`[完了]` は着地の宣言ではない
-- **worktree には gitignore 済みの資産が無い**（`node_modules` 等）。席が「テストが動かない」と言い出したらこれを疑う。canonical tree で回させない——測りたい木ではない
+- **worktree には gitignore 済みの資産が無い**（`node_modules` 等）が、**席に install させない**。checkpoint 観測は `git status --ignored=matching` で撮る（gitignore 経由の scope 迂回を塞ぐ設計）ので、install した file が全部 `undeclared_write` になり、diff entry 上限 256 を超えた時点で観測ごと落ちる（実測: ignored 300本で `diff entry数が上限を超える`）。**依存は install 無しで解決する**——worktree が repo 配下（`<repo>/.lattice/runs/…/tree`）に切られるので、Node の bare specifier 解決が親を遡って canonical の `node_modules` に当たる（repo の外へ置くと `ERR_MODULE_NOT_FOUND`）。当たるのは canonical の版なので、lockfile を動かす task の検証結果は疑う。canonical tree で回させない——測りたい木ではない
 - **`scope_writes` の外への書き込みは黙って弾かれず、`undeclared_write` として観測に出る。** 席へは「隠すな、room で言え」と伝わっている
 
 ## 親の operating notes（このセッションの振る舞い）
