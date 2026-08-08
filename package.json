@@ -23,6 +23,9 @@
     "chatroom",
     "channels"
   ],
+  "scripts": {
+    "prepublishOnly": "PEERTABLE_URL= node room/client.mjs diagnostics"
+  },
   "bin": {
     "peertable-room": "room/server.mjs",
     "peertable-client": "room/client.mjs"
