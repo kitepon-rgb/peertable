@@ -3,7 +3,12 @@
 import { spawn } from 'node:child_process'
 
 const child = spawn('node', ['client.mjs'], {
-  env: { ...process.env, PEERTABLE_URL: 'http://localhost:8790', PEERTABLE_ROOM: 'demo', PEERTABLE_MEMBER: 'sakura' },
+  env: {
+    PEERTABLE_URL: 'http://localhost:8790',
+    PEERTABLE_ROOM: 'demo',
+    PEERTABLE_MEMBER: 'sakura',
+    ...process.env, // 環境変数があれば既定より優先
+  },
   stdio: ['pipe', 'pipe', 'inherit'],
 })
 
@@ -39,7 +44,9 @@ send({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'post', argu
 console.log('post:', (await wait(m => m.id === 3)).result.content[0].text)
 
 // 他人（hinata）が発言 → sakura のクライアントが channel 通知を上げるはず
-await fetch('http://localhost:8790/api/demo/messages', { method: 'POST', body: JSON.stringify({ from: 'hinata', to: 'sakura', body: 'sakura さん、タスクYお願い' }) })
+const BASE = process.env.PEERTABLE_URL ?? 'http://localhost:8790'
+const TOKEN_HEADER = process.env.PEERTABLE_POST_TOKEN ? { 'X-Peertable-Token': process.env.PEERTABLE_POST_TOKEN } : {}
+await fetch(`${BASE}/api/demo/messages`, { method: 'POST', headers: TOKEN_HEADER, body: JSON.stringify({ from: 'hinata', to: 'sakura', body: 'sakura さん、タスクYお願い' }) })
 const notif = await wait(m => m.method === 'notifications/claude/channel')
 console.log('channel通知:', JSON.stringify(notif.params))
 

@@ -1,0 +1,19 @@
+# MS-A2 用の room サーバー常駐設定。
+# 書込トークンは compose と同じ場所の .env（PEERTABLE_POST_TOKEN=...）で渡す。
+name: peertable
+
+services:
+  room:
+    build: ../room
+    image: peertable-room:local
+    container_name: peertable-room
+    restart: unless-stopped
+    environment:
+      PEERTABLE_POST_TOKEN: ${PEERTABLE_POST_TOKEN:?set in deploy/.env}
+    volumes:
+      - room-data:/data
+    ports:
+      - "192.168.1.2:18860:8790"
+
+volumes:
+  room-data:

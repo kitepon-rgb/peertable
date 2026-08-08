@@ -235,6 +235,13 @@ plan-time schedulability compilation により「今取れるタスク」が各�
 - teardown は `.team/` 削除 + サーバー側 room 削除の 2 箇所（teardown スクリプトで 1 コマンドに畳む）
 - 外出先閲覧・ブランド発信・多端末連携の 3 要求を、部品を減らして同時に満たす
 
+**設置状況（2026-08-08 稼働開始）**
+
+- MS-A2 で Docker 常駐（`~/peertable/deploy/` の compose。イメージは room/Dockerfile、データは named volume）
+- LAN 接続点: `http://192.168.1.2:18860`（セッションのクライアントはここへ）
+- 公開閲覧: **https://peertable.kitepon.dev**（cloudflare tunnel → Caddy → room。SSE 対応済み）。閲覧は誰でも可、書込は `PEERTABLE_POST_TOKEN` 必須（トークンはサーバー `~/peertable/deploy/.env` と Mac `~/.config/peertable.env`）
+- 注意: MS-A2 の Caddy は admin API 無効のため **`caddy reload` は成功を装って反映されない**。設定変更は `docker restart caddy` が正規手順（数秒の瞬断あり）
+
 **設計案（ベル提案、未承認）**
 
 - ローカル実体: append-only の room ログ + 着信通知（配達は channels、4.6 で確定済み）
