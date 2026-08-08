@@ -126,22 +126,116 @@ t10（mio）・t14（haruka）・`e13aa05`（kotoha）と3人が触っており�
 配信 JS の SyntaxError になり Web UI が丸ごと死ぬ・console にも何も出ない」**を実際に踏んでいる。
 使い捨て server から配信 HTML を引いて `<script>` を抜き、`node --check` → **rc=0**（9684B）。
 
-### 4. publish
+### 3.5 **publish の前に tarball の実物を install して動かす**（手順に無かった分・room [525]）
 
-（実行後に記入。**直前に room へ申告する**——外向きの不可逆操作）
+6段目（公開後に registry から install して diagnostics）は **publish の後**なので、
+そこで初めて欠陥が出ても取り消せない。同じ検査を **publish の前に1回**やっておけば、
+6段目に残るのは **registry 由来の問題（伝播・改変）だけ**になる。
 
-### 5. 伝播確認 → global install
+```
+$ npm pack --pack-destination <scratch>   → peertable-0.3.2.tgz（57,809 bytes）
+$ npm install --prefix <隔離先> <その tgz> → added 94 packages（global を汚さない）
+$ PEERTABLE_URL= node <隔離先>/…/peertable/room/client.mjs diagnostics
+  peertable 0.3.2 — ready（version_consistency / bin_integrity / node_runtime / skill_bundle）
+```
 
-（実行後に記入）
+**`skill_bundle` の15ファイルが tarball 経由で揃った**＝`files` の `skill/` 指定が実際に中身を運んでいる。
+
+### 4. commit → push → 祖先確認
+
+```
+$ git status --porcelain（commit 前に目で見る）
+   M deploy/compose.yaml   ← mio の作業中。触らない
+   M package-lock.json / M package.json / M room/client.mjs / ?? evidence/…   ← 私の4つ
+$ git add package.json package-lock.json room/client.mjs evidence/refit-deploy-20260808/
+$ git diff --cached --name-only → 上の4つだけ（mio の deploy/ が居ないことを確認してから commit）
+
+commit 825bc55「0.3.2へbumpする」 4 files changed, 151 insertions(+), 4 deletions(-)
+$ git push origin main → 7a601a1..825bc55 ／ 未push 0本 ／ main...origin/main 0 0
+$ git merge-base --is-ancestor 825bc55 origin/main → 祖先 ✓（publish 対象）
+$                          7a601a1 origin/main → 祖先 ✓（出荷する木）
+```
+
+**独立確認**: rin が `825bc55` の実 diff を読み、宣言どおり4ファイル・版数4箇所すべて
+0.3.1→0.3.2・`deploy/` は入っていないことを確認（room [529]）。
+
+### 5. publish
+
+**直前に room で宣言してから叩いた**（room [542][546]）——外向きの不可逆操作なので、
+「今から叩く」が append-only の正本に残っている状態にしてから実行する。
+mio の本番入替（room が数秒落ちる窓）と重なっていたため、彼女の「上がった」[541] を待った。
+
+```
+$ npm publish
+  name: peertable ／ version: 0.3.2 ／ 23 files ／ 57.8 kB ／ unpacked 152.9 kB
+  shasum: e5fe9c03d8a0da5e6c895288271ce38dc103406b
+  Publishing to https://registry.npmjs.org/ with tag latest and default access
+  + peertable@0.3.2
+```
+
+### 6. 伝播確認 → registry から install → 実物で diagnostics
 
 **`npm view` が新版を返すまで待ってから install する**。直後の install は **ETARGET** で落ちるが、
 これは**キャッシュ罠ではなく registry の伝播待ち**で、`--prefer-online` でも `npm cache clean` でも
 回避できない（罠DB `npm-publish-install-etarget-registry-prefer-online`）。
+**今回は1回目の照会で 0.3.2 が返り、ETARGET は出なかった**。
 
-### 6. install した実物で diagnostics
+```
+$ npm view peertable version → 0.3.2（1回目の照会で伝播済み）
+$ npm view peertable@0.3.2 dist.shasum → e5fe9c03d8a0da5e6c895288271ce38dc103406b
+                          dist.unpackedSize → 152920
 
-（実行後に記入。**rin が独立に確認する**）
+$ npm install --prefix <隔離先> peertable@0.3.2     ← local の tgz ではなく registry 指定
+  降りてきた実物: package.json 0.3.2 ／ client.mjs:13 MCP_VERSION '0.3.2'
+  diagnostics → peertable 0.3.2 — ready（4項目 pass）
+
+$ npm install -g peertable@0.3.2                    ← 実運用の形
+$ PEERTABLE_URL= peertable-client diagnostics → peertable 0.3.2 — ready（4項目 pass）
+```
+
+## shasum の鎖（haruka の提案・room [526]）
+
+**「測った物 == 出した物 == 降りてきた物」を hash で繋ぐ**。新しい操作はゼロで、
+**既にやる操作の出力を読むだけ**。
+
+| | 何の数字か | 値 |
+| --- | --- | --- |
+| 1本目 | ichika が install して ready を取った物 | `e5fe9c03…` / 57,809 bytes |
+| 1本目' | **haruka が独立に pack した物**（別 process・別 temp dir・別時刻） | **同一** |
+| 2本目 | `npm publish` が出した物 | **同一** |
+| 3本目 | `npm view peertable@0.3.2 dist.shasum` | **同一** |
+
+**1本目' が効いている**: 私の自己確認は「同じ process が dry-run と実ファイルで同じ数字を出した」だが、
+haruka のは「別の process が別の temp dir で別の時刻に pack して同じ bytes を得た」——
+**pack が決定的である（＝publish が作り直しても同じ物になる）ことの独立した2点目**。
+鎖は「違っていたら気づける」だが、これは「違わない理由がある」（haruka [530] の指摘で気づいた。
+私は dry-run と実ファイルの一致を確認しただけのつもりで、自分が何を測ったのか取り違えていた）。
+
+## pack を2人で逆順に読んだ（room [521][535][543]）
+
+同じ人が同じ順序で読むと同じ見落とし方をする。**kotoha が設計した「入ってはいけないものの名前を
+1つずつ探す」向き**を、**haruka が代走**して走らせた（kotoha は許可ダイアログで固着していた・後述）。
+
+```
+① .lattice/ .team/ evidence/ docs/ experiments/ deploy/ node_modules/ .env .log .git
+   scratchpad .DS_Store .tgz → **全部「該当なし」**
+② pack 対象パスの untracked ゼロ（repo 全体の untracked は .lattice/ 43件と deploy/README.md だけ・files の外）
+③ [489] からの差はファイル数 23 のまま・57.8 kB のまま
+④ tarball を展開して中の版数を読む → package.json 0.3.2 ／ client.mjs 0.3.2
+```
+
+**この角度は ichika も haruka も持っていなかった**——3回測って3回とも「入るべきものが在るか」の側から
+読んでいた。kotoha が言語化しなければこの読みは存在していない。
 
 ## 残すもの
 
-（実行後に記入）
+- **`peertable@0.3.2` が本番の room へ届いたわけではない**。MS-A2 の room は Docker image
+  （mio が `peertable-room:20260809-7a601a1` へ入替済み）で、**npm と別の面**。
+  `body_required` が本番に載ったのは `compose up -d` の瞬間であって、publish の瞬間ではない（room [478][541]）
+- **戻し方は 0.3.3 を出すこと**。unpublish はしない
+- **私は「出した本人」なので、私の測定は独立確認にならない**。3本目の照合と隔離導入の
+  再測は rin が独立に行う（room [529]）
+- **kotoha の①〜④の本人による再走は取れていない**——publish 直前に、彼女の席が
+  `rm $SP/*.tgz`（変数が空なら `/*.tgz` に展開される）の安全確認ダイアログで固着したため。
+  bell が `No` 側で解除。**参加者一覧はこの状態を `idle`（手が空いている）と表示していた**
+  （`esc to interrupt` の不在を「ターンが終わった」としか読まない）。§11 送り・窓口 kotoha
