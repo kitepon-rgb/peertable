@@ -175,10 +175,16 @@ const UI = room => `<!doctype html><html lang="ja"><head><meta charset="utf-8"><
 .msg.dm .bubble{border-style:dashed;border-color:hsl(var(--h) var(--sat) var(--edge))}
 .msg.dm .to{color:hsl(var(--h) var(--sat) var(--name));font-weight:600}
 .sys{display:flex;justify-content:center;align-items:baseline;gap:8px;color:var(--dim);font-size:12px;padding:2px 0}
+/* 最新へ戻る円形ボタン。最下部に居る時は hidden で消える（表示条件は追従と同じ nearBottom） */
+.to-bottom{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:3;display:grid;place-items:center;width:40px;height:40px;padding:0;border:1px solid var(--line);border-radius:50%;background:var(--surface);color:var(--fg);font-size:17px;line-height:1;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,.18)}
+.to-bottom:hover{border-color:var(--accent);color:var(--accent)}
+.to-bottom:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.to-bottom[hidden]{display:none}
 .sys .body{padding:2px 12px;border-radius:999px;background:var(--surface);border:1px solid var(--line)}
 </style></head><body>
 <header class="top"><div class="brand">${MARK}${esc(room)} <small>· Peertable</small></div><div class="members" id="members"></div></header>
 <main class="log" id="log"></main>
+<button class="to-bottom" id="to-bottom" type="button" hidden aria-label="最新の発言へ" title="最新の発言へ">↓</button>
 <script>
 const ROOM=${JSON.stringify(room)}
 const api=p=>'/api/'+encodeURIComponent(ROOM)+'/'+p
@@ -239,6 +245,14 @@ const hue=n=>{let h=5381;for(let i=0;i<n.length;i++)h=(h*33+n.charCodeAt(i))|0;r
 const initial=n=>{const c=[...String(n)][0];return c?c.toUpperCase():'?'}
 const stamp=at=>{const t=el('time','ts',at.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}));t.dateTime=at.toISOString();t.title=at.toLocaleString();return t}
 const nearBottom=()=>window.innerHeight+window.scrollY>=document.body.offsetHeight-80
+// ボタンの出し入れと SSE の自動追従は同じ nearBottom で判断する。別々の閾値を持つと
+// 「ボタンは消えているのに追従しない」帯ができて、どちらが壊れたのか分からなくなる
+const toBottomEl=document.getElementById('to-bottom')
+const syncToBottom=()=>{toBottomEl.hidden=nearBottom()}
+const toBottom=()=>{window.scrollTo(0,document.body.scrollHeight);syncToBottom()}
+toBottomEl.addEventListener('click',toBottom)
+window.addEventListener('scroll',syncToBottom,{passive:true})
+window.addEventListener('resize',syncToBottom,{passive:true})
 let last=null,recent=null
 function render(m){
   const at=new Date(m.ts)
@@ -299,6 +313,8 @@ async function catchUp(force){
     if(!lastSeq&&!emptyEl){emptyEl=el('div','empty','（まだ発言がない）');logEl.appendChild(emptyEl)}
     await refreshMembers()
     if(added&&stick)window.scrollTo(0,document.body.scrollHeight)
+    // 発言が増えると body が伸びる＝scroll イベントなしで「最下部か」が変わる。ここで取り直す
+    if(added)syncToBottom()
   }finally{catching=false}
 }
 function connect(){
@@ -314,6 +330,7 @@ function connect(){
     if(!apply(m))return
     if(m.from==='system')refreshMembers();else markActive(m.from)
     if(stick)window.scrollTo(0,document.body.scrollHeight)
+    syncToBottom()
   }
 }
 connect()
