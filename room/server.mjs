@@ -219,7 +219,7 @@ function markActive(name){
   if(!known)refreshMembers()
 }
 const BEAT=${HEARTBEAT_MS}
-let lastSeq=0,lastBeat=Date.now(),es=null,emptyEl=null,firstLoad=true
+let lastSeq=0,lastBeat=Date.now(),es=null,emptyEl=null,firstLoad=true,catching=false
 // seq で二重描画を弾く。張り直し後の追いつきと SSE の新着が重なっても同じ発言は1回しか出ない
 function apply(m){
   if(m.seq<=lastSeq)return false
@@ -230,18 +230,24 @@ function apply(m){
   return true
 }
 async function catchUp(force){
-  const stick=force||nearBottom()
-  const r=await(await fetch(api('messages')+'?since='+lastSeq)).json()
-  const added=r.messages.filter(apply).length
-  if(!lastSeq&&!emptyEl){emptyEl=el('div','empty','（まだ発言がない）');logEl.appendChild(emptyEl)}
-  await refreshMembers()
-  if(added&&stick)window.scrollTo(0,document.body.scrollHeight)
+  if(catching)return
+  catching=true
+  try{
+    const stick=force||nearBottom()
+    const r=await(await fetch(api('messages')+'?since='+lastSeq)).json()
+    const added=r.messages.filter(apply).length
+    if(!lastSeq&&!emptyEl){emptyEl=el('div','empty','（まだ発言がない）');logEl.appendChild(emptyEl)}
+    await refreshMembers()
+    if(added&&stick)window.scrollTo(0,document.body.scrollHeight)
+  }finally{catching=false}
 }
 function connect(){
   if(es)es.close()
   es=new EventSource(api('events'));lastBeat=Date.now()
   es.onopen=()=>{lastBeat=Date.now();catchUp(firstLoad);firstLoad=false}
-  es.addEventListener('ping',()=>{lastBeat=Date.now()})
+  // 心拍は room の最新 seq を積んでくる。繋がったまま取りこぼした（＝途絶しないので watchdog が気づけない）
+  // 場合は、この差分だけが手掛かりになる
+  es.addEventListener('ping',e=>{lastBeat=Date.now();if(Number(e.data)>lastSeq)catchUp()})
   es.onmessage=e=>{
     lastBeat=Date.now()
     const m=JSON.parse(e.data),stick=nearBottom()
