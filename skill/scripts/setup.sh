@@ -12,7 +12,13 @@ proj="$1"; room="$2"; url="$3"; plan="$4"; repo="$5"
 # 位置引数として食わない——食うと Lattice 併用モードの `… <repo> --phase p2` が
 # 「未知の引数: p2」という原因を指さないエラーで落ちる（2026-08-08 実測・kotoha 監査）。
 tasks=""
-if [ $# -gt 0 ] && [ "${1#--}" = "$1" ]; then tasks="$1"; shift; fi
+if [ $# -gt 0 ]; then
+  case "$1" in
+    -) shift ;;              # 明示的な「tasks_file 無し」
+    -*) ;;                   # オプション（綴り誤りも含む）。下のループで typed に落とす
+    *) tasks="$1"; shift ;;  # tasks_file
+  esac
+fi
 
 phases=()
 while [ $# -gt 0 ]; do
@@ -25,7 +31,7 @@ while [ $# -gt 0 ]; do
       esac
       phases+=("$1")
       ;;
-    *) echo "ERROR: 未知の引数: $1（--phase <id> だけを受ける）" >&2; exit 1 ;;
+    *) echo "ERROR: 未知の引数: $1（受けるのは --phase <id> だけ。tasks_file は単独円卓モード専用で、オプションより前に置く）" >&2; exit 1 ;;
   esac
   shift
 done
