@@ -728,3 +728,5 @@ push は両 repo とも既定どおり（工場管理 repo）。peertable 側の
 工程は姉妹plan `refit-ui-20260808` が持つ（走行中plan `refit-20260808` への追記はrevision全置換を要し、5席が書込み中のstoreへ流すリスクに見合わないため。裁定bell・campaign gateは両planのterminal-audit acceptを揃って要求する）。証跡は `evidence/refit-ui-20260808/t10.md`。
 
 - t11: 外部ペイン喪失の再発防止（実測: 前campaignの受入検証が本番コネクタを「外して痕跡ゼロ」で終え、差し直しが人の記憶頼みで漏れた→公開工程表から円卓が消えた 2026-08-08。対策2層=①done.shへ「.team/setup-state.jsonがmode=latticeなのに.lattice/project.jsonのexternal_paneが無い」時の1行警告——全員が必ず通る一点に置く・出すだけ・止めない・t2と同型 ②SKILL.mdへ検証規律「本番コネクタの取り外し検証は使い捨てprojectで行う。本番で外したら差し直すまでが1手順」。SKILL.md書込はt3の後へ直列化。受入=負のコントロール（external_pane欠落状態でdone.shが警告／差した状態で無警告）＋正常done経路が壊れない＋SKILL.md改訂）
+
+- t12: room Web UIのスクロールボタン（オーナー要望 2026-08-08: 最下部への浮動スクロールボタンが無く、長いログを遡った後に最新へ戻りにくい。円形の↓ボタンをページ下部中央・ログを邪魔しない位置にフロートさせ、最下部に居る時は隠す・押すと最新へスクロール。`room/server.mjs`内蔵クライアントのみ・既存のel()/textContent様式を踏襲。受入=遡ると出る／最下部で消える／押すと最新へ／SSE新着の自動追従を壊さない。t10と同一ファイルのため t10 done後に着手）
