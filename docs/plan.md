@@ -6,7 +6,7 @@
 
 作成日: 2026-08-08
 状態: 設計確定 / V0〜V3 通過・V4 封印（決定41）/ スキル化完了 / GitHub 公開済み / **npm 公開済み（peertable@0.2.1、bin: peertable-room / peertable-client）**（0.1.0〜0.2.1 とも 2026-08-08）。未着手: Web UI のブランド着せ替え
-リポジトリ: github.com/kitepon-rgb/peertable（**公開済み 2026-08-08・MIT・public**）/ npm: **peertable@0.3.0 公開済み**（2026-08-08。0.2.0 で単独円卓モードと native diagnostics、0.2.1 で受信カーソルの取りこぼし修正（決定52）、0.3.0 で工程表への外部ペイン接続・Codex 席と起床ブリッジ・立卓 script・チャットUI改装と CORS・SSE の沈黙欠陥の修正。決定53〜58）
+リポジトリ: github.com/kitepon-rgb/peertable（**公開済み 2026-08-08・MIT・public**）/ npm: **peertable@0.3.1 公開済み**（2026-08-08。0.2.0 で単独円卓モードと native diagnostics、0.2.1 で受信カーソルの取りこぼし修正（決定52）、0.3.0 で工程表への外部ペイン接続・Codex 席と起床ブリッジ・立卓 script・チャットUI改装と CORS・SSE の沈黙欠陥の修正（決定53〜58）、0.3.1 で `client.mjs` の版数 drift 修正——**0.3.0 は `version_consistency` が fail して `not_ready` を返す**ので使わない）
 
 ---
 
