@@ -33,6 +33,7 @@ description: 任意プロジェクトに Peertable チーム（対等メンバ�
 2. **命名**: メンバーに日本のアニメキャラ風の可愛い名前を都度決める（固定リストなし）。識別子（tmux セッション名・room 登録名・Lattice actor）はローマ字、表示・自己紹介は日本語（決定35）
 3. **scaffold**: `PEERTABLE_PUBLIC_URL=<公開URL基底> scripts/setup.sh <project> <room> <server_url> <plan_key|-> <peertable_repo> [tasks_file]` を実行する。`.team/`（憲章・roles/member.md ほか）と project root の `.mcp.json`（room MCP 定義。決定44）を templates から生成・置換し、`.git/info/exclude` へ `.team/` と `/.mcp.json` を追記し、作成記録を `.team/setup-state.json`（`mode` を含む）に残す
    - **Lattice 併用**: `plan_key` に plan key を渡す。`.team/scripts/done.sh` も配られる。加えて `scripts/external-pane.mjs` が対象 project の `.lattice/project.json` へ `external_pane`（工程表の右ペインに円卓を差す口。決定53）を書く
+   - **phase で卓の範囲を絞る**（決定59）: 複数 phase の plan へ相乗りする時は `--phase <id>`（複数可・位置引数の後ろ）を渡す。`setup-state.json` へ記録され、席の役割文書へ「claim 範囲はこの phase の task だけ」が焼き込まれる。指定なしは plan 全体
    - **単独**: `plan_key` に `-` を渡し、第6引数へ聞き取ったタスクを書いた本文ファイル（`- タスク名: 何をどこまでやるか` の箇条書き。中間ファイルは scratchpad で可）を渡す。`.team/tasks.md`（読み取り専用の議題表）が生成され、`roles/member.md` は単独版になる。`done.sh` は配られない。**議題表を渡さないと setup.sh はエラーで止まる**（空の議題表を作らない）
 4. **Lattice plan（Lattice 併用モードのみ・単独はこの手順ごとスキップ）**: `lattice status --json` で正本を判定する。`uninitialized` なら聞き取ったタスクを JSON へ落として `scripts/make-plan-input.mjs <tasks.json> --project <project>` で `plan create` 入力を生成し、`lattice plan create --input .lattice/plan-create.json` を打つ。初期化済みなら `todo migrate` の作法（Lattice 正典）に従う。設計メモは各タスクに必ず書く
    - `make-plan-input.mjs` が digest 計算と `hard_dependencies` の `(from,to)` 昇順ソートを持つ（**手書きで2回踏んだ罠**。順序が崩れると `INPUT_INVALID / pointer:"/"` としか言われない）。`project_id` の既定は project ディレクトリ名で、`external-pane.mjs` が書く `project.json` の既定と一致させてある——**両者がずれると Lattice が identity 検証で落ちる**
@@ -60,7 +61,12 @@ description: 任意プロジェクトに Peertable チーム（対等メンバ�
   - 登録: `curl -X POST $URL/api/$ROOM/members -H "X-Peertable-Token: $TOKEN" -d '{"name":"bell"}'`
   - 発言: `curl -X POST $URL/api/$ROOM/messages -H "X-Peertable-Token: $TOKEN" -d '{"from":"bell","to":"all","body":"..."}'`
   - 観測: Monitor ツールで `curl -sN $URL/api/$ROOM/events` の SSE を張る（V3 実証済みの形）
-- 親の権能は進行・承認・監査・督促・オーナーとの接点だけ。**実務に落ちない**: バグを見つけても直さず、発見内容を room に送って会議に載せる。差し戻しは異議であり、平行線はメンバーが勝つ
+- 親の権能は進行・受理判定・督促・オーナーとの接点だけ。**実務に落ちない**: バグを見つけても直さず、発見内容を room に送って会議に載せる。差し戻しは異議であり、平行線はメンバーが勝つ
+- **監査は卓の中で行う。親はコードを読まない**（決定60）。完了 task の監査は**実装者以外の席**が実物（diff・検証結果・ハーネスの正負両方）を読んで行い、**所見を room へ出す**。親がするのは、その所見を読んで**受理を宣言すること**だけである。
+  - **受理の根拠は「所見が room に出ていること」**とする。親自身の読みを根拠にすると、親が最終判断者に戻り、卓が上下オーケストレーションへ滑る（決定43 と同じ経路）
+  - **監査者は自分の測定器を先に疑う**。実行して確かめる時は、**欠陥版で落ちることを確認してから** green を読む——確かめずに出た数字は、通っても落ちても意味を持たない
+  - 監査の依頼は**実装者が出す**（「この点を見てほしい」を task の done 報告に添える）。依頼が無くても、手が空いた席は出た順に読んでよい
+  - 監査で見つけたものは**欠陥の断定と指摘を分けて書く**。受入条件外なら「修正を求めない申し送り」として、記録先（証跡の残課題・`lattice todo note`・課題帳）まで示す
 - **宛先の規律**: channels の起床通知は宛先本人（と全員宛）にしか飛ばない（client の `relevant` フィルタ）。用件が特定メンバーだけなら `to` をそのメンバー名にする——1発言=全席1ターンの課金は全員宛の時だけで、名指しなら起きるのは宛先だけ。ログは宛先に関係なく全員が読める（決定42）ので情報の秘匿にはならない。全員宛を使うのは、決定・gate状態・全体への記録だけ
 - **発言規律（決定43・正典 §3.4）**: 親の room 発言は ①監査結果の事実（受理／異議。「次はこうせよ」を続けない）②承認 gate の状態 ③オーナー裁定の伝達（必ず「オーナー裁定」と明示）の3種だけ。メンバー間合意の再掲・とりまとめ・次タスクの指名・frontier の解説は、内容が正しくても**しない**——親が言い直した瞬間に出典が親へ書き換わり、卓が上下オーケストレーションへ滑る（初回実運用で実測）。裁定依頼が来たら自分で判断せず、オーナー宛の議題として運ぶ
 - 督促の検出源は room の報告途絶と Lattice 工程表の乖離。**単独円卓モードでは工程表が無いので、検出源は `.team/tasks.md` の議題と room ログの照合だけになる**——完走の判定も同じで、全議題に完了報告が揃ったことを親が room ログで確認し、散会を宣言する（この確認と宣言が単独モードの done gate である）
