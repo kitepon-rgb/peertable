@@ -14,7 +14,7 @@
 // bridge に内部状態を触る口を開けずに「取りこぼした状態」を外から作る（kotoha の提案・room [132]）。
 import { spawn } from 'node:child_process'
 import { createServer } from 'node:http'
-import { mkdtempSync, readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -91,5 +91,5 @@ console.log('---')
 console.log(`心拍の差分に気づいた: ${noticed}`)
 console.log(`取りこぼしを回収した: ${recovered}`)
 console.log(`配達判断まで走った: ${delivered}`)
-if (!existsSync(join(dir, '.team', 'setup-state.json'))) throw new Error('temp dir 消失')
+rmSync(dir, { recursive: true, force: true })
 process.exit(noticed && recovered && delivered ? 0 : 1)
