@@ -415,6 +415,20 @@ plan-time schedulability compilation により「今取れるタスク」が各�
 42. **公開 Web UI は読み取り専用**（クオ指示 2026-08-08）。入力欄を撤去——全公開する面に書込の招待状を置かない。書込は API + トークンのみ（セッションのクライアントと親経由）。旧「クオはブラウザから発言可」は撤回し、クオの発言は親（ベル）経由とする
 43. **親の発言規律（初回実運用の実測から。クオ指示 2026-08-08）**。Lattice の audit-pending-surface campaign（初の実務適用）で、親がメンバー間合意の再掲・「〜に乗ること」という語調の念押しを行った直後から、メンバーが設計判断の出典を親の発言番号で参照し始めた（「bell の [15] どおり」）。内容がメンバー自身の決定の繰り返しでも、**親が言い直した瞬間に出典が親へ書き換わり**、以後の判断が親参照になって通常の上下オーケストレーションへ滑る。よって親の room 発言は次の3種に限る: ①監査結果の事実（受理、または異議としての差し戻し）②承認 gate（publish 等、親が預かるオーナー領域操作）の状態 ③オーナー裁定の伝達。禁止: メンバー間合意の再掲・とりまとめ、次タスクの指名・誘導、受理宣言に続けた「次はこうせよ」。発言規律は親の自制だけに頼らず、憲章のメンバー側規範（親発言を仕様の出典にしない）と両輪で守る（§3.4）
 44. **channels は `--mcp-config` で渡した MCP server を解決しない（実測 2026-08-08、Claude Code v2.1.226）**。バナーに `server:room · no MCP server configured with that name` が出て room 配達が沈黙する。同じ JSON を project root の `.mcp.json` に置けば解決する。よって root `.mcp.json` 方式を正の手順へ昇格し（旧: 条件付きフォールバック）、不可侵原則は「setup が `.git/info/exclude` へ追加し teardown が確実に撤去する」ことで保つ。project に既存の `.mcp.json` がある場合は上書きせず、AI が手動 merge して teardown で復元する
+45. **peertable native diagnosticsの契約を確定（peertable-onboarding campaign, room全員合意, 2026-08-08）**。外部（dotagents 工場管理）の native factory diagnostics 契約群に接続するための、peertable 自身が所有する read-only 診断。npm 単体利用者にも意味が通る診断だけで構成し、工場語彙（wave/ToDo/Control 等）は checks に混ぜない。
+   - 入口: `peertable-client diagnostics --json`（既存 bin へサブコマンド追加。無指定時は人間可読、`--json` で下記 schema の JSON）。`--version` は別途持たず `product.version` を正本とする
+   - schema: `peertable.native_factory_diagnostics.v1`
+   - 出力: `{ schema, product:{name,version}, checks:{ version_consistency, bin_integrity, node_runtime, skill_bundle, room_reachability }, overall }`
+     - `version_consistency`: `client.mjs` 内 `MCP Server({name:'room',version:...})` のハードコード版数 と `package.json` の `version` の一致（2 つの版数源の drift 検出が目的）
+     - `bin_integrity`: `peertable-room` / `peertable-client` 両 bin の存在と shebang 確認（room の起動はしない）
+     - `node_runtime`: `process.version` が `package.json` の `engines.node`（`>=20`）を満たすか
+     - `skill_bundle`: `skill/` 配下の必須ファイル（`SKILL.md`, `scripts/setup.sh`, `scripts/teardown.sh`, `templates/{gen-plan.mjs,done.sh,charter.md,member.md,mcp.json}`）の存在確認
+     - `room_reachability`: `PEERTABLE_URL` 未設定は `not_applicable`（npm 単体利用者の平常状態）。設定時のみ既存の room 一覧ページ（`GET <URL>/`）で到達確認する。新規 health endpoint は追加しない
+   - 各 check は `pass` / `fail`（`room_reachability` のみ `not_applicable` も可）。check の実行自体が例外（`package.json` read 失敗等の I/O エラー）で判定不能になった場合はその check を `unverified` とする
+   - `overall`: いずれかの check が `unverified` なら `overall: unverified`。適用対象の check に 1 つでも `fail` があれば `not_ready`。それ以外は `ready`
+   - exit code: `overall: ready` のときだけ 0
+   - 不可侵原則の遵守: 新規 health endpoint を足さない、room DB や内部 state を読まない、message 本文を扱わない
+   - push既定の訂正: 本 campaign の各タスク設計メモは「push 既定は両 repo で有効」としていたが、`AGENTS.md` の「push・publish・リモート作成はオーナーの明示指示時だけ行う」が project 正典として優先する（peertable はコア製品編入未完了のため恒久裁定の対象外）。本 campaign 中の peertable repo 側作業は commit までとし、push はオーナー裁定を待つ
 
 ---
 
