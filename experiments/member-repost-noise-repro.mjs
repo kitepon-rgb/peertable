@@ -20,9 +20,14 @@ import { spawn } from 'node:child_process'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { createServer } from 'node:net'
 
+// **固定の既定ポートを持たない。** 卓では複数の席が同時に使い捨て server を立てるので、既定値を
+// 持つと他人の server に当たる。しかも当たったことに気づけない（相手は 200 を返す）——2026-08-08、
+// 既定 8816 が他席の宣言と衝突して、別の server と喋りながら「保存されない」と読みかけた。
+const freePort = () => new Promise(r => { const s = createServer(); s.listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => r(p)) }) })
 const server = process.argv[2] ?? 'room/server.mjs'
-const port = Number(process.env.PORT ?? 8816)
+const port = Number(process.env.PORT) || await freePort()
 const base = `http://127.0.0.1:${port}/api/repro`
 const data = mkdtempSync(join(tmpdir(), 'peertable-repost-'))
 
@@ -30,7 +35,12 @@ const data = mkdtempSync(join(tmpdir(), 'peertable-repost-'))
 // 「空文字のトークンを要求する」状態になり、書込が全部 403 になる（2026-08-08 実測・2回踏んだ）
 const childEnv = { ...process.env, PEERTABLE_PORT: String(port), PEERTABLE_DATA: data }
 delete childEnv.PEERTABLE_POST_TOKEN
-const child = spawn('node', [server], { env: childEnv, stdio: ['ignore', 'ignore', 'ignore'] })
+// **起動失敗を握り潰さない。** stderr を捨てると `EADDRINUSE` が1文字も出ず、他人の server に
+// 当たっている事実が消える
+let childErr = ''
+const child = spawn('node', [server], { env: childEnv, stdio: ['ignore', 'ignore', 'pipe'] })
+child.stderr.on('data', d => { childErr += d })
+child.on('exit', code => { if (code) console.error(`  子 server が終了した（code ${code}）: ${childErr.trim()}`) })
 const cleanup = () => { child.kill(); rmSync(data, { recursive: true, force: true }) }
 
 const wait = ms => new Promise(r => setTimeout(r, ms))
@@ -42,8 +52,21 @@ let ok = true
 const check = (name, pass, detail) => { console.log(`  ${pass ? 'pass' : 'FAIL'}  ${name}${detail ? ` — ${detail}` : ''}`); if (!pass) ok = false }
 
 try {
-  for (let i = 0; i < 40; i++) { try { await fetch(`http://127.0.0.1:${port}/`); break } catch { await wait(100) } }
-  console.log(`対象: ${server}`)
+  // **自分の子が実際にそのポートを掴んだことを、子の起動ログで確かめる。** 応答が返ることは
+  // 「自分の子に繋がった」証明にならない——他人の server が同じポートで応答していても 200 は返る。
+  // room が空かどうかでも判定できない（他人の server にも、この room 名は無い）。
+  // 確実なのは「私の子が `on :<port>` を出したか」だけ（2026-08-08 実測。ここを緩くしていて、
+  // 他人の server と喋りながら全項目 pass を読みかけた）
+  const started = await Promise.race([
+    new Promise(r => { const t = setInterval(() => { if (childErr.includes(`on :${port}`)) { clearInterval(t); r(true) } }, 50) }),
+    wait(6000).then(() => false),
+  ])
+  if (!started) {
+    console.error(`  子 server が port ${port} を掴めていない（他人の server が居る／起動に失敗した）。中止する`)
+    if (childErr.trim()) console.error(`  子の出力: ${childErr.trim()}`)
+    process.exit(2)
+  }
+  console.log(`対象: ${server}（port ${port}）`)
 
   await put({ name: 'ことは' })
   const afterFirst = await seq()
