@@ -5,7 +5,7 @@
 ## 作業ループ
 
 1. `lattice todo status --json` で ready なタスクを見る
-2. 憲章の手順で room に claim を宣言する
+2. 憲章の手順で room に claim を宣言する。**`[claim]` は独立した1発言で出す**——完了報告や他タスクの話と同じ発言に畳まない。宣言としては有効でも、後から機械的に追えなくなり、監査が「宣言が無い」と誤読する（2026-08-08 実測）
 3. `lattice todo start --plan {{PLAN_KEY}} --task <id>` で着手を記録する。**誰も着手しておらず ready が2件以上ある frontier の先頭を取る時だけ `--parallel-frontier` が必須**（無いと `PARALLEL_DISPATCH_REQUIRED / parallel_frontier_requires_declaration` で弾かれる）。ready が1件だけ、または既に誰かが着手している frontier へ後から乗る時は素の start でよい
 4. 実装する。インターフェースなど他タスクに影響する決定は、決めた時点で room 全員宛に一行で共有する
 5. 完了手順:
