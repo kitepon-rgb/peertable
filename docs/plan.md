@@ -429,6 +429,8 @@ plan-time schedulability compilation により「今取れるタスク」が各�
    - exit code: `overall: ready` のときだけ 0
    - 不可侵原則の遵守: 新規 health endpoint を足さない、room DB や内部 state を読まない、message 本文を扱わない
    - push既定の訂正: 本 campaign の各タスク設計メモは「push 既定は両 repo で有効」としていたが、`AGENTS.md` の「push・publish・リモート作成はオーナーの明示指示時だけ行う」が project 正典として優先する（peertable はコア製品編入未完了のため恒久裁定の対象外）。本 campaign 中の peertable repo 側作業は commit までとし、push はオーナー裁定を待つ
+46. **Lattice とは分離を維持し、「Lattice をさらに面白くする隣接製品」の立場を取る（クオ裁定 2026-08-08）**。吸収しない理由: ①room・憲章・宣言規範は AI 側の社会契約であり、Lattice の所有境界（機械の真実だけを供給し、判断・会話を実装しない）の外 ②Lattice の機能優先順位は特許請求項で決まり、room はどの構成要件も埋めない ③外部消費者として wire 契約を叩く圧力が品質を作る ④MIT の薄い入口が PolyForm-Noncommercial の本体への導線になる。結合はコードでなく契約で行う: Peertable が消費する Lattice の4面（依存付き ready 一覧・順序付き start/done 記録・証跡束縛・監査状態）を consumer contract として両側の文書に明記する（未実施・campaign 完走後）
+47. **task 内共同作業は Peertable の固有資産である（クオ観察 2026-08-08・初回実運用 ap06 の実測）**。Lattice が提示するのは task 間の並列性（境界 compile・frontier）までで、task 内部の構造は持たず着手者も記録しない。ap06 で実測されたもの——claim/join の合流、宣言による分担の切り分け、ファイル名・証跡置き場・完了宣言権限の取り決め——は全て Lattice の解像度の下で room の宣言と会話だけが成立させた。静的 compile（計画時）→境界検知（実行時）→宣言ベース協力（会話）の三段目を Peertable が持つ。この帰結として**単独円卓モードの般化余地を留保する**: 円卓の核は最初から Lattice 非依存であり、依存しているのは仕事の取り出し口だけなので、意図的に素朴な作業リスト（依存なし・frontier なし・flat なチェックリスト）を差せば Lattice 無しでも小規模作業の円卓は成立しうる。失うのは task 間スケジューリングの機械保証。設計は未着手の構想であり、着手はオーナー裁定を要する
 
 ---
 
