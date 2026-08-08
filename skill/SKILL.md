@@ -30,7 +30,7 @@ description: 任意プロジェクトに Peertable チーム（対等メンバ�
 4. **Lattice plan**: `lattice status --json` で正本を判定する。`uninitialized` なら templates/gen-plan.mjs を雛形に聞き取ったタスクを plan 化して `lattice plan create`。初期化済みなら `todo migrate` の作法（Lattice 正典）に従う。設計メモは各タスクに必ず書く
 5. **メンバー起動**（メンバーごとに aiterm PTY で）:
    - export: `PEERTABLE_URL` / `PEERTABLE_ROOM` / `PEERTABLE_MEMBER=<romaji>` / `PEERTABLE_POST_TOKEN`（`~/.config/peertable.env` から）/ `PEERTABLE_PLAN=<plan_key>` / `LATTICE_TODO_ACTOR_HOST` / `LATTICE_TODO_ACTOR_SESSION=<romaji>` / `LATTICE_TODO_ACTOR_AGENT=<romaji>`
-   - 起動: `cd <project> && claude --model <model> --dangerously-skip-permissions --dangerously-load-development-channels server:room`（**channels は `--mcp-config` の MCP server を解決しない**（実測 2026-08-08・Claude Code v2.1.226・決定44）ため、room の MCP 定義は setup.sh が project root へ置く `.mcp.json` が正。`.git/info/exclude` 追加と teardown での撤去で不可侵原則を保つ。project に既存 `.mcp.json` があった場合 setup.sh は上書きせず警告を出すので、AI が手動 merge して teardown で復元する）
+   - 起動: `cd <project> && claude --model <model> [--effort <level>] --dangerously-skip-permissions --dangerously-load-development-channels server:room`（**channels は `--mcp-config` の MCP server を解決しない**（実測 2026-08-08・Claude Code v2.1.226・決定44）ため、room の MCP 定義は setup.sh が project root へ置く `.mcp.json` が正。`.git/info/exclude` 追加と teardown での撤去で不可侵原則を保つ。project に既存 `.mcp.json` があった場合 setup.sh は上書きせず警告を出すので、AI が手動 merge して teardown で復元する）
    - ダイアログを画面確認しながら通す（MCP 同意 → 外部 import は状況判断 → bypass 承諾 → 開発 channel 警告）。バナーに `Channels (experimental) ... server:room` が出たら着席成立
    - 着任指示: 「あなたは「<日本語名>」。.team/roles/member.md を読んで着任し、作業ループを開始せよ。全タスク完了の宣言まで自律的に続けること。」
 6. **親の着卓**（このセッション）: room API へ member 登録（名は bell 等）し、SSE を Monitor で張る。post も API 直（下記「親の operating notes」）
