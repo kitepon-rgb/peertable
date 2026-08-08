@@ -726,3 +726,5 @@ push は両 repo とも既定どおり（工場管理 repo）。peertable 側の
 - t10: room Web UIのMarkdown描画（チャット本文が表・` `` `コード・**強調**を記号のまま垂れ流している。エスケープ先行の安全なMarkdownサブセット描画——表・コードブロック・インラインコード・強調・箇条書き・改行——を`room/server.mjs`内蔵クライアントへ実装する。生HTMLは通さない=本文を先に全エスケープしてから生成タグだけを許す。受入=表とコードを含む実発言が整形表示される＋`<script>`混入発言が無害なテキストとして表示される＋既存のプレーン発言の見えが壊れない）
 
 工程は姉妹plan `refit-ui-20260808` が持つ（走行中plan `refit-20260808` への追記はrevision全置換を要し、5席が書込み中のstoreへ流すリスクに見合わないため。裁定bell・campaign gateは両planのterminal-audit acceptを揃って要求する）。証跡は `evidence/refit-ui-20260808/t10.md`。
+
+- t11: 外部ペイン喪失の再発防止（実測: 前campaignの受入検証が本番コネクタを「外して痕跡ゼロ」で終え、差し直しが人の記憶頼みで漏れた→公開工程表から円卓が消えた 2026-08-08。対策2層=①done.shへ「.team/setup-state.jsonがmode=latticeなのに.lattice/project.jsonのexternal_paneが無い」時の1行警告——全員が必ず通る一点に置く・出すだけ・止めない・t2と同型 ②SKILL.mdへ検証規律「本番コネクタの取り外し検証は使い捨てprojectで行う。本番で外したら差し直すまでが1手順」。SKILL.md書込はt3の後へ直列化。受入=負のコントロール（external_pane欠落状態でdone.shが警告／差した状態で無警告）＋正常done経路が壊れない＋SKILL.md改訂）
