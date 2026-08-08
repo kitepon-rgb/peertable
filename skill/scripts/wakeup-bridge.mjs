@@ -115,23 +115,43 @@ function dispatchNew(msg) {
 // 繋がったまま黙って死ぬ接続を検出する。SSE は無音でも生きていられるので、
 // 「切れた」ではなく「一定時間なにも届かない」を異常として扱い、自分から切って繋ぎ直す。
 // 直後に since で追いつくので、無音が正常だった場合も取りこぼしは出ない。
-const IDLE_MS = 90_000
+// server の心拍が 25 秒周期（`room/server.mjs` の HEARTBEAT_MS）なので、その3倍を無音の閾値にする。
+const IDLE_MS = 75_000
 
 // 起動直後の1回だけは配達しない。既に流れ終わった過去ログで席を起こしても意味がなく、
 // 卓が長いほど巨大な起床通知になる。初回は「ここまでは読んだこと」にして頭出しするだけ。
 let primed = false
-async function catchUp() {
-  const res = await fetch(`${url}/api/${room}/messages?since=${lastSeq}`)
-  if (!res.ok) throw new Error(`messages ${res.status}`)
-  const { messages } = await res.json()
-  if (!primed) {
-    primed = true
-    if (messages.length > 0) lastSeq = messages[messages.length - 1].seq
-    log(`頭出し: seq ${lastSeq} まで既読として開始する`)
-    return
+let catching = false
+async function catchUp(reason) {
+  // 再接続直後と心拍由来の回収が重なると二重に取りにいく。取りこぼし回収は1本だけ走らせる
+  if (catching) return
+  catching = true
+  try {
+    const res = await fetch(`${url}/api/${room}/messages?since=${lastSeq}`)
+    if (!res.ok) throw new Error(`messages ${res.status}`)
+    const { messages } = await res.json()
+    if (!primed) {
+      primed = true
+      if (messages.length > 0) lastSeq = messages[messages.length - 1].seq
+      log(`頭出し: seq ${lastSeq} まで既読として開始する`)
+      return
+    }
+    log(`取りこぼし確認（${reason}・since ${lastSeq}）: ${messages.length} 件`)
+    for (const msg of messages) dispatchNew(msg)
+  } finally {
+    catching = false
   }
-  log(`再接続後の取りこぼし確認（since ${lastSeq}）: ${messages.length} 件`)
-  for (const msg of messages) dispatchNew(msg)
+}
+
+// 心拍の data は room の最新 seq である（kotoha の `859bc21`）。これが自分の lastSeq より
+// 進んでいたら「繋がったままなのに取りこぼしている」証拠になる。**watchdog はこの穴を原理的に
+// 見つけられない**——心拍が届き続ける限り最終受信時刻は更新され続けるので、途絶判定に一生
+// 引っかからない。だから常時流れてくる心拍そのものを取りこぼし検出に使う。
+function onHeartbeat(dataLine) {
+  const head = Number(dataLine)
+  if (!Number.isFinite(head) || head <= lastSeq) return
+  log(`心拍が示す最新 seq ${head} に追いついていない（手元 ${lastSeq}）`)
+  catchUp('心拍の差分').catch(error => log(`心拍由来の回収に失敗: ${error.message}`))
 }
 
 let failures = 0
@@ -151,7 +171,7 @@ for (;;) {
       if (!res.ok) throw new Error(`events ${res.status}`)
       failures = 0
       log('SSE 接続')
-      await catchUp()
+      await catchUp('再接続')
       let buf = ''
       for await (const chunk of res.body) {
         lastByteAt = Date.now()
@@ -164,8 +184,9 @@ for (;;) {
           // （server の心拍 `event: ping` / `data: 1` 等）は発言ではないので配達しない。
           // `data:` だけ拾う実装だと心拍の `1` が発言として流れ込む（kotoha [106] の指摘）
           const name = lines.find(l => l.startsWith('event: '))?.slice(7).trim()
-          if (name !== undefined && name !== 'message') continue
           const line = lines.find(l => l.startsWith('data: '))
+          if (name === 'ping') { if (line) onHeartbeat(line.slice(6)); continue }
+          if (name !== undefined && name !== 'message') continue
           if (line) dispatchNew(JSON.parse(line.slice(6)))
         }
       }
