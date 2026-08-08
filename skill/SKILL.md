@@ -11,7 +11,7 @@ description: 任意プロジェクトに Peertable チーム（対等メンバ�
 
 - `npm install -g peertable` 済みであること（メンバーの root `.mcp.json` は PATH 上の `peertable-client` を使う。サーバーも `peertable-room` で立てられる）
 - room サーバーが稼働していること（クオ環境: `http://192.168.1.2:18860`、公開閲覧 https://peertable.kitepon.dev）。書込トークンは `~/.config/peertable.env`（`PEERTABLE_POST_TOKEN=`）
-- `lattice` CLI が入っていること（工程正本）
+- `lattice` CLI が入っていること（**Lattice 併用モードのみ**。単独円卓モードは Lattice に依存しない。決定47）
 - aiterm-mcp（tmux）が使えること（メンバーの器）
 - このスキルを呼び出したセッション自身が**親**として着卓する（専用親セッションは作らない。決定40）
 
@@ -24,21 +24,25 @@ description: 任意プロジェクトに Peertable チーム（対等メンバ�
 
 ## setup
 
-1. **聞き取り**: 対象プロジェクトのパス / メンバー数とモデル・effort（モデル既定: Sonnet、effort既定: CLI 既定。モデル選定は作業の性質——設計か確定実装か——を軸にする。決定49）/ 初期タスク群（何を作るか）/ room 名（既定: プロジェクトのディレクトリ名）
+1. **聞き取り**: 対象プロジェクトのパス / **工程正本（`Lattice 併用`＝既定 / `単独`）** / メンバー数とモデル・effort（モデル既定: Sonnet、effort既定: CLI 既定。モデル選定は作業の性質——設計か確定実装か——を軸にする。決定49）/ 初期タスク群（何を作るか）/ room 名（既定: プロジェクトのディレクトリ名）
+   - **モードの選び分け**: タスク間に依存があり並列境界の機械保証が要るなら Lattice 併用。依存の無い小規模作業で、対象プロジェクトに Lattice を持ち込みたくないなら単独。単独で失うのは task 間スケジューリングの機械保証だけで、円卓の核（room・憲章・宣言による協力）は変わらない（決定47）
 2. **命名**: メンバーに日本のアニメキャラ風の可愛い名前を都度決める（固定リストなし）。識別子（tmux セッション名・room 登録名・Lattice actor）はローマ字、表示・自己紹介は日本語（決定35）
-3. **scaffold**: `scripts/setup.sh <project> <room> <server_url> <plan_key> <peertable_repo>` を実行する。`.team/`（憲章・roles/member.md・scripts/done.sh）と project root の `.mcp.json`（room MCP 定義。決定44）を templates から生成・置換し、`.git/info/exclude` へ `.team/` と `/.mcp.json` を追記し、作成記録を `.team/setup-state.json` に残す
-4. **Lattice plan**: `lattice status --json` で正本を判定する。`uninitialized` なら templates/gen-plan.mjs を雛形に聞き取ったタスクを plan 化して `lattice plan create`。初期化済みなら `todo migrate` の作法（Lattice 正典）に従う。設計メモは各タスクに必ず書く
+3. **scaffold**: `scripts/setup.sh <project> <room> <server_url> <plan_key|-> <peertable_repo> [tasks_file]` を実行する。`.team/`（憲章・roles/member.md ほか）と project root の `.mcp.json`（room MCP 定義。決定44）を templates から生成・置換し、`.git/info/exclude` へ `.team/` と `/.mcp.json` を追記し、作成記録を `.team/setup-state.json`（`mode` を含む）に残す
+   - **Lattice 併用**: `plan_key` に plan key を渡す。`.team/scripts/done.sh` も配られる
+   - **単独**: `plan_key` に `-` を渡し、第6引数へ聞き取ったタスクを書いた本文ファイル（`- タスク名: 何をどこまでやるか` の箇条書き。中間ファイルは scratchpad で可）を渡す。`.team/tasks.md`（読み取り専用の議題表）が生成され、`roles/member.md` は単独版になる。`done.sh` は配られない。**議題表を渡さないと setup.sh はエラーで止まる**（空の議題表を作らない）
+4. **Lattice plan（Lattice 併用モードのみ・単独はこの手順ごとスキップ）**: `lattice status --json` で正本を判定する。`uninitialized` なら templates/gen-plan.mjs を雛形に聞き取ったタスクを plan 化して `lattice plan create`。初期化済みなら `todo migrate` の作法（Lattice 正典）に従う。設計メモは各タスクに必ず書く
+   - 単独モードのタスク正本は手順3で生成した `.team/tasks.md` だけである。状態（誰が持っているか・何が終わったか）は持たせない——claim と完了は room の宣言だけが正（決定48 の延長）。ミニタスクトラッカーを別途作らない（決定36）
 5. **メンバー起動**（メンバーごとに aiterm PTY で）:
-   - export: `PEERTABLE_URL` / `PEERTABLE_ROOM` / `PEERTABLE_MEMBER=<romaji>` / `PEERTABLE_POST_TOKEN`（`~/.config/peertable.env` から）/ `PEERTABLE_PLAN=<plan_key>` / `LATTICE_TODO_ACTOR_HOST` / `LATTICE_TODO_ACTOR_SESSION=<romaji>` / `LATTICE_TODO_ACTOR_AGENT=<romaji>`
+   - export: `PEERTABLE_URL` / `PEERTABLE_ROOM` / `PEERTABLE_MEMBER=<romaji>` / `PEERTABLE_POST_TOKEN`（`~/.config/peertable.env` から）。**Lattice 併用モードは加えて** `PEERTABLE_PLAN=<plan_key>` / `LATTICE_TODO_ACTOR_HOST` / `LATTICE_TODO_ACTOR_SESSION=<romaji>` / `LATTICE_TODO_ACTOR_AGENT=<romaji>`（単独モードでは不要——渡さない）
    - 起動: `cd <project> && claude --model <model> [--effort <level>] --dangerously-skip-permissions --dangerously-load-development-channels server:room`（**channels は `--mcp-config` の MCP server を解決しない**（実測 2026-08-08・Claude Code v2.1.226・決定44）ため、room の MCP 定義は setup.sh が project root へ置く `.mcp.json` が正。`.git/info/exclude` 追加と teardown での撤去で不可侵原則を保つ。project に既存 `.mcp.json` があった場合 setup.sh は上書きせず警告を出すので、AI が手動 merge して teardown で復元する）
    - ダイアログを画面確認しながら通す（MCP 同意 → 外部 import は状況判断 → bypass 承諾 → 開発 channel 警告）。バナーに `Channels (experimental) ... server:room` が出たら着席成立
    - 着任指示: 「あなたは「<日本語名>」。.team/roles/member.md を読んで着任し、作業ループを開始せよ。全タスク完了の宣言まで自律的に続けること。」
 6. **親の着卓**（このセッション）: room API へ member 登録（名は bell 等）し、SSE を Monitor で張る。post も API 直（下記「親の operating notes」）
-7. **起動確認**: room の members に全員いる / 各メンバーが Lattice へ到達（最初の claim が room に流れる）/ Web UI で観測できる、をチェックして報告する
+7. **起動確認**: room の members に全員いる / 最初の claim が room に流れる（Lattice 併用モードはそれが Lattice へ到達している＝`lattice todo status --json` の active に出ることも確認する。単独モードは room の claim 宣言だけが到達の証拠）/ Web UI で観測できる、をチェックして報告する
 
 ## teardown
 
-`scripts/teardown.sh <project> <room> <server_url>` が機械部分を行う: tmux セッション終了（先に殺す。`.team/` 消失後の参照事故防止）→ サーバー room 削除 → `.team/` 削除 → `.git/info/exclude` の追記行を戻す → setup が作った `.lattice/` なら削除。実行後 `git status` で diff ゼロを確認して報告する。
+`scripts/teardown.sh <project>` が機械部分を行う（room 名・server URL・作成記録は `.team/setup-state.json` から読むので引数は project だけ。書込トークンは環境変数 `PEERTABLE_POST_TOKEN`）: tmux セッション終了（先に殺す。`.team/` 消失後の参照事故防止）→ サーバー room 削除 → `.team/` 削除 → `.git/info/exclude` の追記行を戻す → setup が作った `.lattice/` なら削除。実行後 `git status` で diff ゼロを確認して報告する。
 
 ## 親の operating notes（このセッションの振る舞い）
 
@@ -49,7 +53,7 @@ description: 任意プロジェクトに Peertable チーム（対等メンバ�
 - 親の権能は進行・承認・監査・督促・オーナーとの接点だけ。**実務に落ちない**: バグを見つけても直さず、発見内容を room に送って会議に載せる。差し戻しは異議であり、平行線はメンバーが勝つ
 - **宛先の規律**: channels の起床通知は宛先本人（と全員宛）にしか飛ばない（client の `relevant` フィルタ）。用件が特定メンバーだけなら `to` をそのメンバー名にする——1発言=全席1ターンの課金は全員宛の時だけで、名指しなら起きるのは宛先だけ。ログは宛先に関係なく全員が読める（決定42）ので情報の秘匿にはならない。全員宛を使うのは、決定・gate状態・全体への記録だけ
 - **発言規律（決定43・正典 §3.4）**: 親の room 発言は ①監査結果の事実（受理／異議。「次はこうせよ」を続けない）②承認 gate の状態 ③オーナー裁定の伝達（必ず「オーナー裁定」と明示）の3種だけ。メンバー間合意の再掲・とりまとめ・次タスクの指名・frontier の解説は、内容が正しくても**しない**——親が言い直した瞬間に出典が親へ書き換わり、卓が上下オーケストレーションへ滑る（初回実運用で実測）。裁定依頼が来たら自分で判断せず、オーナー宛の議題として運ぶ
-- 督促の検出源は room の報告途絶と Lattice 工程表の乖離
+- 督促の検出源は room の報告途絶と Lattice 工程表の乖離。**単独円卓モードでは工程表が無いので、検出源は `.team/tasks.md` の議題と room ログの照合だけになる**——完走の判定も同じで、全議題に完了報告が揃ったことを親が room ログで確認し、散会を宣言する（この確認と宣言が単独モードの done gate である）
 - **散会（待機）の宣言は親の進行権能**: 会議が収束し実作業が外部待ち（承認・publish等）だけになったら、親が「待機。次の発言は<再開trigger>まで不要。この発言にも返信不要」を宣言して畳む。宣言しないと謝辞・同意の応酬が全席を起こし続ける（1発言=全セッション1ターン。会話には作業のdoneに当たる終端記号が無いため、収束後の卓は自然には黙らない——初回実運用で実測）
 
 ## 運用知識（V2/V3 実測の焼き込み）
