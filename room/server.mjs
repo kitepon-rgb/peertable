@@ -8,6 +8,7 @@ import { join } from 'node:path'
 const PORT = Number(process.env.PEERTABLE_PORT ?? 8790)
 const DATA = process.env.PEERTABLE_DATA ?? './peertable-data'
 const TOKEN = process.env.PEERTABLE_POST_TOKEN ?? null // 設定時のみ書込に要求（公開設置用）
+const HEARTBEAT_MS = 25000 // SSE 心拍。中間の proxy が落とす前・client の見張りが切る前の間隔
 
 mkdirSync(DATA, { recursive: true })
 
@@ -76,7 +77,10 @@ http.createServer(async (req, res) => {
       res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive', ...CORS })
       res.write(`: connected seq=${room.seq}\n\n`)
       room.streams.add(res)
-      req.on('close', () => room.streams.delete(res))
+      // 心拍。TCP が半開きで死ぬと onerror も発火しないので、client が「途絶」を検知できる signal を送り続ける。
+      // コメント行では EventSource から見えないため、名前付き event にする
+      const beat = setInterval(() => res.write(`event: ping\ndata: ${room.seq}\n\n`), HEARTBEAT_MS)
+      req.on('close', () => { clearInterval(beat); room.streams.delete(res) })
       return
     }
 
@@ -214,19 +218,41 @@ function markActive(name){
   }
   if(!known)refreshMembers()
 }
-fetch(api('messages')).then(r=>r.json()).then(r=>{
-  r.messages.forEach(render)
-  if(!r.messages.length)logEl.appendChild(el('div','empty','（まだ発言がない）'))
-  const spoke=r.messages.filter(m=>m.from!=='system')
-  if(spoke.length)recent=spoke[spoke.length-1].from
-  return refreshMembers()
-}).then(()=>window.scrollTo(0,document.body.scrollHeight))
-new EventSource(api('events')).onmessage=e=>{
-  const m=JSON.parse(e.data),stick=nearBottom()
+const BEAT=${HEARTBEAT_MS}
+let lastSeq=0,lastBeat=Date.now(),es=null,emptyEl=null,firstLoad=true
+// seq で二重描画を弾く。張り直し後の追いつきと SSE の新着が重なっても同じ発言は1回しか出ない
+function apply(m){
+  if(m.seq<=lastSeq)return false
+  lastSeq=m.seq
+  if(emptyEl){emptyEl.remove();emptyEl=null}
   render(m)
-  if(m.from==='system')refreshMembers();else markActive(m.from)
-  if(stick)window.scrollTo(0,document.body.scrollHeight)
+  if(m.from!=='system')recent=m.from
+  return true
 }
+async function catchUp(force){
+  const stick=force||nearBottom()
+  const r=await(await fetch(api('messages')+'?since='+lastSeq)).json()
+  const added=r.messages.filter(apply).length
+  if(!lastSeq&&!emptyEl){emptyEl=el('div','empty','（まだ発言がない）');logEl.appendChild(emptyEl)}
+  await refreshMembers()
+  if(added&&stick)window.scrollTo(0,document.body.scrollHeight)
+}
+function connect(){
+  if(es)es.close()
+  es=new EventSource(api('events'));lastBeat=Date.now()
+  es.onopen=()=>{lastBeat=Date.now();catchUp(firstLoad);firstLoad=false}
+  es.addEventListener('ping',()=>{lastBeat=Date.now()})
+  es.onmessage=e=>{
+    lastBeat=Date.now()
+    const m=JSON.parse(e.data),stick=nearBottom()
+    if(!apply(m))return
+    if(m.from==='system')refreshMembers();else markActive(m.from)
+    if(stick)window.scrollTo(0,document.body.scrollHeight)
+  }
+}
+connect()
+// 半開きで死んだ接続は onerror を出さない＝心拍の途絶だけが唯一の手掛かり。見つけたら黙って諦めず張り直す
+setInterval(()=>{if(Date.now()-lastBeat>BEAT*2.5)connect()},BEAT/2)
 setInterval(refreshMembers,30000) // 退席（member DELETE）は発言を出さないので定期に取り直す
 </script></body></html>`
 
