@@ -22,6 +22,8 @@ description: 任意プロジェクトに Peertable チーム（対等メンバ�
 - teardown 後にプロジェクトの diff がゼロになること
 - 例外は Lattice store（`.lattice/`）: Lattice 自身の作法に従う。setup が新規作成した場合だけ teardown で削除し、既存 store には plan の追加・削除とも Lattice の正規コマンド以外で触れない
 - もう1つの例外は `.lattice/project.json` の `external_pane` 欄（**Lattice 併用モードのみ**。決定53）。既存文書は `.team/project.json.bak` へ退避し、teardown が書き戻す。文書が無かった project では teardown が `project.json` ごと削除する
+  - **本番のコネクタを検証のために外さない。** 「外すと痕跡ゼロで戻る」ことの確認は**使い捨ての project** でやる。**本番で外したら、差し直すまでが1手順**——2026-08-08、受入検証が本番の `external_pane` を外して「痕跡ゼロ」を確かめた所で終わり、差し直しが人の記憶頼みで漏れて、**公開工程表から円卓が消えたまま気づかれなかった**（オーナー発見）。外した状態は**画面から何も言ってこない**（そういう仕様なので正しい）
+  - 気づく仕掛けとして、`done.sh` が **卓が Lattice 併用モードなのに `external_pane` が無い時に1行警告**する。出すだけで止めない
 
 ## setup
 
