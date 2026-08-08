@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url'
 
 // client.mjs 側のハードコード版数。package.json の version と一致していることを
 // diagnostics の version_consistency が見る（2 つの版数源の drift 検出。決定45）
-const MCP_VERSION = '0.2.0'
+const MCP_VERSION = '0.2.1'
 const PKG_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 
 const USAGE = `usage:
@@ -82,7 +82,8 @@ mcp.setRequestHandler(CallToolRequestSchema, async req => {
       const r = await fetch(api('messages'), { method: 'POST', headers, body: JSON.stringify({ from: ME, to: args.to, body: args.message }) })
       const msg = await r.json()
       if (!r.ok) return text(`送信失敗: ${JSON.stringify(msg)}`)
-      cursor = Math.max(cursor, msg.seq)
+      // cursor は触らない。自分の発言は relevant で除外されるので進める必要が無く、
+      // ここで進めると post より前に届いた未読を読まないまま既読にしてしまう（0.2.1 で修正）
       return text(`sent [${msg.seq}]`)
     }
     case 'read_unread': {
