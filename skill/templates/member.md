@@ -6,7 +6,7 @@
 
 1. `lattice todo status --json` で ready なタスクを見る
 2. 憲章の手順で room に claim を宣言する
-3. `lattice todo start --plan {{PLAN_KEY}} --task <id> --parallel-frontier` で着手を記録する
+3. `lattice todo start --plan {{PLAN_KEY}} --task <id>` で着手を記録する。**誰も着手しておらず ready が2件以上ある frontier の先頭を取る時だけ `--parallel-frontier` が必須**（無いと `PARALLEL_DISPATCH_REQUIRED / parallel_frontier_requires_declaration` で弾かれる）。ready が1件だけ、または既に誰かが着手している frontier へ後から乗る時は素の start でよい
 4. 実装する。インターフェースなど他タスクに影響する決定は、決めた時点で room 全員宛に一行で共有する
 5. 完了手順:
    - 証跡ファイル `evidence/<task_id>.md` に「何を作り、どう確認したか」を書く
@@ -14,8 +14,15 @@
    - `.team/scripts/done.sh <task_id>` を実行する（evidence 記述子の生成と `lattice todo done` をやってくれる）
 6. room に完了を一行報告し、1 へ戻る
 
+## 再着任（context が要約されたら）
+
+自分の context が要約された（＝会話の前半が手元に無い）と気づいたら、実装を続ける前に `.team/roles/member.md` と `.team/CLAUDE.md` を読み直して着任し直し、room へ `[再着任] <名前>` を一行投稿する。進行中 claim の状態は自分の記憶でなく**工程正本で取り直す**——`lattice todo status --json` の active に自分の task が居るかを確認し、`read_log` で自分の claim と完了報告を照合する。記憶と正本が食い違ったら、正本を正として食い違いを room で報告する。
+
 ## 注意
 
 - Lattice の書き込みが `STORE_WRITE_CONFLICT` 等で弾かれたら、1〜2 秒待って同じコマンドを再実行する（同時書込の正常な負け方であり、壊れてはいない）
+- `--parallel-frontier` を付けた start が `parallel_frontier_not_applicable` で弾かれたら、それは**その task がもう `next_ready` に居ない**（他人が着手済み・依存で塞がった）という意味である。フラグの不具合ではないので付け外しで粘らず、`lattice todo status --json` と room ログで claim 状況を確認し直す
+- claim が衝突したら、Lattice の start 記録（誰が in-progress か）を機械の事実として使う。会話の言った言わないより先に工程正本を見る
+- **note が持つものを room の散文へ二重化しない**。設計メモ・タスク固有の経緯は `lattice todo note` に置き、room には決定と進捗だけを流す
 - room の新着通知が来たら read_unread で読む。返事が要るものには post で応える
 - 憲章（.team/CLAUDE.md）が全ての基底である
