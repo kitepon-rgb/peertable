@@ -48,5 +48,5 @@ if not identity.get('external_pane'):
 PY
 )
 if [ "$pane_missing" = yes ]; then
-  echo "外部ペイン未設置: 公開工程表に円卓が出ていない（差し直す: node <skill>/scripts/external-pane.mjs . <room> <public_base>）" >&2
+  echo "外部ペインが未設置か読めない: 公開工程表に円卓が出ていない（差し直す: node <skill>/scripts/external-pane.mjs . <room> <public_base>）" >&2
 fi
