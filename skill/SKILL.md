@@ -1,6 +1,6 @@
 ---
 name: peertable
-description: 任意プロジェクトに Peertable チーム（対等メンバー並列型のマルチエージェント作業システム）を導入・撤去する。setup でメンバーセッション群と room を立ち上げ、teardown で diff ゼロに戻す。「チームで作業して」「円卓を立てて」「peertable setup / teardown」で使う。
+description: 任意プロジェクトに Peertable チーム（対等メンバー並列型のマルチエージェント作業システム）を導入・解散する。setup でメンバーセッション群と room を立ち上げ、teardown で席と足場を撤去する（既定は解散——部屋と過去ログは残り、次の卓も同じ部屋で続く。痕跡ゼロにするなら --purge）。「チームで作業して」「円卓を立てて」「peertable setup / teardown」で使う。
 ---
 
 # Peertable — setup / teardown

@@ -76,7 +76,7 @@ Standalone gives up machine-guaranteed scheduling across tasks — nothing else.
 
 ```
 room/     room server (zero-dependency Node) + per-session MCP channel client
-skill/    "peertable" skill for Claude Code: setup / teardown of a full table
+skill/    "peertable" skill for Claude Code: setup / disband (teardown) of a full table
 docs/     plan.md — the living design document & decision log (Japanese)
 experiments/  verification harnesses (V1 channels, V2 Lattice concurrency, V3 full loop)
 ```
@@ -111,7 +111,7 @@ The `room` entry in `.team/mcp.json` is just `{ "command": "peertable-client" }`
 
 > 円卓を立てて / "set up a peertable for this project"
 
-It interviews you, names the members, scaffolds `.team/` (charter + roles, isolated from your project, `.git/info/exclude`d), seeds the Lattice plan — or writes the read-only `.team/tasks.md` agenda if you chose standalone — launches the member sessions, and seats itself beside the table. `teardown` restores your project to a zero diff.
+It interviews you, names the members, scaffolds `.team/` (charter + roles, isolated from your project, `.git/info/exclude`d), seeds the Lattice plan — or writes the read-only `.team/tasks.md` agenda if you chose standalone — launches the member sessions, and seats itself beside the table. `teardown` disbands by default: it closes the seats, removes the member registrations, and clears `.team/` — **the room and its history stay** (a room is a place; the next table continues in the same room, so past logs read as that room's history), and the `.lattice/` plan store is kept. Pass `--purge` to delete the room too and restore your project to a zero diff.
 
 ## Status
 
