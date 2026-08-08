@@ -59,18 +59,20 @@ description: 任意プロジェクトに Peertable チーム（対等メンバ�
 
 `scripts/teardown.sh <project> [--purge]` が機械部分を**全部**行う（room 名・server URL・作成記録は `.team/setup-state.json` から読むので引数は project だけ。書込トークンは環境変数 `PEERTABLE_POST_TOKEN`）。**席の終了も本 script が行う**——AI が事前に `pty_close` して回る必要はない。
 
-**既定は archive、`--purge` が痕跡ゼロ**（決定61・オーナー裁定 2026-08-09）。畳んだ瞬間に会話ログと工程正本が消えるのは、**卓の議論と工程の記録が卓より寿命が長い**という事実に反する。ゲスト project を汚さない不可侵原則は `--purge` が担う。
+**既定は archive（＝解散）、`--purge` が痕跡ゼロ**（決定61・オーナー裁定 2026-08-09）。**円卓の解散は「部屋を畳む」ではなく「集まりが散る」**——**部屋は場所であって、次の卓も同じ部屋で続く**。過去ログはその部屋の履歴としてそのまま残り、**部屋は常に一つに見える**。ゲスト project を汚さない不可侵原則は `--purge` が担う。
 
 段の順序（**前の段が後の段の前提**）:
-1. **room ログの保全**（archive のみ）→ `docs/archive/room-log_<room>_<日時>.md`。**room 削除より前でなければ取れない**ので最初に置く。**保全に失敗したら room を消さない**——消してから気づいても会話は戻らない
+1. **room ログの写し**（archive のみ）→ `docs/archive/room-log_<room>_<日時>.md`。**原本は room に残る**ので、これは repo 側の控え（失敗しても撤去は続行する）
 2. **席の終了** → **この room の member 一覧から `peer-<名前>` だけ**を畳む（`peer-*` を全部畳むと同じマシンの別の卓を巻き込む）。他卓の席が残っていれば注記だけ出す
-3. **起床ブリッジ・稼働状態ブリッジの停止** → `.team/` を消す前（pid 記録がその中にある）
-4. **room 削除** → トークンを要する唯一の段
+3. **ブリッジの停止**（起床・稼働状態）→ `.team/` を消す前（pid 記録がその中にある）
+4. **解散**（archive）: **履歴へ解散の区切りを1行投稿してから、メンバー登録だけ外す**。**部屋も過去ログも消さない**——区切りが無いと、次の卓の発言が前の卓と地続きに読める／**`--purge`**: room ごと削除（トークンを要する唯一の段）
 5. **外部ペインの復元** → `.team/project.json.bak` が退避先なので `.team/` を消す前
 6. `.team/` 削除 → `.mcp.json` → `.git/info/exclude` の追記行を戻す
-7. **`.lattice/`**: archive では**残す**（`lattice todo status` と `gantt serve` が読む）。`--purge` かつ setup が作ったものなら削除。**残しても git 追跡外なら次の clone に残らない**ので、残すなら commit する（script は注記を出すだけで、commit はしない——他人の repo へ勝手に commit しない）
+7. **`.lattice/`**: archive では**残す**（`lattice todo status` と `gantt serve` が読む）。`--purge` かつ setup が作ったものなら削除。**残しても git 追跡外なら次の clone に残らない**ので、残すなら commit する（script は注記を出すだけ——他人の repo へ勝手に commit しない）
 
-実行後は **`git status`（archive なら `docs/archive/` と `.lattice/` が増えているのが正・`--purge` なら diff ゼロ）** と、**`tmux -S <socket> list-sessions | grep peer-`** の残存ゼロを確認して報告する。
+**次の卓を同じ部屋で立てる時は、setup の room 名を前と同じにする**。member は席が戻れば再登録され、履歴は続く。
+
+実行後は **`git status`（archive なら `docs/archive/` と `.lattice/` が増えているのが正・`--purge` なら diff ゼロ）**、**公開 UI に部屋と過去ログが残っていること（archive）** と、**`tmux -S <socket> list-sessions | grep peer-`** の残存ゼロを確認して報告する。
 
 各段は `[実施] / [スキップ] / [未実施]` を1行ずつ出す。**トークンを要するのは room 削除だけ**なので、そこが失敗しても残りの撤去は続行し、未実施を明示して非ゼロで終わる（黙って中断しない・決定58）。未実施が出ても**撤去そのものは済んでいる**。残りは表示された **[手当] の curl を手で叩く**だけで、`.team/` は既に消えているので **teardown.sh の再実行はできない**（2026-08-08 実測。再実行すると `setup-state.json` が読めず落ちる）。
 

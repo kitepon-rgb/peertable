@@ -38,19 +38,18 @@ yes_() { [ "$1" = "True" ] || [ "$1" = "true" ]; }
 
 echo "teardown: mode=${mode}（archive=ログとstoreを残す／purge=痕跡ゼロ）"
 
-# ---- ログの保全（archive だけ）。**room 削除より前**でなければ取れない ----
-# 取れなかった時に room を消すと、会話ログは二度と戻らない。だから archive では
-# **書き出しに失敗したら room を消さない**（下の room 削除段が $log_saved を見る）
+# ---- ログの控え（archive だけ）。room 自体は残るので、これは repo 側の写し ----
+# 失敗しても撤去は続ける（room に原本があるため）。--purge の時だけ「消す前の最後の機会」になる
 log_saved=skip
 if [ "$mode" = archive ]; then
   arc="$proj/docs/archive"
   out="$arc/room-log_${room}_$(date +%Y%m%d-%H%M%S).md"
   mkdir -p "$arc"
   if python3 "$(dirname "$0")/archive-room-log.py" "$url" "$room" "$out"; then
-    did "room ログを ${out#"$proj/"} へ保全"
+    did "room ログの写しを ${out#"$proj/"} へ（原本は room に残る）"
     log_saved=yes
   else
-    miss "room ログの保全に失敗（$url/api/$room が読めない）— **room は削除しない**。復旧してから再実行するか、--purge で明示的に捨てる"
+    miss "room ログの写しに失敗（$url/api/$room が読めない）— **原本は room に残っている**ので撤去は続行する"
     log_saved=no
   fi
 fi
@@ -105,8 +104,36 @@ fi
 ext=$(python3 -c "import json;print(json.load(open('$state')).get('external_pane', False))")
 pj_pre=$(python3 -c "import json;print(json.load(open('$state')).get('project_json_preexisting', False))")
 
-# room 削除。トークンを要する唯一の段で、ここだけが外部サービスへの依存境界
-if [ "$log_saved" = no ]; then
+# ---- 解散（archive）: **部屋は残し、メンバー登録だけ外す** ----
+# 円卓の解散は「部屋を畳む」ではなく「集まりが散る」。部屋は場所であって、次の campaign も
+# 同じ部屋で続く——**過去ログが同じ部屋の履歴として繋がり、部屋は常に一つに見える**
+# （オーナー裁定 2026-08-09・決定61）。参加者一覧だけ空にして、席が戻れば再登録される
+if [ "$mode" = archive ]; then
+  if [ -z "${PEERTABLE_POST_TOKEN:-}" ]; then
+    miss "メンバー登録の解除 — TOKEN_MISSING: \`~/.config/peertable.env\` の定義が \`export\` 付きでないと子 process へ渡らない"
+    echo "teardown: [手当] 参加者は次で外せる: curl -X DELETE \"$url/api/$room/members/<名前>\" -H \"X-Peertable-Token: \$PEERTABLE_POST_TOKEN\"" >&2
+  elif [ -z "$seats" ]; then
+    skip "メンバー登録の解除（一覧が取れていない）"
+  else
+    # 履歴に解散の区切りを残す。**部屋が続く以上、どこで卓が変わったかが読めないと
+    # 過去ログが一続きの会話に見えてしまう**（次の campaign の発言と地続きになる）
+    body="解散。この卓はここまで。参加者: ${seats}。部屋と過去ログはこのまま残り、次の卓も同じ部屋で続く。"
+    python3 -c "
+import json,sys,urllib.request
+req=urllib.request.Request('$url/api/$room/messages', method='POST',
+  data=json.dumps({'from':'system','to':'all','body':'''$body'''}).encode(),
+  headers={'Content-Type':'application/json','X-Peertable-Token':'$PEERTABLE_POST_TOKEN'})
+urllib.request.urlopen(req, timeout=10).read()
+" 2>/dev/null && did "解散の区切りを履歴へ" || skip "解散の区切り（投稿できず・撤去は続行）"
+    n=0
+    for name in $seats; do
+      c=$(curl -s -o /dev/null -w '%{http_code}' -X DELETE "$url/api/$room/members/$name" -H "X-Peertable-Token: $PEERTABLE_POST_TOKEN" || true)
+      [ "$c" = 200 ] && n=$((n + 1))
+    done
+    did "メンバー登録の解除（${n}名）— **部屋と過去ログは残す**（$url/$room）"
+  fi
+# room 削除は --purge だけ。トークンを要する唯一の段で、ここだけが外部サービスへの依存境界
+elif [ "$log_saved" = no ]; then
   miss "room 削除 $room — ログを保全できていないので消さない（保全より先に消すと会話は二度と戻らない）"
 elif [ -z "${PEERTABLE_POST_TOKEN:-}" ]; then
   miss "room 削除 $room — TOKEN_MISSING: PEERTABLE_POST_TOKEN が空。\`~/.config/peertable.env\` の定義が \`export\` 付きでないと子 process へ渡らない"
