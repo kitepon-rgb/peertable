@@ -626,7 +626,7 @@ consumer contract 4面の明文化（→ §12 と Lattice `docs/00_product-contr
 **消化済み（2026-08-08 の円卓×工程表統合 campaign）**: Web UI のブランド着せ替え（→ 決定56。吹き出し・ハッシュ色アバター・参加者一覧のパルス・dark/light。入力欄なしは決定42のまま）。
 
 **未着手（次以降の campaign へ）**
-- **publish 経路を通らない成果物は、機械 gate の外側にある**。`prepublishOnly`（決定58）が守るのは publish される tarball だけで、**docs・証跡・`experiments/` は publish 対象に入らないので何も見ていない**。本 campaign で実際に、t7 の成果物3本（機械 gate 自体・証跡・正典追記）が **done 宣言の後も未 push のまま取り残された**（親の監査が見つけた）。塞げる場所として `done.sh` の案がある——完了の定義が成り立たなければならない瞬間そのものに走るので、`git rev-list --count @{u}..HEAD` が 0 でなければ「未 push が N 本」と**出すだけ**（止めない。push 既定でない repo もあり、まとめて push する運用もある）。画面に1行出ていれば気づけた種類の抜けで、決定52 の「沈黙する失敗を作らない」と同じ形
+- **publish 経路を通らない成果物は、機械 gate の外側にある**。`prepublishOnly`（決定58）が守るのは publish される tarball だけで、**docs・証跡・`experiments/` は publish 対象に入らないので何も見ていない**。本 campaign で実際に、t7 の成果物3本（機械 gate 自体・証跡・正典追記）が **done 宣言の後も未 push のまま取り残された**（親の監査が見つけた）。**これは1人の抜けではなく卓の全員が立っていた穴である**——push 既定でない repo では push を叩かない側が正しいが、他のメンバーも**自分の成果が着地したかを確かめないまま「完了」と報告していた**。指摘を受けて全員が `git merge-base --is-ancestor` で自分の commit を独立に検算し、取り残しゼロを確認している。**着地の確認は、push する権限の有無と関係なく報告する側の責務**である。塞げる場所として `done.sh` の案がある——完了の定義が成り立たなければならない瞬間そのものに走るので、`git rev-list --count @{u}..HEAD` が 0 でなければ「未 push が N 本」と**出すだけ**（止めない。push 既定でない repo もあり、まとめて push する運用もある）。画面に1行出ていれば気づけた種類の抜けで、決定52 の「沈黙する失敗を作らない」と同じ形
 - **Lattice 側の公開工程表にも同型の SSE 沈黙欠陥がある**（決定58 と同じ形）。lattice.kitepon.dev も EventSource で head digest の変化を受けて reload する作りだが、server から心拍を送らず client も受信途絶を見張っていない。**オーナーが同時に見ている2つの公開面が、両方とも同じ理由で静かに古くなりうる**。Peertable 側の変更で持ち込んだものではなく元からある性質なので、直すなら Lattice 側の別 release の話
 
 ---
