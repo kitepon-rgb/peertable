@@ -6,7 +6,7 @@
 
 作成日: 2026-08-08
 状態: 設計確定 / V0〜V3 通過・V4 封印（決定41）/ スキル化完了（2026-08-08、`skill/` 正本・`~/.claude/skills/peertable` へ導入済み）
-リポジトリ: github.com/kitepon-rgb/peertable（作成予定）/ npm: peertable（空き確認済み 2026-08-08）
+リポジトリ: github.com/kitepon-rgb/peertable（**公開済み 2026-08-08・MIT・public**）/ npm: peertable（空き確認済み、未公開）
 
 ---
 
