@@ -22,7 +22,7 @@
 //   2. input_digest は input_digest 自身を除いたキー昇順の正規化 JSON の sha256
 import { createHash } from 'node:crypto'
 import { mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
-import { basename, dirname, join, resolve } from 'node:path'
+import { basename, dirname, join, relative, resolve } from 'node:path'
 
 const argv = process.argv.slice(2)
 let src = null
@@ -94,5 +94,8 @@ input.input_digest = createHash('sha256').update(JSON.stringify(canon(rest))).di
 
 mkdirSync(dirname(out), { recursive: true })
 writeFileSync(out, JSON.stringify(canon(input)) + '\n')
+// `lattice plan create --input` は repo root からの相対パスでないと `INPUT_INVALID / input_ref_invalid`
+// で弾かれるので、案内も相対で出す（絶対パスを貼れる形にしない）
+const rel = relative(proj, out)
 console.log(`${out}（${input.tasks.length} tasks / ${deps.length} deps）`)
-console.log(`次: cd ${proj} && lattice plan create --input ${out}`)
+console.log(`次: cd ${proj} && lattice plan create --input ${rel}`)
