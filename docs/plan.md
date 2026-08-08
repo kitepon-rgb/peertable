@@ -152,6 +152,8 @@ plan-time schedulability compilation により「今取れるタスク」が各�
 - メンバー: タスクの追加・分割・完了
 - 親: 読み取り + 異議マークまで
 
+Peertable が Lattice のどの面をどう消費するか（consumer contract の4面）は §12 が正本。
+
 ### 4.4 器: aiterm-mcp
 
 セッションの起動・永続化・生存管理を担当。通信は公式機能に譲り、器に徹する。
@@ -562,3 +564,53 @@ room を将来単体で npm 公開する価値が出たら、その時点でリ�
 **未検証のリスク**
 - メンバーセッションの長寿命問題: 長い campaign での context compaction 時、着任指示・憲章・claim 状態がどう残るか未検証。円卓はメンバーの長寿命を前提にする（§2.1）ため、compaction で人格・規律が薄まる場合の再着任手順が無い
 - 席の縮退: frontier が細った終盤に席を減らす判断・手順が未定義（今回は遊休席のまま完走）
+
+---
+
+## 12. Lattice consumer contract — Peertable が消費する4面（決定46）
+
+Peertable と Lattice は分離を維持し、結合はコードでなく契約で行う（決定46）。本節はその契約の Peertable 側正本であり、Lattice 側は `Lattice/docs/00_product-contract.md` の「消費者としてのPeertable」節が対応する。
+
+**契約の形**: 片方向消費である。Peertable は Lattice の公開 CLI と versioned JSON だけを読み書きし、`.lattice/` の store を直読み・直書きしない。Lattice は Peertable を知らなくてよく、Peertable のために面を足す必要もない。依存しているのは円卓の核ではなく**仕事の取り出し口だけ**である（決定47）。
+
+以下の4面が、円卓の「親に判断を集めない」構造を支える機械側の土台である。
+
+### 12.1 面1: 依存付き ready 一覧 — 何を今取れるか
+
+- 入口: `lattice todo status --json`（`lattice.todo_status_result.v6`）
+- 消費する欄: `next_ready[]` / `blocked[]` / `active_set[]` / `dispatch_frontier`（`policy: all_ready_parallel_by_default`・`recommended_parallelism`・`frontier_digest`）
+- Peertable 側の用途: メンバーの作業ループ1（`.team/roles/member.md`）。**各メンバーが自分で次を取る**ための面であり、親がタスクを配らない構造（§2.6・§4.5）はこの面が成立させている。setup の席数の既定も plan compile の `max_frontier_width` から取る（§11）
+- 契約として Lattice に要求するもの: ①依存で取れない task が ready へ出ないこと ②既定が「全 ready 同時 dispatch」であること——円卓は並列前提であり、frontier が既定で直列に畳まれると席の存在意義が消える
+
+### 12.2 面2: 順序付き start/done 記録 — 誰がいつ着手し閉じたか
+
+- 入口: `lattice todo start --plan <key> --task <id> --parallel-frontier` / `lattice todo done`。actor は `LATTICE_TODO_ACTOR_HOST` / `_SESSION` / `_AGENT` で明示し、欠落時は書き込まれない（setup がメンバー起動 env へ入れる）
+- 消費する事実: journal event の `sequence`・`actor{agent,host,session}`・`previous_digest` による連鎖・`recorded_at`
+- Peertable 側の用途: **claim 衝突の裁定材料**。Peertable の claim は宣言ベースであり（§4.8。Lattice は task に assignee を持たない）、room の宣言が交差したとき、どちらが先に着手を記録したかを機械の事実として引く。記録されるのは event の actor であって task の所有者ではない——この区別が保たれる限り、宣言ベース claim と二重正本にならない
+- 契約として Lattice に要求するもの: ①append-only と順序が読めること ②task に assignee を持たないこと（持たれた瞬間、保持セッション死亡時の永久ロック問題が Lattice 側に生まれ、かつ円卓の宣言と競合する）
+
+### 12.3 面3: 証跡束縛 — 完了が何に紐づくか
+
+- 入口: `lattice todo done --plan <key> --task <id> --evidence <repo 内 descriptor JSON>`。descriptor は `evidence_id` / `repo_id` / `path` / `git_blob_oid` / `content_digest` / `media_type` / `anchor_digest`
+- Peertable 側の用途: `.team/scripts/done.sh` が `evidence/<task_id>.md` の `git hash-object -w` と sha256 から descriptor を生成する。完了報告が**commit 済みの実物へ束縛**され、「終わりました」という散文だけでは task が閉じない
+- 契約として Lattice に要求するもの: write 時に pinned Git object を hard 検証し、digest 不一致・repo 外絶対 path を fail closed で拒否すること。曖昧な成功を機械が拒む面であり、円卓側の「自己保身の禁止」を規範でなく型で守る唯一の箇所である
+
+### 12.4 面4: 監査状態 — まだ誰も「終わった」と言えない状態の可視化
+
+- 入口: `lattice todo status --json` の `audit_pending[]`、`lattice todo phase status --plan <key>`、`lattice status --json` の `next_action.reason: audit_pending`
+- 消費する事実: 監査の既定は「有り」であり無しは表現できない（Lattice ADR 0147）。全 task done は `gate_ready`＝監査待ちであって完走ではなく、監査待ちが在る限り次アクション面は「残作業なし」と答えない（ADR 0159）
+- Peertable 側の用途: 親の受入 gate は audit である（§3.1・決定43）。憲章6の散会宣言が早すぎないことを、親の記憶でなくこの面が支える
+- 契約として Lattice に要求するもの: Lattice は**監査の中身を採点しない**こと。accept 記録の存在だけを見る——採点まで持たれると、判断を情報の持ち主に置く円卓の原則が機械側へ吸い上げられる（所有境界の維持。決定46）
+
+### 12.5 単独円卓モードはこの契約の外である
+
+単独円卓モード（決定47・決定50）は Lattice を使わない。したがって上の4面はすべて存在せず、代替は次のとおり:
+
+| 面 | Lattice 併用（既定） | 単独 |
+|----|----------------------|------|
+| 仕事の取り出し口 | 依存付き ready 一覧 | `.team/tasks.md`（読み取り専用の議題表。依存なし・frontier なし） |
+| 着手・完了の記録 | 順序付き start/done journal | room の宣言だけが正 |
+| 完了の束縛 | evidence descriptor の digest 検証 | commit と room の完了報告 |
+| 完走の判定 | 監査待ち（`audit_pending`）の機械可視化 | 全員の完了報告を親が確認して散会宣言 |
+
+単独モードで失うのは task 間スケジューリングの機械保証と、claim 裁定・完了束縛の機械的根拠である。**失わないのは円卓そのもの**——room・憲章・宣言ベースの協力は最初から Lattice 非依存であり（決定47）、task 内共同作業は Peertable の固有資産である。よって単独モードは、依存構造が浅く短命な作業に限って正当化される。長い campaign・多段の受入・証跡が要る作業では Lattice 併用が既定である。
