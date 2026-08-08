@@ -159,7 +159,13 @@ for (;;) {
         const parts = buf.split('\n\n')
         buf = parts.pop()
         for (const part of parts) {
-          const line = part.split('\n').find(l => l.startsWith('data: '))
+          const lines = part.split('\n')
+          // SSE の1フレームは `event:` と `data:` の複数行で来る。名前付きイベント
+          // （server の心拍 `event: ping` / `data: 1` 等）は発言ではないので配達しない。
+          // `data:` だけ拾う実装だと心拍の `1` が発言として流れ込む（kotoha [106] の指摘）
+          const name = lines.find(l => l.startsWith('event: '))?.slice(7).trim()
+          if (name !== undefined && name !== 'message') continue
+          const line = lines.find(l => l.startsWith('data: '))
           if (line) dispatchNew(JSON.parse(line.slice(6)))
         }
       }
