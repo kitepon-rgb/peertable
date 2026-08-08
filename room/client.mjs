@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url'
 
 // client.mjs 側のハードコード版数。package.json の version と一致していることを
 // diagnostics の version_consistency が見る（2 つの版数源の drift 検出。決定45）
-const MCP_VERSION = '0.3.2'
+const MCP_VERSION = '0.3.3'
 const PKG_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 
 const USAGE = `usage:
@@ -222,6 +222,9 @@ async function runDiagnostics(asJson) {
       'scripts/make-plan-input.mjs',
       'scripts/parent-join.sh',
       'scripts/wakeup-bridge.mjs',
+      'scripts/seat-status-bridge.mjs',
+      // teardown の archive（＝解散・既定）が呼ぶ。欠けるとログの写しが取れない
+      'scripts/archive-room-log.py',
       'templates/gen-plan.mjs',
       'templates/done.sh',
       'templates/charter.md',
