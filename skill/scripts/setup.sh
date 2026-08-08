@@ -55,6 +55,19 @@ fi
 lattice_preexisting=false
 [ -d "$proj/.lattice" ] && lattice_preexisting=true
 
-printf '{"room":"%s","server_url":"%s","mode":"%s","plan_key":"%s","added_exclude":%s,"lattice_preexisting":%s,"added_root_mcp":%s,"added_mcp_exclude":%s}\n' \
-  "$room" "$url" "$mode" "$plan" "$added_exclude" "$lattice_preexisting" "$added_root_mcp" "$added_mcp_exclude" > "$tdir/setup-state.json"
+# Lattice 併用モードだけ、工程表の右ペインへ円卓を差す（決定53・明示的コネクタ）。
+# 公開URL基底は `PEERTABLE_PUBLIC_URL`（クオ環境: https://peertable.kitepon.dev）。
+# 未設定なら room サーバーの URL をそのまま使う——LAN URL は Lattice を外から見た時に開けないので、
+# 書いた URL は必ず標準エラーへ出す。
+external_pane=false
+project_json_preexisting=false
+public_url=""
+if [ "$mode" = "lattice" ]; then
+  public_url="${PEERTABLE_PUBLIC_URL:-$url}"
+  project_json_preexisting=$(node "$repo/skill/scripts/external-pane.mjs" "$proj" "$room" "$public_url")
+  external_pane=true
+fi
+
+printf '{"room":"%s","server_url":"%s","public_url":"%s","mode":"%s","plan_key":"%s","added_exclude":%s,"lattice_preexisting":%s,"added_root_mcp":%s,"added_mcp_exclude":%s,"external_pane":%s,"project_json_preexisting":%s}\n' \
+  "$room" "$url" "$public_url" "$mode" "$plan" "$added_exclude" "$lattice_preexisting" "$added_root_mcp" "$added_mcp_exclude" "$external_pane" "$project_json_preexisting" > "$tdir/setup-state.json"
 echo "scaffold done: $tdir"

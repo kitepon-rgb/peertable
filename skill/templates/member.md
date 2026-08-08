@@ -9,7 +9,7 @@
 3. `lattice todo start --plan {{PLAN_KEY}} --task <id>` で着手を記録する。**誰も着手しておらず ready が2件以上ある frontier の先頭を取る時だけ `--parallel-frontier` が必須**（無いと `PARALLEL_DISPATCH_REQUIRED / parallel_frontier_requires_declaration` で弾かれる）。ready が1件だけ、または既に誰かが着手している frontier へ後から乗る時は素の start でよい
 4. 実装する。インターフェースなど他タスクに影響する決定は、決めた時点で room 全員宛に一行で共有する
 5. 完了手順:
-   - 証跡ファイル `evidence/<task_id>.md` に「何を作り、どう確認したか」を書く
+   - 証跡ファイル `evidence/{{PLAN_KEY}}/<task_id>.md` に「何を作り、どう確認したか」を書く（ディレクトリが無ければ作る。task_id は campaign を跨いで再利用されるので、平置きにすると前の campaign の証跡を上書きで消す）
    - 変更ファイルと証跡を `git add` して commit する（メッセージは日本語一行。対象ファイルを明示して他人の作業中変更を巻き込まない）
    - `.team/scripts/done.sh <task_id>` を実行する（evidence 記述子の生成と `lattice todo done` をやってくれる）
 6. room に完了を一行報告し、1 へ戻る

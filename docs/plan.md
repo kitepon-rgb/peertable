@@ -451,6 +451,14 @@ Peertable が Lattice のどの面をどう消費するか（consumer contract �
     - 修正は `post` ハンドラの1行削除だけ。自分の発言は `relevant`（`m.from !== ME`）で表示から除外され、`read_unread` 側のカーソル更新が自分の発言も含めて末尾まで進めるので、**post 側で cursor を触る必要はそもそも無い**
     - **発見は円卓自身の相互検証による**。実運用中のメンバーが「起床通知が来たのに未読なし」を自分の身で踏んで報告し（room [51]）、もう1人が実コードとログ照合で裏を取って**同一 campaign 中に4件の実測**を出した（room [52][56]）。欠陥は 0.2.0 の diagnostics も smoke も緑のまま通過している——**沈黙する欠陥は、緑の検査ではなく使っている人の違和感からしか出てこない**
     - 回帰検査は `experiments/cursor-repro.mjs`（実プロセスを JSON-RPC で駆動し「他人の発言 → 自分の post → read_unread」の順序を再現する）。テスト framework は入れない（決定36）
+53. **工程表への外部ペイン接続と立卓 script（円卓×工程表統合 campaign P3・P5。2026-08-08）**。Lattice 側は「project ごとに外部ペインを1枚差せる汎用の口」を持つだけで Peertable を知らない（決定46 の分離維持）。差す/抜くのは Peertable の setup/teardown が行う**明示的コネクタ**である。
+    - **形**: `skill/scripts/external-pane.mjs` が対象 project の `.lattice/project.json` へ `external_pane: { title:"円卓", url:<公開基底>/<room>, probe_url:<公開基底>/api/<room>/members }` を書く。Lattice の identity 文書はキー集合ごと検証されるので、既存欄（`schema` / `project_id` / `display_name`）を保った**完全な文書として書き直す**。`project_id` は既存 identity → project ディレクトリ名の順で決め、`make-plan-input.mjs` の既定と一致させる（ずれると Lattice が identity 検証で落ちる）
+    - **不可侵の保ち方**（§9.0 の例外3）: 既存文書は `.team/project.json.bak` へ退避し、teardown が `.team/` を消す**前に**書き戻す。文書が無かった project では `project.json` ごと削除する。実測: 既存 `project.json` 有り／無しの両方で teardown 後に `git status` 差分ゼロ、有りの側は md5 一致で復元
+    - **URL 基底は聞き取り事項**（`PEERTABLE_PUBLIC_URL`）。既定は room サーバーの URL だが、LAN URL は Lattice を外から見た時に開けない。黙って壊れないよう、書いた URL は setup が必ず標準エラーへ出す
+    - **前提: Lattice 0.50.0 以降**。0.49.0 の `resolveProjectIdentity` はキー集合の完全一致（`display_name,project_id,schema`）で検証するため、`external_pane` を差した瞬間 `PROJECT_IDENTITY_INVALID / identity_schema_invalid` になり `lattice todo status` ごと死ぬ＝**工程正本が読めず卓が止まる**（実測）。古い Lattice の環境では Lattice 併用 setup を走らせない
+    - **立卓 script（P5）**: `launch-seat.sh`（tmux 作成 → env 注入 → 起動 → 既知ダイアログ通過 → 着席確認 → 任意で着任指示。**着席しなければ最後の画面を出して非ゼロで落ちる**）／`make-plan-input.mjs`（タスク定義 JSON → `plan_create` 入力。digest 計算と `hard_dependencies` の `(from,to)` 昇順ソートを内蔵——手書きで2回踏んだ罠）／`parent-join.sh`（親の着卓と kickoff）。tmux は aiterm と同じソケットへ作るので、script が立てた席はそのまま `pty_read`/`pty_send` で読める（実測）
+    - **既知ダイアログは実測で2種だけだった**（従来の手順書は4種と書いていた）: 未信頼ディレクトリの workspace trust と開発 channel 警告。`--dangerously-skip-permissions` により MCP 同意は出ず、信頼済みディレクトリでは trust も出ない。Codex 席は trust 1種。1席の立ち上げは着任指示まで含めて実測 8.1 秒
+    - **証跡の置き場を campaign ごとに仕切った**: `evidence/<plan_key>/<task_id>.md`。task_id は campaign を跨いで再利用される（t1, t2, …）ため、平置きのままでは次の campaign の done が前の campaign の監査証跡を上書きで消す（本 campaign 中にメンバーが done 前に発見）
 
 ---
 
@@ -470,6 +478,12 @@ Peertable が Lattice のどの面をどう消費するか（consumer contract �
 - プロジェクト既存の資産（CLAUDE.md を含む）には一切書き込まない
 - スキルが生成するものは全て `.team/` ディレクトリ配下に隔離する
 - 導入前と除去後でプロジェクトの diff がゼロになること
+
+例外は3つだけで、いずれも「setup が足し、teardown が確実に戻す」形で不可侵を保つ:
+
+1. project root の `.mcp.json`（channels の制約。決定44）
+2. `.lattice/`（Lattice 自身の作法に従う。setup が新規作成した場合だけ teardown で削除する）
+3. `.lattice/project.json` の `external_pane` 欄（**Lattice 併用モードのみ**。決定53）。既存文書は `.team/project.json.bak` へ退避し、teardown が書き戻す。文書が無かった project では teardown が `project.json` ごと削除する
 
 `.team/` の git 除外は `.gitignore` でなく `.git/info/exclude`（リポジトリ非共有・作業マシンローカル）で行う（クオ裁定 2026-08-08、決定履歴 34）。プロジェクト資産に一切触れずに不可侵原則を守れる。対象プロジェクトが git 管理外の場合は除外処理自体が不要。
 
