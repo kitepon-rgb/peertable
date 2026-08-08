@@ -1,0 +1,5 @@
+{
+  "mcpServers": {
+    "room": { "command": "node", "args": ["./channel.mjs"] }
+  }
+}
