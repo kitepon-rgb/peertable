@@ -24,7 +24,7 @@ description: 任意プロジェクトに Peertable チーム（対等メンバ�
 
 ## setup
 
-1. **聞き取り**: 対象プロジェクトのパス / メンバー数とモデル（既定: Sonnet）/ 初期タスク群（何を作るか）/ room 名（既定: プロジェクトのディレクトリ名）
+1. **聞き取り**: 対象プロジェクトのパス / メンバー数とモデル・effort（モデル既定: Sonnet、effort既定: CLI 既定。モデル選定は作業の性質——設計か確定実装か——を軸にする。決定49）/ 初期タスク群（何を作るか）/ room 名（既定: プロジェクトのディレクトリ名）
 2. **命名**: メンバーに日本のアニメキャラ風の可愛い名前を都度決める（固定リストなし）。識別子（tmux セッション名・room 登録名・Lattice actor）はローマ字、表示・自己紹介は日本語（決定35）
 3. **scaffold**: `scripts/setup.sh <project> <room> <server_url> <plan_key> <peertable_repo>` を実行する。`.team/`（憲章・roles/member.md・scripts/done.sh）と project root の `.mcp.json`（room MCP 定義。決定44）を templates から生成・置換し、`.git/info/exclude` へ `.team/` と `/.mcp.json` を追記し、作成記録を `.team/setup-state.json` に残す
 4. **Lattice plan**: `lattice status --json` で正本を判定する。`uninitialized` なら templates/gen-plan.mjs を雛形に聞き取ったタスクを plan 化して `lattice plan create`。初期化済みなら `todo migrate` の作法（Lattice 正典）に従う。設計メモは各タスクに必ず書く
