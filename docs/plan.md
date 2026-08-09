@@ -5,8 +5,8 @@
 親（オーケストレーター）に最終判断が集中しない、メンバー並列型のマルチエージェント作業システム。
 
 作成日: 2026-08-08
-状態: 設計確定 / V0〜V3 通過・V4 封印（決定41）/ スキル化完了 / GitHub 公開済み / npm 公開済み。`0.3.5` release candidate（Lattice pull実戦の正典同期・決定69）
-リポジトリ: github.com/kitepon-rgb/peertable（**公開済み 2026-08-08・MIT・public**）/ npm: **peertable@0.3.4 公開済み**（2026-08-09。`0.3.5` は公開前）
+状態: 設計確定 / V0〜V3 通過・V4 封印（決定41）/ スキル化完了 / GitHub 公開済み / npm 公開済み。`0.3.5` 出荷完了（Lattice pull実戦の正典同期・決定69）
+リポジトリ: github.com/kitepon-rgb/peertable（**公開済み 2026-08-08・MIT・public**）/ npm: **peertable@0.3.5 公開済み**（2026-08-09）
 
 ---
 
