@@ -42,7 +42,9 @@ packet_digest: 3a91…（64 hex）
    - それでも回らない検証は、無理に回さず room で言う。**動かないからといって canonical tree で回さない**——それは測りたい木ではない
 7. 終わったら **`[完了] t7` を独立した1発言**で room 全員宛へ。bridge がこれを見て report を書き、Lattice が worktree の diff を独立に撮って receipt にする
 
-**成果の正本は席の commit ではなく、Lattice が撮った observed diff である。** worktree は run の終端で `git worktree remove --force` され、木ごと消える（commit object は残るが、どの参照からも辿れない＝gc の対象）。「commit したから残る」と思わないこと。canonical への着地は run の外の別工程であり、`[完了]` は着地の宣言ではない。
+**成果の正本は席の commit ではなく、Lattice が撮った observed diff である。** `[完了]` の後、Lattice が worktree の diff を独立に撮って receipt にする——**受理されるのはその観測であって、あなたの commit ではない**。
+
+worktree は最後に `git worktree remove --force` で畳まれ、木ごと消える（commit object は残るが、どの参照からも辿れない＝gc の対象）。**畳まれるのは `run close` の時ではなく、supervisor が終了する時である**——close は run を閉じるだけで成果を捨てない（木そのものが run の成果なので、着地させる前に消さない設計）。**それでも「commit したから残る」と思わないこと。** canonical への着地は run の外の別工程であり、`[完了]` も `run close` も着地の宣言ではない。
 
 ## 再着任（context が要約されたら）
 
