@@ -838,3 +838,25 @@ push は Lattice repo は既定どおり、peertable repo は**オーナー明�
     - **席の終了を teardown が持つ**（従来は AI が事前に `pty_close` して回る前提で、**やらなかったことが画面に出ない**まま5席が残った実測がある）。畳むのは **その room の member 一覧にある `peer-<名前>` だけ**で、`peer-*` を全部畳むと同じマシンの別の卓を巻き込む（bridge が members 起点なのと同じ理由）。他卓の席が残っていれば注記を出す
     - ログの Markdown は**投稿時のまま**置く（引用ブロックで包むと表とコードが崩れる）。**本文の無い発言も欠落と分かる形で残す**——消すと「そこに発言があった」ことまで消える
 62. **managed run の割当は claim でなく受諾表明で成立する（円卓×Lattice実行層統合 campaign・オーナー裁定 2026-08-09。決定25をこの経路だけ改訂）**。旧決定25は「Lattice は assignee を持たず、room の先行 claim が割当になる」とした。これは席が自分で task を取る卓では今も正しいが、managed run では Lattice が task を dispatch し、bridge が席を選ぶため、claim を重ねると割当の正本が二つになる。改訂後は **task 選択=Lattice / 候補席の選択=bridge / 辞退権=席**の3層。`[配車] tN → 席` は dispatch 結果と提示先の可視化であって割当ではなく、席の `[受諾] tN` で初めて束縛が成立する。`[辞退] tN 理由` は失敗でなく再配車の入力である。run event/receipt は task と実行結果、room の受諾・辞退は席の意思を持ち、互いを二重化しない。managed run に載せない Lattice 併用卓と単独円卓の claim/join は変更しない。
+
+## 14. 申し送り対応 campaign（roundtable-carryover-20260809）— 計画正本
+
+円卓×Lattice実行層統合 campaign の各監査が「修正を求めない申し送り」として残したもののうち、
+**peertable が所有する分**をここへ落とす。Lattice 側の分は Lattice repo の
+`docs/plan_roundtable-execution-integration.md`「申し送りWave」節が持つ。
+
+**repo ごとに別 plan へ分ける。** managed run は 1 run・1 worktree が 1 repo なので、
+Lattice の plan へ peertable の task を混ぜると、その run の worktree では直せない。
+工程正本は peertable store の plan `roundtable-carryover-20260809`（本節から `todo migrate` で起票）。
+証跡は `evidence/roundtable-carryover-20260809/<task_id>.md`。
+
+### タスク
+
+- p1: 完了判定に receipt 単位の着地を出す（`done.sh` は今 `git rev-list --count @{u}..HEAD` だけを見て
+  「未push N本」を出す。これは **repo の push 状態**であって、**run が受理した成果が canonical へ着地したか**
+  ではない。2026-08-09 の t19-live-1 で **unpushed=0 かつ accepted receipt 3本すべて `not_landed`** を実測した——
+  両者は独立に動くので、片方では完了を判定できない。Lattice 側は `run landing` が receipt 単位の
+  `landing_state` を既に持つので、**消費側が2軸で表示・判定する**だけでよい。対象は
+  `skill/templates/done.sh`・`.team/scripts/done.sh` と `skill/scripts/teardown.sh` の landing 段。
+  受入=push 済みだが未着地の run で「未着地 N本」が出ること、両方緑の時だけ何も出ないこと、
+  upstream 未設定でも壊れないこと）
