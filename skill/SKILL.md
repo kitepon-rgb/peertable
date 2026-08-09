@@ -78,7 +78,7 @@ description: 任意プロジェクトに Peertable チーム（対等メンバ�
 
 ## managed run 経由の配車（Lattice 併用モード・実行層へ載せる卓だけ）
 
-卓を Lattice の実行層（managed run・隔離 worktree・実書き込み観測）へ載せると、task は席が自分で取るだけでなく **run から配車される**。**席は動かさない**——自分の project に座ったまま、worktree へ絶対パスで出入りする。cwd と env を動かすと room 接続と MCP 解決が壊れるためで、これは回避策ではなく設計そのものである。
+卓を Lattice の実行層（managed run・隔離 worktree・実書き込み観測）へ載せた時は、task を claim で取り合わない。**task 選択=Lattice・候補席の選択=bridge・受けるかの決定=席**の3層で、`[配車]` は提示の可視化、席の `[受諾]` で初めて束縛が成立し、`[辞退]` なら別席へ再配車する。**席は動かさない**——自分の project に座ったまま、worktree へ絶対パスで出入りする。cwd と env を動かすと room 接続と MCP 解決が壊れるためで、これは回避策ではなく設計そのものである。
 
 - **席と spool は接触しない。** 席が触るのは room と worktree だけで、`.lattice/` の直読み・直書き禁止の契約はそのまま。order は bridge が席の端末へ注入し、report は bridge が書く
 - **席が出す room 語彙は3つだけ**（bridge が行頭一致で機械 parse する。いずれも**独立した1発言**）: `[受諾] tN` / `[辞退] tN <理由>` / `[完了] tN`。辞退は正当な選択で、bridge が別の席へ再配車する
