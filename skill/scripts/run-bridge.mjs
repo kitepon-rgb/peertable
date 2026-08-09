@@ -23,9 +23,10 @@
 // 生死の作法は Lattice ADR 0157 に倣う: 自分の pid を記録に置き、起動時に前の記録を掃除し、
 // 止まらなければ黙って諦めず typed error で落ちる。
 import { execFile } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import { open, readdir, readFile, rename, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { join, posix } from 'node:path'
 import { promisify } from 'node:util'
 
 const run = promisify(execFile)
@@ -41,10 +42,44 @@ const alive = pid => { try { process.kill(pid, 0); return true } catch { return 
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 const log = line => console.log(`[${new Date().toISOString()}] ${line}`)
 
-async function stopRecorded() {
+// pid だけを頼りに signal を送らない（ADR 0157）。**pid は再利用される**ので、記録した
+// 起動時刻（ps の lstart）と command line を照合し、通った相手にだけ送る。照合が合わない記録は
+// 「自分の常駐ではない誰か」なので、掃除はしても**殺さない**。
+async function processFacts(pid) {
+  let stdout
+  try { ({ stdout } = await run('/bin/ps', ['-o', 'lstart=,command=', '-p', String(pid)])) }
+  catch { return null }
+  const line = stdout.split('\n')[0]?.trim() ?? ''
+  if (line.length === 0) return null
+  // lstart は固定幅の `Sun Aug  9 08:11:02 2026`（5 token）。残りが command line
+  const parts = line.split(/\s+/)
+  return { startIdentity: parts.slice(0, 5).join(' '), command: parts.slice(5).join(' ') }
+}
+
+async function stopRecorded({ strict = false } = {}) {
   if (!existsSync(record)) return
-  const { pid } = JSON.parse(readFileSync(record, 'utf8'))
-  if (!alive(pid)) { unlinkSync(record); log(`死んだ記録を掃除した（pid ${pid}）`); return }
+  const stored = JSON.parse(readFileSync(record, 'utf8'))
+  const { pid } = stored
+  const facts = await processFacts(pid)
+  if (facts === null || !alive(pid)) {
+    unlinkSync(record); log(`死んだ記録を掃除した（pid ${pid}）`); return
+  }
+  const sameProcess = stored.start_identity === undefined
+    ? false   // 旧形式の記録は再認証できない＝殺さない
+    : facts.startIdentity === stored.start_identity
+      && facts.command.includes('run-bridge.mjs')
+      && facts.command.includes(proj)
+  if (!sameProcess) {
+    unlinkSync(record)
+    const detail = `pid ${pid} は記録した常駐ではない（観測: ${facts.startIdentity} / ${facts.command.slice(0, 120)}）`
+    if (strict) {
+      console.error(`RUN_BRIDGE_RECORD_STALE: ${detail}。**signal は送っていない**——`
+        + '本物の常駐が別 pid で生きている可能性があるので、`ps` で確認して手で止めること')
+      process.exit(1)
+    }
+    log(`RUN_BRIDGE_RECORD_STALE: ${detail}。signal を送らずに記録だけ掃除した`)
+    return
+  }
   process.kill(pid, 'SIGTERM')
   for (let i = 0; i < 25 && alive(pid); i++) await sleep(200)
   if (alive(pid)) {
@@ -59,7 +94,7 @@ async function stopRecorded() {
   log(`前のブリッジを停止した（pid ${pid}）`)
 }
 
-await stopRecorded()
+await stopRecorded({ strict: rest[0] === '--stop' })
 if (rest[0] === '--stop') process.exit(0)
 
 const [spool, ...seats] = rest
@@ -78,8 +113,15 @@ if (token.length === 0) {
   process.exit(1)
 }
 
+// 記録には pid だけでなく**起動時刻と command line**を入れる。停止側はこれで再認証する
+const selfFacts = await processFacts(process.pid)
+if (selfFacts === null) {
+  console.error('RUN_BRIDGE_SELF_UNOBSERVABLE: 自分の process を ps で観測できない')
+  process.exit(1)
+}
 writeFileSync(record, JSON.stringify({
-  pid: process.pid, room, server_url: url, spool, seats, started_at: new Date().toISOString(),
+  pid: process.pid, start_identity: selfFacts.startIdentity, command: selfFacts.command,
+  room, server_url: url, spool, seats, started_at: new Date().toISOString(),
 }) + '\n')
 const cleanup = () => { if (existsSync(record)) unlinkSync(record); process.exit(0) }
 process.on('SIGTERM', cleanup)
@@ -109,16 +151,50 @@ function canonical(value) {
 const ORDER_KEYS = ['schema', 'todo_id', 'worktree_path', 'base_sha', 'scope_writes',
   'verifier_refs', 'forbidden_operations', 'packet_digest', 'order_digest'].sort()
 
+// **正本（Lattice の `validateRunWorkOrder`）と同じ強さで拒否する。** ここが緩いと、bridge が
+// 不正な worktree path や scope を席へ配ってしまう——席は order を信じて worktree を触るので、
+// 検査を Lattice 側だけに任せられない（Lattice は席が書いた後の diff しか見ない）。
+const ID = /^[0-9A-Za-z](?:[0-9A-Za-z._-]{0,127})$/
+const SHA256 = /^[0-9a-f]{64}$/
+const GIT_SHA1 = /^[0-9a-f]{40}$/
+const MAX_ITEMS = 256
+
+function safeWritePath(value) {
+  return typeof value === 'string'
+    && value.length > 0
+    && value === posix.normalize(value)
+    && !posix.isAbsolute(value)
+    && value !== '..'
+    && !value.startsWith('../')
+    && !value.includes('\\0')
+    && !value.includes('\0')
+    && !['.git', '.lattice'].includes(value.split('/')[0])
+}
+
+function stringArray(value, { min = 0, paths = false } = {}) {
+  return Array.isArray(value) && value.length >= min && value.length <= MAX_ITEMS
+    && value.every(entry => (paths ? safeWritePath(entry) : typeof entry === 'string'))
+}
+
+function selfDigestOf(value, field) {
+  const projection = {}
+  for (const key of Object.keys(value)) if (key !== field) projection[key] = value[key]
+  return createHash('sha256').update(Buffer.from(canonical(projection), 'utf8')).digest('hex')
+}
+
 function validOrder(order) {
   return order !== null && typeof order === 'object' && !Array.isArray(order)
     && Object.keys(order).sort().join('\0') === ORDER_KEYS.join('\0')
     && order.schema === 'lattice.run_work_order.v1'
-    && typeof order.todo_id === 'string' && order.todo_id.length > 0
-    && typeof order.worktree_path === 'string' && order.worktree_path.startsWith('/')
-    && /^[0-9a-f]{40}$/.test(order.base_sha ?? '')
-    && [order.scope_writes, order.verifier_refs, order.forbidden_operations]
-      .every(v => Array.isArray(v) && v.every(e => typeof e === 'string'))
-    && /^[0-9a-f]{64}$/.test(order.packet_digest ?? '')
+    && ID.test(order.todo_id ?? '')
+    && typeof order.worktree_path === 'string' && posix.isAbsolute(order.worktree_path)
+    && GIT_SHA1.test(order.base_sha ?? '')
+    && stringArray(order.scope_writes, { paths: true })
+    && stringArray(order.verifier_refs)
+    && stringArray(order.forbidden_operations, { min: 1 })
+    && SHA256.test(order.packet_digest ?? '')
+    && SHA256.test(order.order_digest ?? '')
+    && selfDigestOf(order, 'order_digest') === order.order_digest
 }
 
 // ---- report（bridge が書く。0600・canonical JSON+LF・temp→fsync→rename） ----
@@ -162,6 +238,17 @@ async function seatWorkerPid(seat) {
     throw new TypeError(`RUN_BRIDGE_SEAT_UNRESOLVED: ${seat} の process group leader が ${leaders.length} 件`)
   }
   return leaders[0]
+}
+
+// 再起動後、working report が指す pid が今どの席のものかを引き当てる。
+// 引き当てられなければ null（**推測で席を決めない**）。
+async function seatOfWorkerPid(workerPid) {
+  for (const seat of seats) {
+    let pid = null
+    try { pid = await seatWorkerPid(seat) } catch { continue }
+    if (pid === workerPid) return seat
+  }
+  return null
 }
 
 async function post(to, body) {
@@ -232,11 +319,26 @@ async function scanOrders() {
       dispatched.set(digest, { order: null, seat: null, workerPid: null, state: 'invalid', declined: new Set() })
       continue
     }
-    // 再起動時に済んだ order を配車し直さない。durable な状態は report が持つ
+    // 再起動時、durable な状態は report が持つ。**working を fresh 扱いで配り直さない**——
+    // 配り直すと worker_pid が変わり、controller が hard fail する（受諾後の pid は不変契約）。
     const existing = await readReport(digest)
     if (existing !== null && existing.state === 'done') {
       dispatched.set(digest, { order, seat: null, workerPid: existing.worker_pid, state: 'done', declined: new Set() })
       log(`済んだ order を引き継いだ: ${order.todo_id}`)
+      continue
+    }
+    if (existing !== null && existing.state === 'working') {
+      const owner = await seatOfWorkerPid(existing.worker_pid)
+      if (owner === null) {
+        // 復元できないなら**止まる**。別の席へ配り直すのは契約違反で、静かに壊れるより悪い
+        dispatched.set(digest, { order, seat: null, workerPid: existing.worker_pid, state: 'unrecoverable', declined: new Set() })
+        log(`RUN_BRIDGE_WORKING_UNRECOVERABLE: ${order.todo_id} の working report が指す pid `
+          + `${existing.worker_pid} を持つ席が居ない。**再配車しない**（worker_pid 不変契約を破るため）。`
+          + '席が落ちているなら run 側で hold/close して order を出し直すこと')
+        continue
+      }
+      dispatched.set(digest, { order, seat: owner, workerPid: existing.worker_pid, state: 'working', declined: new Set() })
+      log(`作業中の order を引き継いだ: ${order.todo_id} ← ${owner}（pid ${existing.worker_pid}）`)
       continue
     }
     fresh += 1
