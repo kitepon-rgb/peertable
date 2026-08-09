@@ -45,8 +45,21 @@ function readMessages(room, since = 0) {
     .map(l => JSON.parse(l)).filter(m => m.seq > since)
 }
 
-function post(room, from, to, body) {
-  const msg = { seq: ++room.seq, ts: new Date().toISOString(), from, to, body }
+// 宛先の正規化。複数人宛は `to_names` に持ち、`to` は 'all' へ倒す——旧 client は `to === 'all'` で
+// 拾えるので、**取りこぼす側ではなく過剰に受け取る側へ倒れる**。宛先1人は従来どおり `to` だけで、
+// 線の形が変わらない。
+function normalizeAudience(to, toNames) {
+  const list = Array.isArray(to) ? to : Array.isArray(toNames) ? toNames : null
+  if (list === null) return { to: to ?? 'all', to_names: null }
+  if (!list.every(n => typeof n === 'string' && n.length > 0 && n !== 'all')) return { error: 'to_invalid' }
+  const names = [...new Set(list)]
+  if (names.length === 0) return { error: 'to_invalid' }
+  if (names.length === 1) return { to: names[0], to_names: null }
+  return { to: 'all', to_names: names }
+}
+
+function post(room, from, to, body, toNames = null) {
+  const msg = { seq: ++room.seq, ts: new Date().toISOString(), from, to, body, ...(toNames ? { to_names: toNames } : {}) }
   appendFileSync(room.logPath, JSON.stringify(msg) + '\n')
   const chunk = `data: ${JSON.stringify(msg)}\n\n`
   for (const res of room.streams) res.write(chunk)
@@ -92,12 +105,14 @@ http.createServer(async (req, res) => {
       return json(res, 403, { error: 'token_required' })
 
     if (req.method === 'POST' && rest === 'messages') {
-      const { from, to, body: text } = JSON.parse(body)
+      const { from, to, to_names: toNames, body: text } = JSON.parse(body)
       // 本文が無ければ **書かずに 400**。ここを素通しにすると `JSON.stringify` が欄ごと落として、
       // append-only の正本へ**本文の無い行**が入る——しかも送信側には 200 と seq が返るので
       // 「送れた」と表示される（2026-08-08 に本番で2件実測。消せない）
       if (typeof text !== 'string') return json(res, 400, { error: 'body_required' })
-      return json(res, 200, post(room, from, to ?? 'all', text))
+      const audience = normalizeAudience(to, toNames)
+      if (audience.error) return json(res, 400, { error: audience.error })
+      return json(res, 200, post(room, from, audience.to, text, audience.to_names))
     }
     if (req.method === 'POST' && rest === 'members') {
       const { name, ...meta } = JSON.parse(body)
@@ -280,13 +295,14 @@ let last=null,recent=null
 function render(m){
   const at=new Date(m.ts)
   if(m.from==='system'){const d=el('div','sys');d.appendChild(el('span','body',m.body));d.appendChild(stamp(at));logEl.appendChild(d);last=null;return}
-  const cont=last&&last.from===m.from&&last.to===m.to&&at-new Date(last.ts)<300000
-  const d=el('div','msg'+(m.to!=='all'?' dm':'')+(cont?' cont':''))
+  const aud=m=>Array.isArray(m.to_names)?m.to_names.join(', '):m.to
+  const cont=last&&last.from===m.from&&aud(last)===aud(m)&&at-new Date(last.ts)<300000
+  const d=el('div','msg'+(aud(m)!=='all'?' dm':'')+(cont?' cont':''))
   d.style.setProperty('--h',hue(m.from))
   d.appendChild(el('div','av',initial(m.from)))
   const body=el('div','body'),meta=el('div','meta')
   meta.appendChild(el('span','who',m.from))
-  if(m.to!=='all')meta.appendChild(el('span','to','→ '+m.to))
+  if(aud(m)!=='all')meta.appendChild(el('span','to','→ '+aud(m)))
   meta.appendChild(stamp(at))
   const bub=el('div','bubble');bub.appendChild(md(m.body))
   body.appendChild(meta);body.appendChild(bub)

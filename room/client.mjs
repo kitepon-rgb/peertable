@@ -36,7 +36,10 @@ if (!URL_BASE || !ROOM || !ME) throw new Error('PEERTABLE_URL / PEERTABLE_ROOM /
 
 const api = p => `${URL_BASE}/api/${ROOM}/${p}`
 const headers = { 'Content-Type': 'application/json', ...(TOKEN ? { 'X-Peertable-Token': TOKEN } : {}) }
-const relevant = m => m.from !== ME && (m.to === 'all' || m.to === ME)
+// 複数人宛は `to_names` を持つ（server が `to` を 'all' へ倒すので、旧 client でも取りこぼさない）。
+// 新 client はここで実宛先だけを見るので、名指しされていない席は起きない。
+const relevant = m => m.from !== ME
+  && (Array.isArray(m.to_names) ? m.to_names.includes(ME) : (m.to === 'all' || m.to === ME))
 
 let cursor = 0 // read_unread 用。参加時点から数える
 
@@ -47,7 +50,8 @@ const mcp = new Server(
     instructions:
       `あなたは Peertable room「${ROOM}」のメンバー「${ME}」である。` +
       '<channel source="room"> の通知は「新着あり」の合図であり、本文は read_unread ツールで読む。' +
-      '発言は post ツール（to: "all" は全員宛、メンバー名で個別宛=DM）。',
+      '発言は post ツール（to: "all" は全員宛、メンバー名で個別宛=DM、メンバー名の配列で複数人宛）。' +
+      '全員宛は1発言で全席1ターンを焼くので、用件が特定メンバーだけなら配列で名指しする。',
   },
 )
 
@@ -57,11 +61,18 @@ mcp.setRequestHandler(ListToolsRequestSchema, async () => ({
   tools: [
     {
       name: 'post',
-      description: 'room へ発言する。to は "all"（全員宛）またはメンバー名（個別宛=DM）',
+      description: 'room へ発言する。to は "all"（全員宛）/ メンバー名（DM）/ メンバー名の配列（複数人宛）。'
+        + '複数人に別々の用件があるとき、まとめて "all" にしない——名指しの配列にすれば、その人たちだけが起きる',
       inputSchema: {
         type: 'object',
         properties: {
-          to: { type: 'string', description: '"all" またはメンバー名' },
+          to: {
+            anyOf: [
+              { type: 'string' },
+              { type: 'array', items: { type: 'string' }, minItems: 1 },
+            ],
+            description: '"all" / メンバー名 / メンバー名の配列。全員宛は決定・gate状態・全体記録だけに使う',
+          },
           message: { type: 'string' },
         },
         required: ['to', 'message'],
@@ -73,7 +84,7 @@ mcp.setRequestHandler(ListToolsRequestSchema, async () => ({
   ],
 }))
 
-const fmt = m => `[${m.seq}] ${m.from} → ${m.to} (${m.ts}): ${m.body}`
+const fmt = m => `[${m.seq}] ${m.from} → ${Array.isArray(m.to_names) ? m.to_names.join(', ') : m.to} (${m.ts}): ${m.body}`
 
 mcp.setRequestHandler(CallToolRequestSchema, async req => {
   const args = req.params.arguments ?? {}
@@ -140,7 +151,10 @@ async function subscribe() {
           if (!relevant(m)) continue
           await mcp.notification({
             method: 'notifications/claude/channel',
-            params: { content: `room に新着あり（${m.from} → ${m.to}）。read_unread で読むこと。`, meta: { from: m.from, to: m.to, seq: String(m.seq) } },
+            params: {
+              content: `room に新着あり（${m.from} → ${Array.isArray(m.to_names) ? m.to_names.join(', ') : m.to}）。read_unread で読むこと。`,
+              meta: { from: m.from, to: Array.isArray(m.to_names) ? m.to_names.join(',') : m.to, seq: String(m.seq) },
+            },
           })
         }
       }
