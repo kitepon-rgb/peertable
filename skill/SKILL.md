@@ -64,8 +64,8 @@ description: 任意プロジェクトに Peertable チーム（対等メンバ�
 段の順序（**前の段が後の段の前提**）:
 1. **room ログの写し**（archive のみ）→ `docs/archive/room-log_<room>_<日時>.md`。**原本は room に残る**ので、これは repo 側の控え（失敗しても撤去は続行する）
 2. **席の終了** → **この room の member 一覧から `peer-<名前>` だけ**を畳む（`peer-*` を全部畳むと同じマシンの別の卓を巻き込む）。他卓の席が残っていれば注記だけ出す
-3. **ブリッジの停止**（起床・稼働状態・配車）→ `.team/` を消す前（pid 記録がその中にある）
-4. **managed runの着地読み出し** → 配車停止後・`.lattice/runtime/`撤去前に、work orderが指す各runへ`lattice run landing`を実行する。出力の`landed`と`repository.unpushed_commits`を監査記録として残す。**未着地・未pushは判断結果でありexit 0**——runがclose済みでも着地済みとは限らない。release前のsource CLIを使う時はsetupと同じ`LATTICE_CLI`をteardownにも渡す
+3. **ブリッジの停止**（起床・稼働状態・run 可視化）→ `.team/` を消す前（pid 記録がその中にある）
+4. **runの着地読み出し** → ブリッジ停止後・`.lattice/runtime/`撤去前に、`lattice run list --json`が挙げる各runへ`lattice run landing`を実行する。出力の`landed`と`repository.unpushed_commits`を監査記録として残す。**未着地・未pushは判断結果でありexit 0**——runがclose済みでも着地済みとは限らない。release前のsource CLIを使う時はsetupと同じ`LATTICE_CLI`をteardownにも渡す
 5. **解散**（archive）: **履歴へ解散の区切りを1行投稿してから、メンバー登録だけ外す**。**部屋も過去ログも消さない**——区切りが無いと、次の卓の発言が前の卓と地続きに読める／**`--purge`**: room ごと削除（トークンを要する唯一の段）
 6. **外部ペインの復元** → `.team/project.json.bak` が退避先なので `.team/` を消す前
 7. `.team/` 削除 → `.mcp.json` → `.git/info/exclude` の追記行を戻す
@@ -77,23 +77,25 @@ description: 任意プロジェクトに Peertable チーム（対等メンバ�
 
 各段は `[実施] / [スキップ] / [未実施]` を1行ずつ出す。**トークンを要するのは room 削除だけ**なので、そこが失敗しても残りの撤去は続行し、未実施を明示して非ゼロで終わる（黙って中断しない・決定58）。未実施が出ても**撤去そのものは済んでいる**。残りは表示された **[手当] の curl を手で叩く**だけで、`.team/` は既に消えているので **teardown.sh の再実行はできない**（2026-08-08 実測。再実行すると `setup-state.json` が読めず落ちる）。
 
-## managed run 経由の配車（Lattice 併用モード・実行層へ載せる卓だけ）
+## Lattice の実行層へ席の着手を載せる（pull 型・Lattice 併用モードだけ）
 
-卓を Lattice の実行層（managed run・隔離 worktree・実書き込み観測）へ載せた時は、task を claim で取り合わない。**task 選択=Lattice・候補席の選択=bridge・受けるかの決定=席**の3層で、`[配車]` は提示の可視化、席の `[受諾]` で初めて束縛が成立し、`[辞退]` なら別席へ再配車する。**席は動かさない**——自分の project に座ったまま、worktree へ絶対パスで出入りする。cwd と env を動かすと room 接続と MCP 解決が壊れるためで、これは回避策ではなく設計そのものである。
+**装置は仕事を配らない。** 2026-08-09 のオーナー裁定（改・裁定1）で、Lattice が task を選んで席へ配る向きは撤回された——**作業を選ぶのも始めるのも席（AI）**であり、装置がやるのは**着手済み ToDo 同士の競合判定と介入だけ**である。着手前に装置の許可を待つ面も作らない。旧版にあった `[配車]` / `[受諾]` / `[辞退]` の3層は無くなり、**claim は従来どおり割当の主体に戻った**（決定25 のとおり）。
 
-- **席と spool は接触しない。** 席が触るのは room と worktree だけで、`.lattice/` の直読み・直書き禁止の契約はそのまま。order は bridge が席の端末へ注入し、report は bridge が書く
-- **席が出す room 語彙は3つだけ**（bridge が行頭一致で機械 parse する。いずれも**独立した1発言**）: `[受諾] tN` / `[辞退] tN <理由>` / `[完了] tN`。辞退は正当な選択で、bridge が別の席へ再配車する
-- **席の作法の正本は `templates/member.md` の「配車で来た仕事」節**（注入文の書式・禁止操作・scope 外書込・検証の回し方・成果の正本）。ここに二重化しない
-- 前提は2つで、**どちらも立っていない卓には配車が来ない**（席の作法は無害に眠る）: ①Lattice 側 executor adapter の登録と spool dir ②peertable 側の run-bridge 常駐
-- **配車ブリッジの起動**: `PEERTABLE_POST_TOKEN=… nohup node scripts/run-bridge.mjs <project> <spool_dir> <席名>… > <project>/.team/run-bridge.log 2>&1 &`。停止は `node scripts/run-bridge.mjs <project> --stop`（**teardown.sh が自動で行う**）。起床ブリッジと同じ ADR 0157 の作法（pid 記録・起動時に前の記録を掃除・SIGTERM→SIGKILL）で、**席へは1バイトも送らない**——配車は room への投稿で届き、起こすのは channels（Claude 席）と wakeup-bridge（Codex 席）の仕事である
-  - **SSE が繋がって頭出しが済むまで配車しない。** 返事を聞けない状態で配車すると、直後の `[受諾]` を既読として捨てる（実測で踏んだ順序）
-  - 席が `[辞退]` したら別の席へ配車し直す。**`[受諾]` を受けて初めて report を書く**ので、辞退の窓は受諾より前にしかない（Lattice 側は受諾後の worker pid 変化を hard fail する）
+- **席は自分で `todo start` してから `run intake` する。** intake が返すのは隔離 worktree と `intervention`（`none` か `hold`）で、**許可証ではない**。`hold` は「他の着手済み task と競合しているから留まれ」という装置の指示である
+- **worktree と lease は設備の供給である。** 席が要求すれば出てくるもので、出してもらうものではない
+- **席と spool は接触しない。** 席が触るのは room と worktree だけで、`.lattice/` の直読み・直書き禁止の契約はそのまま
+- **席の作法の正本は `templates/member.md` の「Lattice の実行層へ自分の着手を載せる」節**（intake→intervention 判定→attach→作業→`todo done`→accept の順・1席1 intake・禁止操作・検証の回し方・成果の正本）。ここに二重化しない
+- **席は自分の pid を装置へ渡す（attach）。** その pid は `.team/seats/<名前>.json`（`launch-seat.sh` が着席直後に書く）が持ち、席は読んで `schema` を足すだけで attach input になる。**raw argv を保存しない**——Codex 起動の argv には `PEERTABLE_POST_TOKEN` が載るので、保存すれば秘密の複製になる（2026-08-09 実測）。持つのは digest だけ
+- **run-bridge は可視化の中継であって、必須経路ではない**（決定63）。落ちていても席は自分で intake / attach / accept を打てるし、介入も `lattice run intake intervention --run <ref> --task <id>` で自分で読める。**見えなくなるだけ**である
+- **ブリッジの起動**: `PEERTABLE_POST_TOKEN=… nohup node scripts/run-bridge.mjs <project> [--lattice <path>] > <project>/.team/run-bridge.log 2>&1 &`。停止は `node scripts/run-bridge.mjs <project> --stop`（**teardown.sh が自動で行う**）。**spool dir も席名も取らない**（配車をしないので要らない。渡すと typed error で落ちる）。ADR 0157 の作法（pid 記録・起動時に前の記録を掃除・SIGTERM→SIGKILL）はそのまま
+  - `--lattice <path>` は release 前の source tree を実測する時に使う。**PATH の install は version 表示が同じでも未 publish の schema を読めない**（2026-08-09 に卓で3件実測）
+  - bridge が返すのは2つだけで**どちらも読み取り**: `[run] <run-id> intake=[…] accepted=[…] hold=[…] closed=…`（変化時だけ）と、`hold` になった intake をその作業を始めた席宛へ返す `[介入]`
 
 運用側が踏みやすい所（実測で確認した挙動）:
 
-- **worktree は run 終端で `git worktree remove --force` される。** 席の commit は base_sha の子孫だが、木ごと消えた後はどの参照からも辿れない（gc の対象）。**成果の正本は Lattice が撮った observed diff** であって席の commit ではない。着地は run の外の工程で、`[完了]` は着地の宣言ではない
-- **worktree には gitignore 済みの資産が無い**（`node_modules` 等）が、**席に install させない**。checkpoint 観測は `git status --ignored=matching` で撮る（gitignore 経由の scope 迂回を塞ぐ設計）ので、install した file が全部 `undeclared_write` になり、diff entry 上限 256 を超えた時点で観測ごと落ちる（実測: ignored 300本で `diff entry数が上限を超える`）。**依存は install 無しで解決する**——worktree が repo 配下（`<repo>/.lattice/runs/…/tree`）に切られるので、Node の bare specifier 解決が親を遡って canonical の `node_modules` に当たる（repo の外へ置くと `ERR_MODULE_NOT_FOUND`）。当たるのは canonical の版なので、lockfile を動かす task の検証結果は疑う。canonical tree で回させない——測りたい木ではない
-- **`scope_writes` の外への書き込みは黙って弾かれず、`undeclared_write` として観測に出る。** 席へは「隠すな、room で言え」と伝わっている
+- **worktree は `run close` でも supervisor 終了でも畳まれない。** 畳むのは `run abandon` だけである。**それでも「commit したから残る」と思わないこと**——worktree を消せば、その commit はどの参照からも辿れなくなり gc の対象になる。**成果の正本は Lattice が撮った observed diff** であって席の commit ではない。着地は run の外の工程で、`accept` も `run close` も着地の宣言ではない（着地状況は `run landing` が receipt 単位で出す）
+- **worktree には gitignore 済みの資産が無い**（`node_modules` 等）が、**席に install させない**。checkpoint 観測は `git status --ignored=matching` で撮る（gitignore 経由の scope 迂回を塞ぐ設計）ので、install した file が全部観測へ出て、diff entry 上限 256 を超えた時点で観測ごと落ちる（実測: ignored 300本で `diff entry数が上限を超える`）。**依存は install 無しで解決する**——worktree が repo 配下（`<repo>/.lattice/runs/…/tree`）に切られるので、Node の bare specifier 解決が親を遡って canonical の `node_modules` に当たる（repo の外へ置くと `ERR_MODULE_NOT_FOUND`）。当たるのは canonical の版なので、lockfile を動かす task の検証結果は疑う。canonical tree で回させない——測りたい木ではない
+- **宣言境界の外への書き込みは黙って弾かれず、観測に出る。** 席へは「隠すな、room で言え」と伝わっている
 
 ## 線（共有プロトコル）を資源として宣言する（Lattice 併用モード）
 
@@ -143,7 +145,7 @@ witness をどう生成するかは**対象 project 側の作法に従う**（La
   - **監査者は自分の測定器を先に疑う**。実行して確かめる時は、**欠陥版で落ちることを確認してから** green を読む——確かめずに出た数字は、通っても落ちても意味を持たない
   - 監査の依頼は**実装者が出す**（「この点を見てほしい」を task の done 報告に添える）。依頼が無くても、手が空いた席は出た順に読んでよい
   - 監査で見つけたものは**欠陥の断定と指摘を分けて書く**。受入条件外なら「修正を求めない申し送り」として、記録先（証跡の残課題・`lattice todo note`・課題帳）まで示す
-  - **managed runの受入はcloseと着地を分けて読む**。`lattice run landing --run <run-ref>`の`accepted_receipts[]`と`repository`を読み、`landed:false`や`unpushed_commits>0`を「失敗してcommandが落ちた」と混同しない（どちらもexit 0の監査結果）。teardownも同じreportを配車停止後・runtime撤去前に自動で出す。source treeを実測する時は`LATTICE_CLI=<そのtreeのbin/lattice.mjs>`をteardownへも渡し、古いglobal installへ黙ってfallbackしない
+  - **runの受入はcloseと着地を分けて読む**。`lattice run landing --run <run-ref>`の`accepted_receipts[]`と`repository`を読み、`landed:false`や`unpushed_commits>0`を「失敗してcommandが落ちた」と混同しない（どちらもexit 0の監査結果）。teardownも同じreportをブリッジ停止後・runtime撤去前に自動で出す。source treeを実測する時は`LATTICE_CLI=<そのtreeのbin/lattice.mjs>`をteardownへも渡し、古いglobal installへ黙ってfallbackしない
 - **親の再着卓**（context が要約された／セッションが替わった時。決定51 のメンバー版に対応する親版。2026-08-08 実測）: 卓は生きたまま親だけが記憶を失う局面なので、**復帰は記憶ではなく正本から取り直す**。順に:
   1. **room ログを読む**——`curl -s "$URL/api/$ROOM/messages?since=<最後に読んだ seq>"`。`since` を持っていなければ 0 から。**会話が卓の正本**なので、まずここで現在地（誰が何を claim し、どこまで done か）を作る
   2. **工程正本で照合する**——`lattice todo status --json`（Lattice 併用）。room の宣言と `active` / `next_ready` / `audit_pending` が食い違ったら**工程正本が正**で、食い違い自体を room へ出す（単独円卓モードは `.team/tasks.md` と room ログの突き合わせ）

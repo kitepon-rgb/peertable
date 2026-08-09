@@ -24,6 +24,11 @@ fi
 
 # 前の卓の残骸を回収してから立てる（同名セッションが残ると起動が黙って古い席に化ける）
 tmux -S "$sock" kill-session -t "$sess" 2>/dev/null || true
+
+# 素性記録（.team/seats/<name>.json）の掃除は**ここ**でやる。席を起こす経路は全席が必ず通るので、
+# 死んだ記録がここで必ず消える（ADR 0157）。teardown や人が叩くコマンドに置くと、誰も叩かず溜まる。
+# **消すのは同名の自分の分だけ**——`peer-*` を一括で消すと同じマシンの別卓を巻き込む。
+rm -f "$proj/.team/seats/$name.json"
 tmux -S "$sock" new-session -d -s "$sess" -x 200 -y 50 -c "$proj"
 
 # 素性は席の env にも入れる。client が**登録のたびに**載せるので、member の状態が失われても戻る
@@ -93,6 +98,69 @@ if [ "$seated" != "true" ]; then
 fi
 
 echo "seated: ${sess}（${vendor} / ${model}${effort:+ / $effort} / room=${room} / mode=${mode}）"
+
+# 席の素性を `.team/seats/<name>.json` へ置く。**席が自分の pid を知るための唯一の経路**である
+# （Lattice の `run intake attach` は expected identity を要求し、pid を推定しない）。
+# 着席の**後**に取る——起動途中の process を掴むと、ダイアログ通過で子が入れ替わりうる。
+#
+# 持たせるのは6欄だけで、**`lattice.pull_worker_attach_input.v1` の exact 集合から `schema` を
+# 除いたもの**と一致する。席は読んで `schema` を被せるだけで attach input になる（変換不要）。
+# **raw argv を持たせない**——Codex 起動の argv には `PEERTABLE_POST_TOKEN` が載るので、
+# 保存すれば秘密の複製になる（2026-08-09 実測）。digest だけを持つ。
+# この file が主張するのは「この pid はこの席だった」という**識別**であって、生死ではない。
+# 生きているかは attach する側（Lattice）が lstart+argv の再観測で確かめる。
+seat_pid=""
+pane_pid=$(tmux -S "$sock" list-panes -t "$sess" -F '#{pane_pid}' 2>/dev/null | head -1 || true)
+if [ -n "$pane_pid" ]; then
+  # pane の子で pid===pgid のものが席本体。pane_pid（shell）を渡すと Lattice の直接 OS 観測が
+  # 「worker process group を無関係 process と共有している」で正しく落ちる。
+  # **1件でなければ推測で選ばない**（run-bridge.mjs の seatWorkerPid と同じ規律）。
+  leaders=$(ps -Ao pid=,ppid=,pgid= | awk -v p="$pane_pid" '$2==p && $1==$3 {print $1}')
+  if [ "$(printf '%s\n' "$leaders" | grep -c .)" = "1" ]; then seat_pid=$(printf '%s' "$leaders" | tr -d ' \n'); fi
+fi
+if [ -z "$seat_pid" ]; then
+  # 記録が無ければ席は attach できず、装置の介入は協調 hold のままになる。**黙らない。**
+  echo "seat identity を記録できなかった: ${sess} の process group leader を1つに確定できない（席は着席済み）" >&2
+else
+  mkdir -p "$proj/.team/seats"
+  if ! python3 - "$proj/.team/seats/$name.json" "$name" "$sess" "$seat_pid" <<'PY'
+import hashlib, json, os, subprocess, sys, tempfile
+out, name, session, pid = sys.argv[1:5]
+pid = int(pid)
+started = subprocess.run(['/bin/ps', '-o', 'lstart=', '-p', str(pid)],
+                         capture_output=True, text=True, check=True).stdout.strip()
+argv = subprocess.run(['/bin/ps', '-o', 'args=', '-p', str(pid)],
+                      capture_output=True, text=True, check=True).stdout.strip()
+if not started or not argv:
+    sys.exit('pid の lstart/args を観測できない')
+record = {
+    'argv_digest': hashlib.sha256(argv.encode()).hexdigest(),
+    'name': name,
+    'pid': pid,
+    'recorded_at': subprocess.run(['date', '-u', '+%Y-%m-%dT%H:%M:%S.000Z'],
+                                  capture_output=True, text=True, check=True).stdout.strip(),
+    'session': session,
+    'started_identity': started,
+}
+# canonical JSON（key 昇順・空白なし）＋ 0600 ＋ 一時file→fsync→rename で原子的に置く。
+# 着席直後に席が読むので、部分読取が起きない形にする。
+body = json.dumps(record, ensure_ascii=False, sort_keys=True, separators=(',', ':')) + '\n'
+fd, tmp = tempfile.mkstemp(dir=os.path.dirname(out), prefix='.seat-', suffix='.tmp')
+try:
+    with os.fdopen(fd, 'w') as handle:
+        handle.write(body)
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.chmod(tmp, 0o600)
+    os.replace(tmp, out)
+except BaseException:
+    os.unlink(tmp)
+    raise
+PY
+  then
+    echo "seat identity を記録できなかった: ${sess}（席は着席済み・attach は協調 hold のままになる）" >&2
+  fi
+fi
 
 # 席の素性（vendor / model / effort）を room へ渡す。参加者一覧のホバー表示に使う。
 # 席自身の client も起動時に `{name}` だけで登録するので、server 側は

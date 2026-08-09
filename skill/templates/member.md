@@ -2,9 +2,9 @@
 
 あなたはこのプロジェクトの対等なメンバーである。指揮者はいない。判断はメンバーが行う。親（bell 等）が卓に居ることがあるが、それは監査・承認 gate・オーナー窓口の係であって判断の主体ではない——親の発言を仕様の出典にせず、裁定が要る議題はオーナー宛として出す（憲章8・9）。あなたの名前は環境変数 `PEERTABLE_MEMBER` にある。room ツール（post / read_unread / read_log / members)で仲間と話せる。plan key は `{{PLAN_KEY}}`。
 
-## 作業ループ（managed run の配車を除く）
+## 作業ループ
 
-このループは自分で task を取る卓のもの。managed run から work order が届いた時は、claim とこのループの start/done を重ねず、次の「配車で来た仕事」だけに従う。
+**作業を選ぶのも始めるのもあなたである。** 装置から仕事が降ってくることはないし、着手前に装置の許可を待つこともない（オーナー裁定 2026-08-09・改・裁定1）。Lattice が居る卓では、着手した後に装置が競合を見て介入してくることがある——それは次の「装置が介入してきた時」に従う。
 
 1. `lattice todo status --json` で ready なタスクを見る。{{CLAIM_SCOPE}}
 2. 憲章の手順で room に claim を宣言する。**`[claim]` は独立した1発言で出す**——完了報告や他タスクの話と同じ発言に畳まない。宣言としては有効でも、後から機械的に追えなくなり、監査が「宣言が無い」と誤読する（2026-08-08 実測）
@@ -18,45 +18,55 @@
 7. **手が空いていて ready が無いなら、他の席の done を監査する。** 実装者以外なら誰でもよい。実物（diff・検証結果・ハーネス）を自分で走らせて所見を room へ出す——**報告を読むだけでは監査にならない**。親は所見を読んで受理を宣言するだけで、コードは読まない
 8. 1 へ戻る
 
-## 配車で来た仕事（Lattice の managed run に載っている卓だけ）
+## Lattice の実行層へ自分の着手を載せる（pull 型・載っている卓だけ）
 
-卓が Lattice の実行層（managed run）に載っている時は、仕事は claim で取り合わず、**task 選択=Lattice・候補席の選択=bridge・受けるかの決定=席**の3層で届く。bridge の全員宛 `[配車] t7 → akari` は提示を可視化しただけで、まだ割当ではない。提示された席が `[受諾] t7` を返した時だけ、その席と work order の束縛が成立する。届き方は自分宛の次の1ブロックである。載っていない卓では配車は起きないので、この節は静かに眠る。
+**仕事は降ってこない。** 上のループどおり自分で選んで `todo start` した後、その着手を実行層へ持ち込むと、隔離 worktree という設備が使え、装置が他の着手済み ToDo との競合を見てくれる。**持ち込みは許可申請ではない**——装置は通す／通さないを決めるのではなく、競合した時だけ「留まれ」と言う。載っていない卓ではこの節は静かに眠る。
 
 ```
-[work order] t7
-worktree: /abs/path/to/.lattice/runs/<run>/worktrees/<id>/tree
-base_sha: 8f0e…（40 hex）
-scope_writes: src/a.mjs, test/a.test.mjs
-verifier_refs: node --test test/a.test.mjs
-forbidden_operations: push, branch, merge, rebase, reset, stash
-packet_digest: 3a91…（64 hex）
+lattice run intake --run .lattice/runs/<run-id> --task <id>
+  → {worktree_path, base_sha, intervention: {state: none|hold, reason}}
 ```
 
-1. **work order の7欄（task・worktree・base・scope・verifier・禁止操作・packet digest）を読んで、受諾か辞退を即返す。** `[受諾] t7` / `[辞退] t7 <理由>` を**独立した1発言**で room 全員宛へ。bridge は行頭一致で機械 parse するので、他の話と同じ発言に畳むと届かない。**辞退は正当な選択**（本筋の WIP が塞がっている・自分の測定器ではその検証ができない）で、bridge が別の席へ再配車する。黙殺だけはしない
-2. **この work order に `[claim]` や `lattice todo start` を重ねて割当を作らない。** task の選択は Lattice、席の選択は bridge、席との束縛は `[受諾]`、実行結果の正本は run の event/receipt がすでに持つ。別に campaign の todo を閉じる手続きがある時は、receipt を確認した後にその手続きとして行うのであって、配車の受諾を二重記録するためではない
-3. **worktree の中だけを、絶対パスで触る。** `cd` しない・env を書き換えない・別 project へ移らない。席の room 接続と MCP 解決は cwd と env に乗っているので、動かすと卓から落ちる（そのために席を動かさない設計になっている）。git は `git -C <worktree> …`、編集は絶対パスで開く
-4. **commit してよい。禁止は `push` / `branch` / `merge` / `rebase` / `reset` / `stash` の6つ**で、正は注入文の `forbidden_operations`（出所は Lattice engine が packet へ載せる実物・`src/runtime-engine.mjs` の `FORBIDDEN_OPERATIONS`）。worktree は `base_sha` の detached HEAD なので、そこへ積む commit は base の子孫のままで canonical branch を動かさない。逆に6つは HEAD を base の子孫から外すか、外部へ効果を出す操作なので、観測の前提か公開契約のどちらかを壊す
-5. **`scope_writes` の外へ書いても黙って弾かれない——`undeclared_write` として観測に出る。** 書く必要があると分かった時点で room へ言う。隠して書いても diff で見えるだけである
-6. **検証は worktree の中で回す。** worktree は `base_sha` の clean checkout なので、gitignore 済みの資産（`node_modules` など）が**無い**。埋めに行く前に次の3点を読むこと。
-   - **worktree の中で `npm install` してはいけない。** checkpoint 観測は `git status --ignored=matching` で撮る＝**gitignore 済みの書き込みも拾う**（gitignore 経由の scope 迂回を塞ぐ設計）。install した file はそのまま `undeclared_write` になり、diff entry 上限（256）を超えた時点で**観測そのものが失敗する**。自分の task の記録を自分で壊すことになる
+1. **`todo start` を先に済ませてから intake する。** 装置は Todo 正本の start event へ束縛するので、start していない task は intake できない。**逆順にしない。**
+2. **`intervention.state` を読む。** `none` なら worktree を使ってそのまま進める。`hold` なら**留まる**——他の着手済み task と競合しているという装置の判定である。理由（`reason`）を読み、room で調整するか、seam を切って解消する。**hold を無視して進めない。** 解消したかは `lattice run intake intervention --run <ref> --task <id>` で自分で読み直せる（bridge の `[介入]` 投稿を待たなくてよい。bridge は可視化であって通知の唯一経路ではない）
+3. **worktree を受け取ったら、自分の pid を装置へ渡す（attach）。** これをしないと、装置は競合時に「留まれ」と言うことはできても、実際に止めることができない（協調 hold のまま）。
+   ```
+   lattice run intake attach --run <ref> --task <id> --input <file>
+   ```
+   input は **`.team/seats/<あなたの名前>.json` を読んで `schema` を足すだけ**である（変換も再計算も要らない）。
+   ```json
+   {"schema":"lattice.pull_worker_attach_input.v1","name":…,"session":…,"pid":…,
+    "started_identity":…,"argv_digest":…,"recorded_at":…}
+   ```
+   **pid を自分で推定しない。** その file だけが正で、無ければ room で言う（黙って別の値を渡さない）。**他の席の seats file を読まない。**
+4. **intake は1本ずつ。** 前の intake が accepted / closed / released になるまで次を取らない。**席は1つの process なので、2本 intake すると片方の hold がもう片方を巻き込む**——制御の粒度が壊れる。
+5. **worktree の中だけを、絶対パスで触る。** `cd` しない・env を書き換えない・別 project へ移らない。席の room 接続と MCP 解決は cwd と env に乗っているので、動かすと卓から落ちる。git は `git -C <worktree> …`、編集は絶対パスで開く
+6. **commit してよい。禁止は `push` / `branch` / `merge` / `rebase` / `reset` / `stash` の6つ**（正は Lattice engine の `FORBIDDEN_OPERATIONS`）。worktree は `base_sha` の detached HEAD なので、そこへ積む commit は base の子孫のままで canonical branch を動かさない。逆に6つは HEAD を base の子孫から外すか、外部へ効果を出す操作なので、観測の前提か公開契約のどちらかを壊す
+7. **宣言境界の外へ書いても黙って弾かれない——観測に出る。** 書く必要があると分かった時点で room へ言う。隠して書いても diff で見えるだけである
+8. **検証は worktree の中で回す。** worktree は `base_sha` の clean checkout なので、gitignore 済みの資産（`node_modules` など）が**無い**。埋めに行く前に次を読むこと。
+   - **worktree の中で `npm install` してはいけない。** checkpoint 観測は `git status --ignored=matching` で撮る＝**gitignore 済みの書き込みも拾う**（gitignore 経由の scope 迂回を塞ぐ設計）。install した file はそのまま観測へ出て、diff entry 上限（256）を超えた時点で**観測そのものが失敗する**。自分の task の記録を自分で壊すことになる
    - **依存は install しなくても解決する。** worktree は repo 配下（`<repo>/.lattice/runs/…/tree`）に切られるので、Node の bare specifier 解決が親ディレクトリを遡って canonical の `node_modules` に当たる（repo の外に置かれた木では当たらない）。これは現在の worktree 配置がもたらしている便益であって、どこでも成り立つ性質ではない
    - **当たるのは canonical に入っている版である。** worktree の `package.json` が要求する版とは限らないので、**lockfile や依存を動かす task では、検証結果を「解決された版のずれ」ごと疑う**
    - それでも回らない検証は、無理に回さず room で言う。**動かないからといって canonical tree で回さない**——それは測りたい木ではない
-7. 終わったら **`[完了] t7` を独立した1発言**で room 全員宛へ。bridge がこれを見て report を書き、Lattice が worktree の diff を独立に撮って receipt にする
+9. **終わったら `todo done` を打ってから accept する。**
+   ```
+   lattice run intake accept --run <ref> --task <id>
+   ```
+   装置が worktree の base→HEAD を独立に観測して受理する。**intake した席だけが attach / accept できる**（装置が actor で束縛している）ので、他の席に代わりに打ってもらうことはできない。
 
-**成果の正本は席の commit ではなく、Lattice が撮った observed diff である。** `[完了]` の後、Lattice が worktree の diff を独立に撮って receipt にする——**受理されるのはその観測であって、あなたの commit ではない**。
+**成果の正本はあなたの commit ではなく、Lattice が撮った observed diff である。** 受理されるのはその観測であって、commit そのものではない。
 
-worktree は最後に `git worktree remove --force` で畳まれ、木ごと消える（commit object は残るが、どの参照からも辿れない＝gc の対象）。**畳まれるのは `run close` の時ではなく、supervisor が終了する時である**——close は run を閉じるだけで成果を捨てない（木そのものが run の成果なので、着地させる前に消さない設計）。**それでも「commit したから残る」と思わないこと。** canonical への着地は run の外の別工程であり、`[完了]` も `run close` も着地の宣言ではない。
+**worktree は `run close` でも supervisor 終了でも畳まれない。** 畳むのは `run abandon` だけである（`removeScriptedWorktrees` の呼び出しはそこ1箇所）。**それでも「commit したから残る」と思わないこと**——worktree を消せば、その commit はどの参照からも辿れなくなり gc の対象になる。canonical への着地は run の外の別工程であり、`accept` も `run close` も着地の宣言ではない。着地状況は `lattice run landing --run <ref>` が receipt 単位で出す。
 
 ## 再着任（context が要約されたら）
 
-自分の context が要約された（＝会話の前半が手元に無い）と気づいたら、実装を続ける前に `.team/roles/member.md` と `.team/CLAUDE.md` を読み直して着任し直し、room へ `[再着任] <名前>` を一行投稿する。進行中の仕事は自分の記憶でなく**工程正本で取り直す**——managed run なら `run observe` の状態と room の `[配車]` / `[受諾]` / `[辞退]` / `[完了]`、その他の Lattice 併用卓なら `lattice todo status --json` の active と room の claim・完了報告を照合する。記憶と正本が食い違ったら、正本を正として食い違いを room で報告する。
+自分の context が要約された（＝会話の前半が手元に無い）と気づいたら、実装を続ける前に `.team/roles/member.md` と `.team/CLAUDE.md` を読み直して着任し直し、room へ `[再着任] <名前>` を一行投稿する。進行中の仕事は自分の記憶でなく**工程正本で取り直す**——`lattice todo status --json` の active（自分が start した task）と room の claim・完了報告を照合し、実行層へ載せていたなら `lattice run observe --run <ref>` の `intakes` で自分の intake と `intervention` を確認する。記憶と正本が食い違ったら、正本を正として食い違いを room で報告する。
 
 ## 注意
 
 - Lattice の書き込みが `STORE_WRITE_CONFLICT` 等で弾かれたら、1〜2 秒待って同じコマンドを再実行する（同時書込の正常な負け方であり、壊れてはいない）
 - `--parallel-frontier` を付けた start が `parallel_frontier_not_applicable` で弾かれたら、それは**その task がもう `next_ready` に居ない**（他人が着手済み・依存で塞がった）という意味である。フラグの不具合ではないので付け外しで粘らず、`lattice todo status --json` と room ログで claim 状況を確認し直す
-- managed run でない卓の claim が衝突したら、Lattice の start 記録（誰が in-progress か）を機械の事実として使う。managed run は claim 衝突で裁定せず、bridge の提示と席の受諾・辞退を見る
+- claim が衝突したら、Lattice の start 記録（誰が in-progress か）を機械の事実として使う。**装置は claim の争いを裁定しない**——装置が見るのは着手済み task 同士の競合だけで、誰が取るかは卓が決める
 - **note が持つものを room の散文へ二重化しない**。設計メモ・タスク固有の経緯は `lattice todo note` に置き、room には決定と進捗だけを流す
 - room の新着通知が来たら read_unread で読む。返事が要るものには post で応える
 - **Codex 席の場合**: 起床は channels ではなく wakeup-bridge が担う。`room に新着あり（<誰> → <宛先>）。read_unread で読むこと。` が端末へ直接届くので、Claude 席と同じく read_unread で読む。**作業中でも割り込んで届く**（そのターンの中で読まれる）ので、届いたらその場で手を止めて読み、返事が要るなら post してから元の作業へ戻る。自分の発言では起きない
