@@ -26,7 +26,7 @@ import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import { open, readdir, readFile, rename, writeFile } from 'node:fs/promises'
-import { join, posix } from 'node:path'
+import { join, posix, sep } from 'node:path'
 import { promisify } from 'node:util'
 
 const run = promisify(execFile)
@@ -96,6 +96,19 @@ async function stopRecorded({ strict = false } = {}) {
 
 await stopRecorded({ strict: rest[0] === '--stop' })
 if (rest[0] === '--stop') process.exit(0)
+
+// `--lattice <path>` は任意。既定は PATH 上の `lattice`。**release 前の source tree を実測する時**は
+// ここで実物を指す（PATH の install は古い版で、新しい run store を `INVALID_RUN_STORE` と誤判定しうる）。
+const latticeFlag = rest.indexOf('--lattice')
+let latticeCli = 'lattice'
+if (latticeFlag >= 0) {
+  latticeCli = rest[latticeFlag + 1] ?? ''
+  if (latticeCli.length === 0) {
+    console.error('RUN_BRIDGE_ARGS_INVALID: --lattice には実行可能な path を渡すこと')
+    process.exit(1)
+  }
+  rest.splice(latticeFlag, 2)
+}
 
 const [spool, ...seats] = rest
 if (seats.length === 0) {
@@ -278,17 +291,43 @@ function orderText(order) {
 // ---- 配車状態（記録は report が持つ。bridge 側の Map は再起動で作り直せるものだけ） ----
 const dispatched = new Map()   // packet_digest -> { order, seat, workerPid, state, declined:Set }
 
+// 席が手一杯かは pane の末尾に `esc to interrupt` が在るかで見る（seat-status-bridge と同じ判定）。
+// **スピナーの語では判定しない**——Claude 席は動名詞を毎回変えるので語で照合すると全席 idle に見える。
+// `esc to interrupt` は Claude 席のステータス行にも Codex 席の `Working (…)` にも入る共通marker。
+// 読み取りだけなので席の作業を壊さない。
+async function seatBusyState(seat) {
+  const target = `peer-${seat}`
+  let dead
+  try { dead = (await run('tmux', ['-S', sock, 'list-panes', '-t', target, '-F', '#{pane_dead}'])).stdout }
+  catch { return 'dead' }
+  if (dead.trim().split('\n')[0] === '1') return 'dead'
+  let pane
+  try { pane = (await run('tmux', ['-S', sock, 'capture-pane', '-t', target, '-p'], { maxBuffer: 4 * 1024 * 1024 })).stdout }
+  catch { return 'dead' }
+  return pane.split('\n').slice(-14).join('\n').includes('esc to interrupt') ? 'busy' : 'idle'
+}
+
 async function dispatch(order) {
   const key = order.packet_digest
   const entry = dispatched.get(key) ?? { order, seat: null, workerPid: null, state: 'pending', declined: new Set() }
   dispatched.set(key, entry)
-  const candidate = seats.find(seat => seat !== entry.seat && !entry.declined.has(seat)
-    && ![...dispatched.values()].some(other => other !== entry && other.seat === seat && other.state !== 'done'))
+  const occupied = seat => [...dispatched.values()]
+    .some(other => other !== entry && other.seat === seat && !TERMINAL_ENTRY_STATES.has(other.state))
+  const eligible = seats.filter(seat => seat !== entry.seat && !entry.declined.has(seat) && !occupied(seat))
+  // **idle を先に当てる。** busy な席へ配ると、その席が今のターンを終えるまで受諾が来ない——
+  // 空いている席が居るのにわざわざ待たせる理由が無い。ただし busy でも配車自体は禁じない
+  // （席の判断で辞退できるし、全席 busy の時に配車を止めると卓が進まなくなる）。
+  const states = await Promise.all(eligible.map(async seat => [seat, await seatBusyState(seat)]))
+  const idle = states.find(([, state]) => state === 'idle')?.[0]
+  const busy = states.find(([, state]) => state === 'busy')?.[0]
+  const candidate = idle ?? busy
   if (candidate === undefined) {
-    log(`配車できる席が無い: ${order.todo_id}（辞退 ${[...entry.declined].join(',') || 'なし'}・他 order 占有あり）`)
+    const detail = states.map(([seat, state]) => `${seat}:${state}`).join(' ') || '候補なし'
+    log(`配車できる席が無い: ${order.todo_id}（辞退 ${[...entry.declined].join(',') || 'なし'}・${detail}）`)
     entry.seat = null
     return
   }
+  if (idle === undefined) log(`idle な席が無いので busy な席へ配車する: ${order.todo_id} → ${candidate}`)
   entry.seat = candidate
   entry.state = 'offered'
   await post(candidate, orderText(order))
@@ -440,7 +479,50 @@ function onHeartbeat(dataLine) {
   catchUp('心拍の差分').catch(error => log(`心拍由来の回収に失敗: ${error.message}`))
 }
 
+// ---- run の進行を room へ返す（`lattice run observe` の read-only polling） ----
+// **order から run を知る。** worktree_path は `<repo>/.lattice/runs/<run-id>/worktrees/…` なので、
+// そこから run dir を切り出せる。別 config を増やさずに済み、複数 run が同時に走っても取り違えない。
+function runDirOf(order) {
+  const marker = `${sep}.lattice${sep}runs${sep}`
+  const at = order.worktree_path.indexOf(marker)
+  if (at < 0) return null
+  const rest = order.worktree_path.slice(at + marker.length)
+  const runId = rest.split(sep)[0]
+  return runId ? order.worktree_path.slice(0, at + marker.length) + runId : null
+}
+
+const observedRuns = new Map()   // runDir -> 直近に投稿した要約
+
+async function pollRuns() {
+  const targets = new Set()
+  for (const entry of dispatched.values()) {
+    if (entry.order === null) continue
+    const dir = runDirOf(entry.order)
+    if (dir !== null) targets.add(dir)
+  }
+  for (const dir of [...targets].sort()) {
+    let observation
+    try {
+      const { stdout } = await run(latticeCli, ['run', 'observe', '--run', dir], { maxBuffer: 4 * 1024 * 1024 })
+      observation = JSON.parse(stdout)
+    } catch (error) {
+      // 観測できないことを黙らない。ただし1 run の失敗で他の run の報告を止めない
+      const detail = String(error?.stderr ?? error?.message ?? error).split('\n')[0].slice(0, 200)
+      const summary = `observe 失敗: ${detail}`
+      if (observedRuns.get(dir) !== summary) { observedRuns.set(dir, summary); log(`${dir}: ${summary}`) }
+      continue
+    }
+    const summary = `accepted=[${observation.accepted}] terminal=[${observation.terminal}]`
+      + ` hold=${observation.hold_count} conflict=${observation.conflict_count} closed=${observation.closed}`
+    if (observedRuns.get(dir) === summary) continue   // 変化が無い時は room を鳴らさない
+    observedRuns.set(dir, summary)
+    log(`run 進行: ${dir} ${summary}`)
+    await post('all', `[run] ${dir.split(sep).pop()} ${summary}`)
+  }
+}
+
 setInterval(() => { scanOrders().catch(error => log(`order 走査に失敗: ${error.message}`)) }, 2000)
+setInterval(() => { pollRuns().catch(error => log(`run 観測に失敗: ${error.message}`)) }, 10_000)
 
 let failures = 0
 log(`bridge start: room=${room} spool=${spool} seats=${seats.join(',')} pid=${process.pid}`)
