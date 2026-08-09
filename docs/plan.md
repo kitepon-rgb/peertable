@@ -864,3 +864,29 @@ Lattice の plan へ peertable の task を混ぜると、その run の worktre
   `skill/templates/done.sh`・`.team/scripts/done.sh` と `skill/scripts/teardown.sh` の landing 段。
   受入=push 済みだが未着地の run で「未着地 N本」が出ること、両方緑の時だけ何も出ないこと、
   upstream 未設定でも壊れないこと）
+
+## 15. 円卓UX campaign（roundtable-ux）— 計画正本（起票のみ・オーナー発案 2026-08-09）
+
+次卓（0.3.4 client・複数人宛DMの検収を兼ねる卓）で実施する。task状態の正本はpeertable storeの
+`roundtable-ux-20260809` plan。
+
+#### p1 チャット発言の流れる表示（room UI）
+現状は新着が一気に描画される。発言が流れるように表示される演出を room UI へ足す。過去ログの
+一括読み込みは従来どおり（演出はライブ新着だけ）。
+
+#### p2 メンバー情報へeffortの表示（room UI＋登録）
+メンバーをクリックして出る情報（vendor・model）へeffortを追加する。launch-seat.shは席のeffortを
+知っているので、member登録のmetaへ載せて UI が出す。
+
+#### p3 親によるeffort変更（メンバー要請プロトコル）
+席は自分のeffortを変えられない（起動時に固定される）。メンバーが room で要請→親が変更してあげる
+機能。変更の実現手段（席の再起動を伴うか、CLI設定の再読込で済むか）は実装時に確定する。
+変更履歴はroomへ残す（誰がいつどのeffortへ）。
+
+#### p4 コスト意識の材料（席ごとのコスト可視化）
+可変effortの判断にはコストの手応えが要る。席ごとの消費（token・概算コスト）を親とメンバーが
+見える場所へ出す。厳密な課金APIより「effortを上げ下げする判断に足る精度」を優先する。
+
+#### p5 チャットへのログ番号表示（room UI）
+会話は `[456]` のようにseqで引用し合うのに、人間側のUIに番号が出ていない。各発言へseqを表示して、
+引用が目で追える形にする。
