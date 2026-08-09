@@ -91,7 +91,9 @@ setInterval(async () => {
 function dispatch(msg) {
   for (const seat of seats) {
     if (msg.from === seat) continue
-    if (msg.to !== 'all' && msg.to !== seat) continue
+    // 複数人宛は `to_names` が実宛先を持つ（server は旧 client のために `to` を 'all' へ倒す）。
+    // ここで実宛先を見ないと、名指しされていない Codex 席まで起こしてしまう。
+    if (Array.isArray(msg.to_names) ? !msg.to_names.includes(seat) : (msg.to !== 'all' && msg.to !== seat)) continue
     pending.get(seat).push(msg)
   }
 }

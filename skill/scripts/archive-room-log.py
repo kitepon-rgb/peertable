@@ -41,7 +41,9 @@ def main(argv):
         body = m.get("body")
         if body is None:
             body = "（本文欠落——本文なし POST が着地した発言。欠落そのものを記録として残す）"
-        lines += [f"## [{m['seq']}] {m['from']} → {m.get('to', 'all')} ・ {m['ts']}", "", body, ""]
+        names = m.get("to_names")
+        audience = ", ".join(names) if isinstance(names, list) else m.get("to", "all")
+        lines += [f"## [{m['seq']}] {m['from']} → {audience} ・ {m['ts']}", "", body, ""]
     with open(out, "w", encoding="utf-8") as f:
         f.write("\n".join(lines))
     return 0
