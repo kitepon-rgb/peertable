@@ -359,9 +359,16 @@ let lastSeq = 0
 let primed = false
 let catching = false
 
+// 席の宣言は `tN` しか運ばないので、(席, todo_id) で配車記録を引く。**終端済みの記録は飛ばす**——
+// 同じ todo_id を再 run すると、前回の `done` 記録が先に当たって新しい受諾が「重複」として捨てられる
+// （2026-08-09 の t7 受入で実測。席から見ると「受諾したのに何も起きない」になる）。
+const TERMINAL_ENTRY_STATES = new Set(['done', 'unrecoverable', 'invalid'])
+
 function findEntry(seat, todoId) {
   for (const entry of dispatched.values()) {
-    if (entry.seat === seat && entry.order?.todo_id === todoId) return entry
+    if (entry.seat !== seat || entry.order?.todo_id !== todoId) continue
+    if (TERMINAL_ENTRY_STATES.has(entry.state)) continue
+    return entry
   }
   return null
 }
