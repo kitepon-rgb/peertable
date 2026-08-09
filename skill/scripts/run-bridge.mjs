@@ -492,13 +492,28 @@ function runDirOf(order) {
 }
 
 const observedRuns = new Map()   // runDir -> 直近に投稿した要約
+const closedRuns = new Set()     // closed を観測した run。以後 poll しない
+const unlocatableOrders = new Set()   // run dir を切り出せなかった order（1回だけ鳴らす）
 
 async function pollRuns() {
   const targets = new Set()
   for (const entry of dispatched.values()) {
     if (entry.order === null) continue
     const dir = runDirOf(entry.order)
-    if (dir !== null) targets.add(dir)
+    if (dir === null) {
+      // **黙って可視化を落とさない。** `run_work_order.v1` が保証するのは絶対 path までで、
+      // `.lattice/runs/<id>/worktrees` 配置は schema の保証外。配置が変わるとここへ落ちるので、
+      // order ごとに1回は理由を鳴らす（配車自体は続ける——観測できないだけで配車は成立する）
+      if (!unlocatableOrders.has(entry.order.packet_digest)) {
+        unlocatableOrders.add(entry.order.packet_digest)
+        log(`RUN_BRIDGE_RUN_DIR_UNLOCATABLE: ${entry.order.todo_id} の worktree_path から run dir を切り出せない`
+          + `（${entry.order.worktree_path}）。この order の run 進行は room へ返せない`)
+      }
+      continue
+    }
+    // closed を観測した run を回し続けると、run が増えるほど外部 CLI の起動が積み上がる
+    if (closedRuns.has(dir)) continue
+    targets.add(dir)
   }
   for (const dir of [...targets].sort()) {
     let observation
@@ -512,12 +527,20 @@ async function pollRuns() {
       if (observedRuns.get(dir) !== summary) { observedRuns.set(dir, summary); log(`${dir}: ${summary}`) }
       continue
     }
-    const summary = `accepted=[${observation.accepted}] terminal=[${observation.terminal}]`
-      + ` hold=${observation.hold_count} conflict=${observation.conflict_count} closed=${observation.closed}`
+    // **`running` を先頭に置く。** 「進行中要約」を返すのが役目なのに、いちばん進行中を表す field を
+    // 落としていた（t10 監査で発覚。完走後の run だけで動作確認したので気づかなかった）
+    const summary = `running=[${observation.running}] accepted=[${observation.accepted}]`
+      + ` terminal=[${observation.terminal}] hold=${observation.hold_count}`
+      + ` conflict=${observation.conflict_count} closed=${observation.closed}`
     if (observedRuns.get(dir) === summary) continue   // 変化が無い時は room を鳴らさない
     observedRuns.set(dir, summary)
     log(`run 進行: ${dir} ${summary}`)
     await post('all', `[run] ${dir.split(sep).pop()} ${summary}`)
+    // closed は終端。**最後の1回は必ず投稿してから**外す
+    if (observation.closed === true) {
+      closedRuns.add(dir)
+      log(`run 終端を観測したので poll を止める: ${dir}`)
+    }
   }
 }
 

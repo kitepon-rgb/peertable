@@ -97,14 +97,14 @@ await sleep(1500);
 // ---- stub lattice（`run observe` だけ答える） ----
 const stub = path.join(root, 'lattice-stub.mjs');
 const stateFile = path.join(root, 'observe-state.json');
-await writeFile(stateFile, JSON.stringify({ accepted: [], terminal: [], closed: false }) + '\n');
+await writeFile(stateFile, JSON.stringify({ running: ['T1'], accepted: [], terminal: [], closed: false }) + '\n');
 await writeFile(stub, `#!/usr/bin/env node
 import { readFileSync } from 'node:fs';
 const argv = process.argv.slice(2);
 if (argv[0] !== 'run' || argv[1] !== 'observe') { process.stderr.write('unsupported\\n'); process.exit(2); }
 const s = JSON.parse(readFileSync(${JSON.stringify(stateFile)}, 'utf8'));
 process.stdout.write(JSON.stringify({ schema: 'lattice.run_observation.v1',
-  running: [], accepted: s.accepted, terminal: s.terminal, hold_count: 0, conflict_count: 0,
+  running: s.running, accepted: s.accepted, terminal: s.terminal, hold_count: 0, conflict_count: 0,
   freeze_active: false, closed: s.closed, event_count: 4 }) + '\\n');
 `);
 await chmod(stub, 0o755);
@@ -197,14 +197,22 @@ try {
   const runPosts = () => messages.filter((m) => m.body?.startsWith('[run] '));
   const firstRun = await waitFor((m) => m.body?.startsWith('[run] '), '④ run 進行が room へ出る', 25_000);
   check('④ run 進行を room へ1行で返す', firstRun !== null, firstRun?.body);
+  check('④a 進行中の TODO（running）が要約に載る', firstRun?.body.includes('running=[T1]') === true,
+    firstRun?.body);
   const countAfterFirst = runPosts().length;
   await sleep(12_000);
   check('④b 変化が無い間は鳴らさない', runPosts().length === countAfterFirst,
     `${countAfterFirst} → ${runPosts().length} 件`);
-  await writeFile(stateFile, JSON.stringify({ accepted: ['T1'], terminal: ['T1'], closed: true }) + '\n');
+  await writeFile(stateFile, JSON.stringify({ running: [], accepted: ['T1'], terminal: ['T1'], closed: true }) + '\n');
   const changed = await waitFor((m) => m.body?.startsWith('[run] ') && m.body.includes('closed=true'),
     '④c 変化したら鳴らす', 25_000);
   check('④c 変化したら鳴らす', changed !== null, changed?.body);
+  // ⑤ closed を観測したら poll を止める（run が増えるほど外部 CLI 起動が積み上がるのを防ぐ）
+  const beforeStop = bridgeLog.join('').split('run 進行:').length;
+  await sleep(22_000);
+  const afterStop = bridgeLog.join('').split('run 進行:').length;
+  check('⑤ closed 後は再観測しない', beforeStop === afterStop, `run 進行ログ ${beforeStop - 1} → ${afterStop - 1} 件`);
+  check('⑤b 止めた理由を記録する', bridgeLog.join('').includes('run 終端を観測したので poll を止める'));
 } finally {
   await teardown();
   console.log('--- bridge log ---');
