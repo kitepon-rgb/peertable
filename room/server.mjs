@@ -209,17 +209,25 @@ const UI = room => `<!doctype html><html lang="ja"><head><meta charset="utf-8"><
 .metapop{position:fixed;z-index:20;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:8px 10px;font-size:12px;box-shadow:0 6px 20px rgba(0,0,0,.18);max-width:70vw}
 .metapop .metaname{font-weight:600;margin-bottom:2px}
 .metapop .metaline{color:var(--dim)}
-.chip{flex:none;display:flex;align-items:center;gap:7px;padding:3px 11px 3px 3px;border:1px solid var(--line);border-radius:999px;background:var(--surface);font-size:12px;font-weight:600}
+.chip{position:relative;flex:none;display:flex;align-items:center;gap:7px;padding:3px 11px 3px 3px;border:1px solid var(--line);border-radius:999px;background:var(--surface);font-size:12px;font-weight:600}
 .chip .av{width:22px;height:22px;font-size:11px}
 .chip.recent{border-color:hsl(var(--h) var(--sat) var(--edge))}
 .chip.recent .nm{color:hsl(var(--h) var(--sat) var(--name))}
 .chip.pulse .av{animation:pulse 1.6s ease-out 2}
+.chip.is-busy .av{animation:seat-working 1.15s ease-in-out infinite;box-shadow:0 0 0 2px color-mix(in srgb,var(--busy) 38%,transparent)}
+.chip.is-busy.pulse .av{animation:seat-working 1.15s ease-in-out infinite,pulse 1.6s ease-out 2}
+.chip.is-busy .st{animation:seat-beat .8s ease-in-out infinite alternate}
+@keyframes seat-working{0%,100%{transform:translateY(0) rotate(-2deg)}50%{transform:translateY(-2px) rotate(2deg)}}
+@keyframes seat-beat{from{transform:scale(.78);opacity:.7}to{transform:scale(1.28);opacity:1}}
+.victory{position:fixed;z-index:30;left:var(--victory-x);top:var(--victory-y);pointer-events:none;color:var(--busy);font-size:13px;font-weight:800;letter-spacing:.03em;text-shadow:0 1px 0 var(--surface);animation:victory-rise 1.45s cubic-bezier(.18,.8,.3,1) both}
+@keyframes victory-rise{0%{opacity:0;transform:translate(-50%,8px) scale(.75)}18%{opacity:1;transform:translate(-50%,-7px) scale(1.08)}72%{opacity:1;transform:translate(-50%,-15px) scale(1)}100%{opacity:0;transform:translate(-50%,-27px) scale(.92)}}
 @keyframes pulse{from{box-shadow:0 0 0 0 hsl(var(--h) var(--sat) var(--lum)/.6)}to{box-shadow:0 0 0 9px hsl(var(--h) var(--sat) var(--lum)/0)}}
 .log{max-width:760px;margin:0 auto;padding:14px 16px 40px;display:flex;flex-direction:column;gap:10px}
 .msg{display:flex;gap:9px;align-items:flex-start}
 .msg.flow,.sys.flow{animation:message-flow .36s cubic-bezier(.22,1,.36,1) both}
 @keyframes message-flow{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
 @media (prefers-reduced-motion:reduce){.msg.flow,.sys.flow{animation:none}}
+@media (prefers-reduced-motion:reduce){.chip.is-busy .av,.chip.is-busy .st,.victory{animation:none}}
 .msg.cont{margin-top:-8px}.msg.cont .av{visibility:hidden;height:0}.msg.cont .meta{display:none}
 .msg .body{min-width:0;max-width:100%}
 .meta{display:flex;align-items:baseline;gap:7px;flex-wrap:wrap;margin:0 0 3px 2px;font-size:12px}
@@ -351,6 +359,7 @@ async function refreshMembers(){
     // いちばん悪い（動いていない席を「動いている」と見せる）。閾値は bridge の心拍30秒の3倍
     const age=m.status_at?Date.now()-Date.parse(m.status_at):Infinity
     const st=(m.status&&age<STATUS_STALE_MS)?m.status:(m.status?'unknown':null)
+    if(st)c.classList.add('is-'+st)
     if(st)meta.push('状態 '+({busy:'作業中',idle:'待機',dead:'停止',unknown:'不明（報告が途絶えている）'}[st]??st))
     const usage=[]
     const busyAge=m.busy_since?Date.now()-Date.parse(m.busy_since):NaN
@@ -394,6 +403,19 @@ function markActive(name){
   }
   if(!known)refreshMembers()
 }
+// 完了の祝祭はlive SSEからだけ呼ぶ。catch-upで再生すると再接続のたびに過去の完了が光る。
+function isCompletion(m){
+  return m.from!=='system'&&typeof m.body==='string'&&/^(?:\\[(?:done|完了|accept(?:ed)?|受理)\\]|(?:受入|受理)[:：\\s])/i.test(m.body)
+}
+function celebrate(name){
+  const chip=[...membersEl.children].find(c=>c.dataset.name===name)
+  if(!chip)return
+  const r=chip.getBoundingClientRect(),v=el('span','victory','✦ 完了!')
+  v.setAttribute('role','status');v.setAttribute('aria-label',name+'の作業が完了')
+  v.style.setProperty('--victory-x',Math.max(44,Math.min(innerWidth-44,r.left+r.width/2))+'px')
+  v.style.setProperty('--victory-y',Math.max(8,r.top)+'px')
+  document.body.appendChild(v);setTimeout(()=>v.remove(),1600)
+}
 const BEAT=${HEARTBEAT_MS}
 const STATUS_STALE_MS=90000 // 稼働状態の鮮度。これを過ぎた報告は unknown（bridge 心拍30秒の3倍）
 let lastSeq=0,lastBeat=Date.now(),es=null,emptyEl=null,firstLoad=true,catching=false
@@ -433,7 +455,7 @@ function connect(){
     lastBeat=Date.now()
     const m=JSON.parse(e.data),stick=nearBottom()
     if(!apply(m,true))return
-    if(m.from==='system')refreshMembers();else markActive(m.from)
+    if(m.from==='system')refreshMembers();else{markActive(m.from);if(isCompletion(m))celebrate(m.from)}
     if(stick)window.scrollTo(0,document.body.scrollHeight)
     syncToBottom()
   }
