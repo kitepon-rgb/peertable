@@ -17,6 +17,10 @@ state="$proj/.team/setup-state.json"
 read -r room url mode plan <<EOF
 $(python3 -c "import json;d=json.load(open('$state'));print(d['room'],d['server_url'],d['mode'],d.get('plan_key') or '-')")
 EOF
+# setup が解決した CLI の実 path。**席が PATH の `lattice` へ逸れないため**に渡す
+# （release 前の source tree では、PATH の install は pull 系 command を持たない）。
+# 無い卓（旧 setup-state）では空になり、席は既定どおり `lattice` を使う。
+lattice_cli=$(python3 -c "import json;print(json.load(open('$state')).get('lattice_cli') or '')")
 
 if [ -z "${PEERTABLE_POST_TOKEN:-}" ] && [ -f "$HOME/.config/peertable.env" ]; then
   . "$HOME/.config/peertable.env"
@@ -37,6 +41,7 @@ env_line="$env_line PEERTABLE_VENDOR=$vendor PEERTABLE_MODEL=$model"
 [ -n "$effort" ] && env_line="$env_line PEERTABLE_EFFORT=$effort"
 if [ "$mode" = "lattice" ]; then
   env_line="$env_line PEERTABLE_PLAN=$plan LATTICE_TODO_ACTOR_HOST=${LATTICE_TODO_ACTOR_HOST:-mac} LATTICE_TODO_ACTOR_SESSION=$name LATTICE_TODO_ACTOR_AGENT=$name"
+  [ -n "$lattice_cli" ] && env_line="$env_line LATTICE_CLI=$lattice_cli"
 fi
 tmux -S "$sock" send-keys -t "$sess" "$env_line" Enter
 sleep 1

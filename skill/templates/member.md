@@ -29,6 +29,11 @@ lattice run intake --run .lattice/runs/<run-id> --task <id>
   → {worktree_path, base_sha, intervention: {state: none|hold, reason}}
 ```
 
+**`lattice` は `"${LATTICE_CLI:-lattice}"` で叩く。** 席の env に `LATTICE_CLI` が入っている卓は、
+**PATH の install が古くて pull 系 command を持たない**（release 前の source tree を実測する卓）。
+そのまま `lattice` と打つと**手順どおりなのに command が無い**という形で詰まる。
+以下の例では `lattice` と書くが、実際は必ずこの形で叩くこと。
+
 **その run は誰が作るのか。** 装置が用意してくれるものではないし、setup も作らない——
 **卓が自分で作る設備**である。手順:
 

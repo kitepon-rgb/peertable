@@ -68,7 +68,9 @@ tmp=".ev-$t.json"
 # untracked file が残った）。次に `git status` を撮った人が、それを誰かの作業中変更と読む。
 trap 'rm -f "$tmp"' EXIT
 printf '{"evidence_id":"ev-%s","repo_id":"self","path":"%s","git_blob_oid":"%s","content_digest":"%s","media_type":"text/markdown","anchor_digest":null}\n' "$t" "$f" "$oid" "$digest" > "$tmp"
-lattice todo done --plan "$PEERTABLE_PLAN" --task "$t" --evidence "$tmp"
+# **PATH の `lattice` へ黙って逸れない。** setup が解決した CLI を席 env の `LATTICE_CLI` で受け、
+# 無い時だけ PATH を使う（bridge の `--lattice` / teardown の `LATTICE_CLI` と同じ選択規律）。
+"${LATTICE_CLI:-lattice}" todo done --plan "$PEERTABLE_PLAN" --task "$t" --evidence "$tmp"
 rm -f "$tmp"
 
 # 完了の定義は「repo 内の変更は push まで」。done を打つ瞬間はそれが成り立っていなければ
