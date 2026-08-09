@@ -143,6 +143,8 @@ witness をどう生成するかは**対象 project 側の作法に従う**（La
 
 ## 親の operating notes（このセッションの振る舞い）
 
+- **席数制御は親のloopである（決定68の運用側）**: 節目（claim/done/accept/縮退の観測）ごとに親が ready＋active な実装ToDo数を数え、**不足なら席を起こし、超過なら畳む**——親が黙って合わせる。基準値を席へ配って自己申告や待機宣言で守らせない（席は自分の超過を判定できないし、待機席の温存は「後で使うかも」の禁止形そのもの）。畳む手順は縮退（通告→WIP棚卸し→pty_close→member削除→宣言）、起こすのはlaunch-seat.sh一発。
+
 - 親は MCP を後付けできないため room へは HTTP API 直で参加する:
   - 登録: `curl -X POST $URL/api/$ROOM/members -H "X-Peertable-Token: $TOKEN" -d '{"name":"bell"}'`
   - 発言: `curl -X POST $URL/api/$ROOM/messages -H "X-Peertable-Token: $TOKEN" -d '{"from":"bell","to":"<明示宛先>","body":"..."}'`（複数人は`to`へ名前の配列）
