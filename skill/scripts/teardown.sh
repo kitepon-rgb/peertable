@@ -117,8 +117,12 @@ else
 fi
 
 # run の close は成果が既定branchへ着地した証拠ではない。bridgeを止めてから、`run list`が挙げる
-# 全runの landing report を読む。**旧版は spool の work order から run を逆算していた**が、
+# **active run** の landing report を読む。**旧版は spool の work order から run を逆算していた**が、
 # 配車が無くなって order が出ないので、装置に直接聞く形へ変えた（改・裁定1）。
+# **`run list` は closed run を返さない**（実装で除外される）ので、ここで見えるのは未 close の分だけ
+# である。closed 済み run の着地は `run close` の返値が landing report を含むので**その時点で読む**。
+# `.lattice/runs` を直に走査して補わない——consumer contract 違反で、旧 orders の保持は配車の復活になる。
+# 全 closed の再列挙が要るなら Lattice 側の公開面を足す別課題であって、ここで迂回実装しない。
 # 未着地・未pushは判断結果なので `lattice run landing` 自体はexit 0を返し、teardownも止めない。
 lattice_cli="${LATTICE_CLI:-$(command -v lattice 2>/dev/null || true)}"
 if [ -z "$lattice_cli" ] || [ ! -x "$lattice_cli" ]; then

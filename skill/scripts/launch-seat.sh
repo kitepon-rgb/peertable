@@ -123,7 +123,11 @@ if [ -z "$seat_pid" ]; then
   echo "seat identity を記録できなかった: ${sess} の process group leader を1つに確定できない（席は着席済み）" >&2
 else
   mkdir -p "$proj/.team/seats"
-  if ! python3 - "$proj/.team/seats/$name.json" "$name" "$sess" "$seat_pid" <<'PY'
+  # **`session` に tmux 名（`peer-<name>`）を入れてはいけない。** Lattice の attach は
+  # `input.session === actor.session` を要求し（`runtime-pull-intake.mjs:674`）、actor session は
+  # 上の env_line が入れる `LATTICE_TODO_ACTOR_SESSION=$name` である。tmux 識別子を混ぜると
+  # attach が必ず `WORKER_ACTOR_MISMATCH` で拒否される（mio の監査で発覚・room [937]）。
+  if ! python3 - "$proj/.team/seats/$name.json" "$name" "$name" "$seat_pid" <<'PY'
 import hashlib, json, os, subprocess, sys, tempfile
 out, name, session, pid = sys.argv[1:5]
 pid = int(pid)
