@@ -646,12 +646,13 @@ Peertable が Lattice のどの面をどう消費するか（consumer contract �
   判断で行い、機械的な形式基準・閾値は置かない**（オーナー裁定 2026-08-09: 機械的な閾値は今度は
   AIの自由度を奪う。再現手順の添付は義務ではなく技法）。member.mdテンプレートへ焼き込み済み。
 
-- **決定69（2026-08-09・t19実戦）: Lattice実行層の消費はclaim後に始まり、closeとlandingを分けて閉じる**
+- **決定69（2026-08-09・t19実戦）: task別のLattice実行層消費はclaim後に始まり、closeとlandingを分けて閉じる**
 
-  `scope-split-20260809` の実戦では、席がreadyからtaskを選びroomへclaimし、literal `todo start`を
-  記録した後にだけpull intakeを開始した。intakeは開始済みtask・actor・baseを検証して隔離worktreeと
-  leaseを設備として返し、process identityのattach、競合時のhold／seam resolve／resume、実書込み観測を
-  担う。taskや席を選ばず、着手の許可も出さない。決定25・64の宣言claimが割当の唯一の主体である。
+  `scope-split-20260809` の実戦では、共有のrunを`run start --selection pull`で用意した後、席がreadyから
+  taskを選びroomへclaimし、literal `todo start`を記録したtaskだけをpull intakeした。intakeは開始済み
+  task・actor・baseを検証して隔離worktreeとleaseを設備として返し、process identityのattach、競合時の
+  hold／seam resolve／resume、実書込み観測を担う。runの用意もintakeもtaskや席を選ばず、着手の許可を
+  出さない。決定25・64の宣言claimが割当の唯一の主体である。
 
   終端は二つの独立した鎖で閉じる。`todo done`はcommit済みevidenceへ束縛し、`run intake accept`は
   そのliteral done eventとaccepted head・独立checkpointへ束縛する。`run close`はaccepted receiptを
@@ -855,8 +856,9 @@ Peertable と Lattice は分離を維持し、結合はコードでなく契約�
 
 ### 12.2 面2: claim後の実行設備と介入 — 誰がどの境界で動いているか
 
-- 入口: roomの`[claim]`後の`lattice todo start`。実行層では開始済みtaskを席自身が`run intake`し、
-  process identityをattachしてlease・worktree・介入状態を読む
+- 入口: 共有のrunを`lattice run start --selection pull --id <id> --plan <key> --equipment detached-worktree`で
+  用意する。roomの`[claim]`後に`lattice todo start`を記録し、開始済みtaskを
+  席自身が`run intake`してprocess identityをattachし、lease・worktree・介入状態を読む
 - 消費する事実: lifecycle journalの`sequence`・`actor{agent,host,session}`・`previous_digest`・
   `recorded_at`、intakeが検証したliteral task／actor／base、lease、実diff、hold／resolve／resume
 - Peertable 側の用途: claimが交差した時はstart記録を裁定材料に使う。runは同じactor bindingへ設備と
