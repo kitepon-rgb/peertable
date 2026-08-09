@@ -90,12 +90,15 @@ lattice run intake --run .lattice/runs/<run-id> --task <id>
    cd <canonical repo>
    PEERTABLE_PLAN={{PLAN_KEY}} .team/scripts/done.sh <id> --evidence-from <worktree>/evidence/{{PLAN_KEY}}/<id>.md
    lattice run intake accept --run <ref> --task <id>
+   .team/scripts/done.sh --landing-run <ref>
    ```
    **`--evidence-from` を省いてはいけない。** 省くと canonical 側の証跡（無いか、別物）を hash する。
    **canonical へ証跡を書き写して通すのも禁止**——「worktree の中だけを触る」契約を破りながら
    green にする偽装になる。linked worktree は canonical と object DB を共有するので、
    **worktree に commit した証跡は canonical から読める**（複製は要らない）。
    装置が worktree の base→HEAD を独立に観測して受理する。**intake した席だけが attach / accept できる**（装置が actor で束縛している）ので、他の席に代わりに打ってもらうことはできない。
+   最後の landing-only 呼び出しは、accept 済み receipt が canonical default branch へ未着地なら
+   `未着地 N本`を出す。警告だけで処理は止めないが、`未push` と別の完了軸なので読み飛ばさない。
 
 **成果の正本はあなたの commit ではなく、Lattice が撮った observed diff である。** 受理されるのはその観測であって、commit そのものではない。
 

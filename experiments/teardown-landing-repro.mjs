@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// teardownが、close済みだが未着地・未pushの実Lattice runをexit 0のまま表示する回帰検査。
+// done/teardownが、push済みだが未着地の実Lattice runをexit 0のままreceipt単位で表示する回帰検査。
 //
 // usage: node experiments/teardown-landing-repro.mjs [<Lattice repo>]
 //        [<teardown.sh>|--without-landing|--failing-cli|--unusable-cli]
@@ -23,8 +23,11 @@ let teardown = path.resolve(mode === 'normal'
   ? (teardownArgument ?? path.join(ROOT, 'skill', 'scripts', 'teardown.sh'))
   : path.join(ROOT, 'skill', 'scripts', 'teardown.sh'))
 const latticeCli = path.join(latticeRepo, 'bin', 'lattice.mjs')
+const doneTemplate = path.join(ROOT, 'skill', 'templates', 'done.sh')
 let teardownLatticeCli = latticeCli
-const sourceRun = path.join(latticeRepo, '.lattice', 'runs', 't7-accept-7')
+const sourceRun = path.join(latticeRepo, '.lattice', 'runs', 't19-live-1')
+const runId = path.basename(sourceRun)
+const runRef = path.join('.lattice', 'runs', runId)
 
 function git(args, cwd, env) {
   const result = spawnSync('git', args, { cwd, env, encoding: 'utf8' })
@@ -55,7 +58,7 @@ try {
     await cp(path.join(ROOT, 'skill', 'scripts'), brokenScripts, { recursive: true })
     teardown = path.join(brokenScripts, 'teardown.sh')
     const source = await readFile(teardown, 'utf8')
-    const startMarker = '# managed run の close は成果が既定branchへ着地した証拠ではない。'
+    const startMarker = '# run の close は成果が既定branchへ着地した証拠ではない。'
     const endMarker = '# setupが新しく作ったhost固有runtimeだけを撤去する。'
     const start = source.indexOf(startMarker)
     const end = source.indexOf(endMarker)
@@ -65,8 +68,18 @@ try {
     await writeFile(teardown, broken, { mode: 0o700 })
   } else if (mode === '--failing-cli') {
     teardownLatticeCli = path.join(temporaryRoot, 'failing-lattice')
-    await writeFile(teardownLatticeCli,
-      '#!/bin/sh\necho FORCED_LANDING_FAILURE >&2\nexit 17\n', { mode: 0o700 })
+    const activeList = JSON.stringify({
+      schema: 'lattice.run_list.v1',
+      active_runs: [{ run_id: runId, run_ref: runRef, selection: 'pull', plan_key: 'roundtable-closeout' }],
+    })
+    await writeFile(teardownLatticeCli, `#!/bin/sh
+if [ "$1" = run ] && [ "$2" = list ] && [ "$3" = --json ]; then
+  printf '%s\\n' '${activeList}'
+  exit 0
+fi
+echo FORCED_LANDING_FAILURE >&2
+exit 17
+`, { mode: 0o700 })
   } else if (mode === '--unusable-cli') {
     teardownLatticeCli = path.join(temporaryRoot, 'unusable-lattice')
     await writeFile(teardownLatticeCli, '#!/bin/sh\nexit 0\n', { mode: 0o600 })
@@ -78,33 +91,93 @@ try {
   const env = { ...process.env, GIT_ALTERNATE_OBJECT_DIRECTORIES: alternateObjects }
   git(['init', '--quiet', '--initial-branch=main'], project, env)
 
-  const request = JSON.parse(await readFile(path.join(sourceRun, 'request.json'), 'utf8'))
-  const baseSha = request.repo.base_sha
-  // 保存runのreceipt HEADは後からorigin/mainへ着地済みなので、使い捨てremoteだけを
-  // その親へ戻し「close済み・まだpushしていない当時」の境界を再現する。
-  const remoteBaseSha = git(['rev-parse', `${baseSha}^`], latticeRepo, process.env)
   const currentHead = git(['rev-parse', 'HEAD'], latticeRepo, process.env)
   git(['update-ref', 'refs/heads/main', currentHead], project, env)
   git(['init', '--bare', '--quiet', remote], temporaryRoot, env)
   git(['remote', 'add', 'origin', remote], project, env)
-  git(['push', '--quiet', 'origin', `${remoteBaseSha}:refs/heads/main`], project, env)
-  git(['update-ref', 'refs/remotes/origin/main', remoteBaseSha], project, env)
+  git(['push', '--quiet', 'origin', `${currentHead}:refs/heads/main`], project, env)
+  git(['push', '--quiet', 'origin', `${currentHead}:refs/heads/work`], project, env)
+  git(['update-ref', 'refs/remotes/origin/main', currentHead], project, env)
+  git(['update-ref', 'refs/remotes/origin/work', currentHead], project, env)
   git(['symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/main'], project, env)
   git(['config', 'branch.main.remote', 'origin'], project, env)
-  git(['config', 'branch.main.merge', 'refs/heads/main'], project, env)
+  git(['config', 'branch.main.merge', 'refs/heads/work'], project, env)
   git(['config', 'remote.pushDefault', 'origin'], project, env)
+  git(['config', 'push.default', 'upstream'], project, env)
 
-  const copiedRun = path.join(project, '.lattice', 'runs', 't7-accept-7')
+  const copiedRun = path.join(project, runRef)
   await mkdir(path.dirname(copiedRun), { recursive: true })
   await cp(sourceRun, copiedRun, { recursive: true })
 
-  const baseline = spawnSync(latticeCli, ['run', 'landing', '--run', path.join('.lattice', 'runs', 't7-accept-7')], {
+  // 保存runは再現証拠としてclose済み。teardownが使う公開run listだけをwrapperでactiveとして返し、
+  // landing本体は実Lattice CLI・実run storeへそのまま委譲する。
+  if (mode === 'normal' || mode === '--without-landing' || mode === '--head-teardown') {
+    const listedCli = path.join(temporaryRoot, 'listed-lattice')
+    const activeList = JSON.stringify({
+      schema: 'lattice.run_list.v1',
+      active_runs: [{ run_id: runId, run_ref: runRef, selection: 'pull', plan_key: 'roundtable-closeout' }],
+    })
+    await writeFile(listedCli, `#!/bin/sh
+if [ "$1" = run ] && [ "$2" = list ] && [ "$3" = --json ]; then
+  printf '%s\\n' '${activeList}'
+  exit 0
+fi
+exec '${latticeCli}' "$@"
+`, { mode: 0o700 })
+    teardownLatticeCli = listedCli
+  }
+
+  const baseline = spawnSync(latticeCli, ['run', 'landing', '--run', runRef], {
     cwd: project, env, encoding: 'utf8',
   })
   assert.equal(baseline.status, 0, baseline.stderr)
   const baselineReport = JSON.parse(baseline.stdout)
   assert.equal(baselineReport.landed, false, 'fixtureは未着地でなければならない')
-  assert.ok(baselineReport.repository.unpushed_commits > 0, 'fixtureは未push commitを持つこと')
+  assert.equal(baselineReport.repository.unpushed_commits, 0,
+    'fixtureはpush済みだがreceipt未着地の2軸分離を再現すること')
+  const expectedUnlanded = baselineReport.accepted_receipts.filter(receipt => !receipt.landed).length
+  assert.ok(expectedUnlanded > 0, 'fixtureは未着地receiptを持つこと')
+
+  if (mode === 'normal') {
+    const landingOnly = spawnSync('bash', [doneTemplate, '--landing-run', runRef], {
+      cwd: project, env: { ...env, LATTICE_CLI: latticeCli }, encoding: 'utf8',
+    })
+    assert.equal(landingOnly.status, 0, landingOnly.stderr)
+    assert.match(`${landingOnly.stdout}\n${landingOnly.stderr}`,
+      new RegExp(`未着地 ${expectedUnlanded}本`, 'u'))
+
+    git(['config', '--unset', 'branch.main.remote'], project, env)
+    git(['config', '--unset', 'branch.main.merge'], project, env)
+    git(['config', '--unset', 'remote.pushDefault'], project, env)
+    const noUpstream = spawnSync('bash', [doneTemplate, '--landing-run', runRef], {
+      cwd: project, env: { ...env, LATTICE_CLI: latticeCli }, encoding: 'utf8',
+    })
+    assert.equal(noUpstream.status, 0, `upstream未設定でlanding-onlyが壊れた\n${noUpstream.stderr}`)
+    assert.match(`${noUpstream.stdout}\n${noUpstream.stderr}`,
+      new RegExp(`未着地 ${expectedUnlanded}本`, 'u'))
+    git(['config', 'branch.main.remote', 'origin'], project, env)
+    git(['config', 'branch.main.merge', 'refs/heads/work'], project, env)
+    git(['config', 'remote.pushDefault', 'origin'], project, env)
+
+    const receiptHeads = baselineReport.accepted_receipts.map(receipt => receipt.head_sha)
+    const tree = git(['rev-parse', `${currentHead}^{tree}`], project, env)
+    const landedHead = git(['commit-tree', tree, '-p', currentHead,
+      ...receiptHeads.flatMap(head => ['-p', head])], project, {
+      ...env,
+      GIT_AUTHOR_NAME: 'Peertable landing repro',
+      GIT_AUTHOR_EMAIL: 'landing-repro@example.invalid',
+      GIT_COMMITTER_NAME: 'Peertable landing repro',
+      GIT_COMMITTER_EMAIL: 'landing-repro@example.invalid',
+    })
+    git(['update-ref', 'refs/remotes/origin/main', landedHead], project, env)
+    const green = spawnSync('bash', [doneTemplate, '--landing-run', runRef], {
+      cwd: project, env: { ...env, LATTICE_CLI: latticeCli }, encoding: 'utf8',
+    })
+    assert.equal(green.status, 0, green.stderr)
+    assert.doesNotMatch(`${green.stdout}\n${green.stderr}`, /未着地/u,
+      'pushとreceipt着地が両方greenなら警告してはならない')
+    git(['update-ref', 'refs/remotes/origin/main', currentHead], project, env)
+  }
 
   const token = 'landing-repro-token'
   server = createServer((request_, response) => {
@@ -164,8 +237,7 @@ try {
   const output = `${result.stdout}\n${result.stderr}`
   if (mode === '--failing-cli') {
     assert.notEqual(result.code, 0, 'landing CLIの非0終了をteardownが成功へ丸めた')
-    assert.match(output,
-      /\[未実施\] run landing \.lattice\/runs\/t7-accept-7 — FORCED_LANDING_FAILURE/u)
+    assert.ok(output.includes(`[未実施] run landing ${runRef} — FORCED_LANDING_FAILURE`), output)
     process.stdout.write(`OK failing landing CLI: teardown exit=${result.code}\n`)
   } else if (mode === '--unusable-cli') {
     assert.notEqual(result.code, 0, '実行不能なLATTICE_CLIをteardownが成功へ丸めた')
@@ -179,6 +251,7 @@ try {
     const report = JSON.parse(match[1])
     assert.equal(report.landed, false)
     assert.equal(report.repository.unpushed_commits, baselineReport.repository.unpushed_commits)
+    assert.match(output, new RegExp(`未着地 ${expectedUnlanded}本`, 'u'))
     assert.ok(output.indexOf('run-bridge 停止') < output.indexOf('run landing {'),
       'landingはrun-bridge停止後でなければならない')
     assert.ok(output.indexOf('run landing {') < output.indexOf('.lattice/runtime/ 撤去'),
@@ -186,7 +259,7 @@ try {
     assert.equal(await readFile(path.join(copiedRun, 'events.json'), 'utf8'),
       await readFile(path.join(sourceRun, 'events.json'), 'utf8'), 'landingはrun storeを書き換えない')
 
-    process.stdout.write(`OK teardown landing: landed=false unpushed_commits=${report.repository.unpushed_commits} exit=0\n`)
+    process.stdout.write(`OK done/teardown landing: unlanded=${expectedUnlanded} unpushed_commits=${report.repository.unpushed_commits} exit=0\n`)
   }
 } finally {
   if (server) await new Promise(resolve => server.close(resolve))

@@ -178,7 +178,35 @@ else
   while IFS= read -r run_ref; do
     [ -n "$run_ref" ] || continue
     if landing_report=$(cd "$proj" && "$lattice_cli" run landing --run "$run_ref" 2>&1); then
-      did "run landing ${landing_report}"
+      unlanded_count=""
+      if unlanded_count=$(printf '%s' "$landing_report" | python3 -c '
+import json, sys
+
+raw = sys.stdin.read()
+try:
+    report = json.loads(raw)
+except json.JSONDecodeError as error:
+    sys.exit(f"run landing がJSONでない: {error}")
+if not isinstance(report, dict):
+    sys.exit(f"run landing がobjectでない: {type(report).__name__}")
+actual_schema = report.get("schema")
+if actual_schema != "lattice.run_landing_report.v1":
+    sys.exit(f"run landing の schema が違う: {actual_schema}")
+receipts = report.get("accepted_receipts")
+if not isinstance(receipts, list):
+    sys.exit("run landing に accepted_receipts 配列が無い")
+for index, receipt in enumerate(receipts):
+    if not isinstance(receipt, dict) or not isinstance(receipt.get("landed"), bool):
+        sys.exit(f"accepted_receipts[{index}] の landed が真偽値でない")
+print(sum(1 for receipt in receipts if not receipt["landed"]))
+' 2>&1); then
+        did "run landing ${landing_report}"
+        if [ "$unlanded_count" != 0 ]; then
+          echo "未着地 ${unlanded_count}本: run ${run_ref} の受理済み成果が canonical default branch へ着地していない" >&2
+        fi
+      else
+        miss "run landing $run_ref — reportを解釈できない: ${unlanded_count}"
+      fi
     else
       miss "run landing $run_ref — ${landing_report}"
     fi
