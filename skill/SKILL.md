@@ -83,7 +83,10 @@ description: 任意プロジェクトに Peertable チーム（対等メンバ�
 - **席と spool は接触しない。** 席が触るのは room と worktree だけで、`.lattice/` の直読み・直書き禁止の契約はそのまま。order は bridge が席の端末へ注入し、report は bridge が書く
 - **席が出す room 語彙は3つだけ**（bridge が行頭一致で機械 parse する。いずれも**独立した1発言**）: `[受諾] tN` / `[辞退] tN <理由>` / `[完了] tN`。辞退は正当な選択で、bridge が別の席へ再配車する
 - **席の作法の正本は `templates/member.md` の「配車で来た仕事」節**（注入文の書式・禁止操作・scope 外書込・検証の回し方・成果の正本）。ここに二重化しない
-- 前提は2つで、**どちらも立っていない卓には配車が来ない**（席の作法は無害に眠る）: Lattice 側 executor adapter の登録と spool dir、peertable 側の run-bridge 常駐。この2つは本スキルの setup 手順が持つようになるまで手当てが要る
+- 前提は2つで、**どちらも立っていない卓には配車が来ない**（席の作法は無害に眠る）: ①Lattice 側 executor adapter の登録と spool dir ②peertable 側の run-bridge 常駐
+- **配車ブリッジの起動**: `PEERTABLE_POST_TOKEN=… nohup node scripts/run-bridge.mjs <project> <spool_dir> <席名>… > <project>/.team/run-bridge.log 2>&1 &`。停止は `node scripts/run-bridge.mjs <project> --stop`（**teardown.sh が自動で行う**）。起床ブリッジと同じ ADR 0157 の作法（pid 記録・起動時に前の記録を掃除・SIGTERM→SIGKILL）で、**席へは1バイトも送らない**——配車は room への投稿で届き、起こすのは channels（Claude 席）と wakeup-bridge（Codex 席）の仕事である
+  - **SSE が繋がって頭出しが済むまで配車しない。** 返事を聞けない状態で配車すると、直後の `[受諾]` を既読として捨てる（実測で踏んだ順序）
+  - 席が `[辞退]` したら別の席へ配車し直す。**`[受諾]` を受けて初めて report を書く**ので、辞退の窓は受諾より前にしかない（Lattice 側は受諾後の worker pid 変化を hard fail する）
 
 運用側が踏みやすい所（実測で確認した挙動）:
 

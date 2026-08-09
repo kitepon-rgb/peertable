@@ -100,6 +100,18 @@ else
   skip "seat-status-bridge（起動記録なし）"
 fi
 
+# 配車ブリッジ（managed run に載せた卓だけ立っている）。同じ理由で `.team/` を消す前に止める。
+# 止め残すと、spool を見張り続ける常駐が次の run の order を拾って**卓が無いのに配車を投稿する**
+if [ -f "$proj/.team/run-bridge.json" ]; then
+  if node "$(dirname "$0")/run-bridge.mjs" "$proj" --stop; then
+    did "run-bridge 停止"
+  else
+    miss "run-bridge 停止に失敗（常駐が残る）— 上の _STOP_FAILED を見て手で止める"
+  fi
+else
+  skip "run-bridge（起動記録なし）"
+fi
+
 # 外部ペイン（決定53）。`.team/` を消す前に戻す——退避先が `.team/` の中にある
 ext=$(python3 -c "import json;print(json.load(open('$state')).get('external_pane', False))")
 pj_pre=$(python3 -c "import json;print(json.load(open('$state')).get('project_json_preexisting', False))")
