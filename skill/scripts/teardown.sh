@@ -141,21 +141,35 @@ elif [ "$run_list_rc" != "0" ]; then
 elif ! run_refs=$(printf '%s' "$run_list_json" | python3 -c '
 import json, sys
 
-# schema と active_runs を要求する。**typed error JSON や別 schema を黙って空扱いにしない**
+# schema と active_runs を要求する。**typed error JSON も別 schema も黙って空扱いにしない。**
+# f-string の中でバックスラッシュ付きの引用符を使わない——shell の single-quoted `python3 -c`
+# へ `\"` がそのまま届き、**Python が SyntaxError で落ちる**（kanade の監査で実測・room [957]）。
+# 値は先に変数へ取り出して、f-string には名前だけを置く。
 raw = sys.stdin.read()
 try:
     listed = json.loads(raw)
 except json.JSONDecodeError as error:
     sys.exit(f"run list がJSONでない: {error}")
-if not isinstance(listed, dict) or listed.get("schema") != "lattice.run_list.v1":
-    sys.exit(f"run list の schema が違う: {listed.get(\"schema\") if isinstance(listed, dict) else type(listed).__name__}")
+if not isinstance(listed, dict):
+    sys.exit(f"run list がobjectでない: {type(listed).__name__}")
+actual_schema = listed.get("schema")
+if actual_schema != "lattice.run_list.v1":
+    sys.exit(f"run list の schema が違う: {actual_schema}")
 active = listed.get("active_runs")
 if not isinstance(active, list):
-    sys.exit("run list に active_runs 配列が無い")
-print("\n".join(sorted(
-    entry["run_ref"] for entry in active
-    if isinstance(entry, dict) and isinstance(entry.get("run_ref"), str)
-)))
+    sys.exit(f"run list に active_runs 配列が無い: {type(active).__name__}")
+# **entry を filter で捨てない。** 1件でも読めない entry があれば、active な run を落として
+# 「なし」に見せることになる（suzune の監査で実測・room [956]）。全件を要求して、
+# 満たさなければ非ゼロで落ちる。外部 versioned JSON の境界で fallback しない。
+refs = []
+for index, entry in enumerate(active):
+    if not isinstance(entry, dict):
+        sys.exit(f"active_runs[{index}] がobjectでない: {type(entry).__name__}")
+    ref = entry.get("run_ref")
+    if not isinstance(ref, str) or not ref:
+        sys.exit(f"active_runs[{index}] に run_ref 文字列が無い")
+    refs.append(ref)
+print("\n".join(sorted(refs)))
 ' 2>&1); then
   miss "run landing — run listを解釈できない: $(printf '%s' "$run_refs" | head -c 200)"
 elif [ -z "$run_refs" ]; then
