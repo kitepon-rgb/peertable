@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import http from 'node:http';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -76,11 +76,17 @@ async function makeFixture(root, name, url, { preexistingRuntimeExclude = false 
 
   const cli = path.join(bin, 'lattice');
   const adapter = path.join(bin, 'lattice-work-order-adapter.mjs');
-  await writeFile(cli, '#!/bin/sh\nprintf \'{"schema":"fixture.adapter_registration.v1"}\\n\'\n');
+  const registrationCapture = path.join(bin, 'registration.json');
+  await writeFile(cli, `#!/bin/sh
+if [ "$1" = "run" ] && [ "$2" = "adapter" ] && [ "$3" = "register" ] && [ "$4" = "--input" ]; then
+  cp "$5" "$LATTICE_FIXTURE_REGISTRATION_CAPTURE"
+fi
+printf '{"schema":"fixture.adapter_registration.v1"}\\n'
+`);
   await writeFile(adapter, '#!/bin/sh\nexit 0\n');
   await chmod(cli, 0o755);
   await chmod(adapter, 0o755);
-  return { project, cli, adapter };
+  return { project, cli, adapter, registrationCapture };
 }
 
 async function excludeLines(project) {
@@ -93,6 +99,7 @@ async function setupFixture(fixture, room, url) {
     env: {
       LATTICE_CLI: fixture.cli,
       LATTICE_WORK_ORDER_ADAPTER_BINARY: fixture.adapter,
+      LATTICE_FIXTURE_REGISTRATION_CAPTURE: fixture.registrationCapture,
       PEERTABLE_PUBLIC_URL: url,
     },
   });
@@ -112,6 +119,11 @@ const { server, url } = await makeServer();
 try {
   const added = await makeFixture(temporaryRoot, 'runtime-added', url);
   const addedState = await setupFixture(added, 'runtime-added', url);
+  const registration = JSON.parse(await readFile(added.registrationCapture, 'utf8'));
+  assert.equal(registration.binary_path, await realpath(process.execPath));
+  assert.deepEqual(registration.argv, [await realpath(added.adapter)]);
+  assert.notEqual(registration.binary_path, registration.argv[0],
+    'shebang scriptをnative executableとして登録している');
   assert.equal(addedState.runtime_preexisting, false);
   assert.equal(addedState.added_runtime_exclude, true);
   assert.equal((await excludeLines(added.project)).filter((line) => line === RUNTIME_EXCLUDE).length, 1);

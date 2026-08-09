@@ -56,6 +56,7 @@ fi
 # release前のsource treeを実測する時だけ、2つのenvで同じtreeのbinを明示できる。
 lattice_cli=""
 work_order_binary=""
+node_binary=""
 if [ "$mode" = "lattice" ]; then
   lattice_cli="${LATTICE_CLI:-$(command -v lattice 2>/dev/null || true)}"
   [ -n "$lattice_cli" ] || { echo "ERROR: lattice CLI が見つからない" >&2; exit 1; }
@@ -68,6 +69,8 @@ if [ "$mode" = "lattice" ]; then
     exit 1
   }
   work_order_binary=$(node -e 'process.stdout.write(require("node:fs").realpathSync(process.argv[1]))' "$work_order_binary")
+  node_binary=$(node -e 'process.stdout.write(require("node:fs").realpathSync(process.execPath))')
+  [ -x "$node_binary" ] || { echo "ERROR: Node executable が実行可能fileでない: $node_binary" >&2; exit 1; }
 
   # config_refはgit root相対の公開契約。subdirectoryをprojectとして受けると別の
   # `.lattice/` を作ってしまうので、黙って親repoへ登録せずtypedに止める。
@@ -163,16 +166,16 @@ if [ "$mode" = "lattice" ]; then
   chmod 600 "$work_order_config"
   node -e '
     const { writeFileSync } = require("node:fs");
-    const [target, binary, configRef] = process.argv.slice(1);
+    const [target, binary, script, configRef] = process.argv.slice(1);
     writeFileSync(target, `${JSON.stringify({
       schema: "lattice.runtime_adapter_registration_input.v1",
       adapter_kind: "work-order",
       launch_kind: "host_binary",
       binary_path: binary,
-      argv: [],
+      argv: [script],
       config_ref: configRef,
     })}\n`, { mode: 0o600 });
-  ' "$work_order_registration" "$work_order_binary" "$work_order_config_ref"
+  ' "$work_order_registration" "$node_binary" "$work_order_binary" "$work_order_config_ref"
   chmod 600 "$work_order_registration"
 
   (
@@ -180,7 +183,7 @@ if [ "$mode" = "lattice" ]; then
     "$lattice_cli" run adapter register --input "$work_order_registration"
   )
   work_order_adapter=true
-  echo "work-order adapter: binary=$work_order_binary config=$work_order_config_ref spool=$work_order_spool_ref" >&2
+  echo "work-order adapter: binary=$node_binary argv=$work_order_binary config=$work_order_config_ref spool=$work_order_spool_ref" >&2
 fi
 
 # Lattice 併用モードだけ、工程表の右ペインへ円卓を差す（決定53・明示的コネクタ）。
