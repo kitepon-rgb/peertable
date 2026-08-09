@@ -845,6 +845,10 @@ push は Lattice repo は既定どおり、peertable repo は**オーナー明�
 **peertable が所有する分**をここへ落とす。Lattice 側の分は Lattice repo の
 `docs/plan_roundtable-execution-integration.md`「申し送りWave」節が持つ。
 
+**t19 の実戦題材ではない。** 当初はそう位置づけていたが、その裁定は Lattice 側の
+`scope-split-20260809` campaign へ差し替えられた。本節は**題材から外れた残債**であり、
+t19 や是正Wave（r1〜r4）を block しない。実行時期は未定で、pull 型が整った後に消化する。
+
 **repo ごとに別 plan へ分ける。** managed run は 1 run・1 worktree が 1 repo なので、
 Lattice の plan へ peertable の task を混ぜると、その run の worktree では直せない。
 工程正本は peertable store の plan `roundtable-carryover-20260809`（本節から `todo migrate` で起票）。
