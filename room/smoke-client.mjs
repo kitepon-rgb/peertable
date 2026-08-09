@@ -40,7 +40,7 @@ send({ jsonrpc: '2.0', id: 2, method: 'tools/list' })
 const tools = await wait(m => m.id === 2)
 console.log('tools:', tools.result.tools.map(t => t.name).join(', '))
 
-send({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'post', arguments: { to: 'all', message: 'sakura です、join します' } } })
+send({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'post', arguments: { to: 'bell', message: 'sakura です、join します' } } })
 console.log('post:', (await wait(m => m.id === 3)).result.content[0].text)
 
 // 他人（hinata）が発言 → sakura のクライアントが channel 通知を上げるはず

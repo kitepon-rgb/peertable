@@ -45,21 +45,40 @@ function readMessages(room, since = 0) {
     .map(l => JSON.parse(l)).filter(m => m.seq > since)
 }
 
-// 宛先の正規化。複数人宛は `to_names` に持ち、`to` は 'all' へ倒す——旧 client は `to === 'all'` で
-// 拾えるので、**取りこぼす側ではなく過剰に受け取る側へ倒れる**。宛先1人は従来どおり `to` だけで、
-// 線の形が変わらない。
+const recipientError = (code, message) => ({
+  schema: 'peertable.error.v1', code, message,
+})
+
+// broadcast は protocol 境界で拒否する。複数人宛は `to_names` だけを正本にし、`to: 'all'` へ
+// 倒さない。既存ログの `to: 'all'` 行は readMessages がそのまま返すので、読み出し互換は残る。
 function normalizeAudience(to, toNames) {
+  if (to === 'all' || (Array.isArray(to) && to.includes('all'))) return {
+    error: recipientError('EXPLICIT_RECIPIENT_REQUIRED', 'broadcast_recipient_not_allowed'),
+  }
   const list = Array.isArray(to) ? to : Array.isArray(toNames) ? toNames : null
-  if (list === null) return { to: to ?? 'all', to_names: null }
-  if (!list.every(n => typeof n === 'string' && n.length > 0 && n !== 'all')) return { error: 'to_invalid' }
+  if (list === null) {
+    if (typeof to !== 'string' || to.length === 0 || to === 'all') return {
+      error: recipientError('EXPLICIT_RECIPIENT_REQUIRED', 'broadcast_recipient_not_allowed'),
+    }
+    return { to, to_names: null }
+  }
+  if (!list.every(n => typeof n === 'string' && n.length > 0 && n !== 'all')) return {
+    error: recipientError('EXPLICIT_RECIPIENT_REQUIRED', 'broadcast_recipient_not_allowed'),
+  }
   const names = [...new Set(list)]
-  if (names.length === 0) return { error: 'to_invalid' }
+  if (names.length === 0) return {
+    error: recipientError('EXPLICIT_RECIPIENT_REQUIRED', 'recipient_list_empty'),
+  }
   if (names.length === 1) return { to: names[0], to_names: null }
-  return { to: 'all', to_names: names }
+  return { to: null, to_names: names }
 }
 
 function post(room, from, to, body, toNames = null) {
-  const msg = { seq: ++room.seq, ts: new Date().toISOString(), from, to, body, ...(toNames ? { to_names: toNames } : {}) }
+  const msg = {
+    seq: ++room.seq, ts: new Date().toISOString(), from, body,
+    ...(to === null ? {} : { to }),
+    ...(toNames ? { to_names: toNames } : {}),
+  }
   appendFileSync(room.logPath, JSON.stringify(msg) + '\n')
   const chunk = `data: ${JSON.stringify(msg)}\n\n`
   for (const res of room.streams) res.write(chunk)
@@ -114,7 +133,7 @@ http.createServer(async (req, res) => {
       // 「送れた」と表示される（2026-08-08 に本番で2件実測。消せない）
       if (typeof text !== 'string') return json(res, 400, { error: 'body_required' })
       const audience = normalizeAudience(to, toNames)
-      if (audience.error) return json(res, 400, { error: audience.error })
+      if (audience.error) return json(res, 400, audience.error)
       return json(res, 200, post(room, from, audience.to, text, audience.to_names))
     }
     if (req.method === 'POST' && rest === 'members') {
@@ -127,7 +146,7 @@ http.createServer(async (req, res) => {
       saveMembers(room)
       // **system 発言は本当に新規の時だけ**。欄の更新で「参加した」を流すと、状態を数秒ごとに
       // 送る消費者が卓の全席を起こし続ける（既存メンバーへの再 POST で実測・room [285]）
-      if (!known) post(room, 'system', 'all', `${name} が参加した`)
+      if (!known) post(room, 'system', name, `${name} が参加した`)
       return json(res, 200, { ok: true })
     }
     if (req.method === 'DELETE' && seg[2] === 'members' && seg[3]) {

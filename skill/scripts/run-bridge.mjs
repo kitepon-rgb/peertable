@@ -158,7 +158,7 @@ async function lattice(args) {
   return JSON.parse(stdout)
 }
 
-const runSummaries = new Map()      // run_ref -> 直近に投稿した要約
+const runSummaries = new Map()      // run_ref -> 直近に記録した要約
 const interventions = new Map()     // `${run_ref}\0${task_id}` -> 直近に観測した介入の形
 const closedRuns = new Set()        // closed を観測した run。以後 poll しない
 let pollTicks = 0
@@ -227,9 +227,8 @@ async function pollRuns() {
       if (intake.intervention?.state !== 'hold') continue   // none は静かに通す（通知は要らない）
       const seat = intake.actor?.agent
       if (typeof seat !== 'string' || seat.length === 0) {
-        // 宛先が分からないなら全員宛にする。**届かないより届きすぎる方を選ぶ**
-        log(`介入の宛先を決められない（全員宛にする）: ${ref} ${intake.task_id}`)
-        await post('all', interventionText(ref, intake))
+        // broadcast は存在しない。宛先不明を黙らせず、local logへtypedに残す。
+        log(`RUN_BRIDGE_RECIPIENT_UNKNOWN: 介入の宛先を決められない: ${ref} ${intake.task_id}`)
         continue
       }
       log(`介入: ${ref} ${intake.task_id} → ${seat}（${intake.intervention.reason ?? ''}）`)
@@ -240,9 +239,8 @@ async function pollRuns() {
     if (runSummaries.get(ref) !== summary) {
       runSummaries.set(ref, summary)
       log(`run 進行: ${ref} ${summary}`)
-      await post('all', `[run] ${observation.run_id} ${summary}`)
     }
-    // closed は終端。**最後の1回は必ず投稿してから**外す
+    // closed は終端。最後の状態をlocal logへ記録してから外す
     if (observation.closed === true) {
       closedRuns.add(ref)
       log(`run 終端を観測したので poll を止める: ${ref}`)

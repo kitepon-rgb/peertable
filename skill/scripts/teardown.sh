@@ -251,7 +251,7 @@ if [ "$mode" = archive ]; then
     python3 -c "
 import json,sys,urllib.request
 req=urllib.request.Request('$url/api/$room/messages', method='POST',
-  data=json.dumps({'from':'system','to':'all','body':'''$body'''}).encode(),
+  data=json.dumps({'from':'system','to':'system','body':'''$body'''}).encode(),
   headers={'Content-Type':'application/json','X-Peertable-Token':'$PEERTABLE_POST_TOKEN'})
 urllib.request.urlopen(req, timeout=10).read()
 " 2>/dev/null && did "解散の区切りを履歴へ" || skip "解散の区切り（投稿できず・撤去は続行）"

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Codex 席の起床ブリッジ。room の SSE を購読し、その席宛（または全員宛）の新着が来たら
+// Codex 席の起床ブリッジ。room の SSE を購読し、明示的にその席宛の新着が来たら
 // tmux の席へ素送信して起こす。Claude 席は channels が同じ役をするので対象外。
 //
 // usage: wakeup-bridge.mjs <project_dir> <seat> [seat...]     起動（前面。nohup で常駐させる）
@@ -66,9 +66,10 @@ const pending = new Map(seats.map(s => [s, []]))
 
 async function wake(seat, msgs) {
   const last = msgs[msgs.length - 1]
+  const audience = Array.isArray(last.to_names) ? last.to_names.join(', ') : last.to
   const text = msgs.length === 1
-    ? `room に新着あり（${last.from} → ${last.to}）。read_unread で読むこと。`
-    : `room に新着 ${msgs.length} 件（最新: ${last.from} → ${last.to}）。read_unread で読むこと。`
+    ? `room に新着あり（${last.from} → ${audience}）。read_unread で読むこと。`
+    : `room に新着 ${msgs.length} 件（最新: ${last.from} → ${audience}）。read_unread で読むこと。`
   try {
     await run('tmux', ['-S', sock, 'send-keys', '-t', `peer-${seat}`, text])
     await sleep(400)
@@ -91,9 +92,7 @@ setInterval(async () => {
 function dispatch(msg) {
   for (const seat of seats) {
     if (msg.from === seat) continue
-    // 複数人宛は `to_names` が実宛先を持つ（server は旧 client のために `to` を 'all' へ倒す）。
-    // ここで実宛先を見ないと、名指しされていない Codex 席まで起こしてしまう。
-    if (Array.isArray(msg.to_names) ? !msg.to_names.includes(seat) : (msg.to !== 'all' && msg.to !== seat)) continue
+    if (Array.isArray(msg.to_names) ? !msg.to_names.includes(seat) : msg.to !== seat) continue
     pending.get(seat).push(msg)
   }
 }

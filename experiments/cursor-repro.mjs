@@ -58,12 +58,12 @@ await sleep(500) // client 側の参加登録とカーソル初期化を待つ
 // 1) 他人が発言する（alice はまだ読んでいない）
 await fetch(`${url}/api/${ROOM}/messages`, {
   method: 'POST', headers,
-  body: JSON.stringify({ from: OTHER, to: 'all', body: '取りこぼされてはいけない発言' }),
+  body: JSON.stringify({ from: OTHER, to: 'alice', body: '取りこぼされてはいけない発言' }),
 })
 await sleep(300)
 
 // 2) alice が発言する（ここで cursor を進めるのが欠陥）
-console.log('post →', await call('post', { to: 'all', message: 'alice の発言' }))
+console.log('post →', await call('post', { to: OTHER, message: 'alice の発言' }))
 
 // 3) alice が未読を読む
 const unread = await call('read_unread')

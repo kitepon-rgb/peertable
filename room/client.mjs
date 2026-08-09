@@ -36,10 +36,10 @@ if (!URL_BASE || !ROOM || !ME) throw new Error('PEERTABLE_URL / PEERTABLE_ROOM /
 
 const api = p => `${URL_BASE}/api/${ROOM}/${p}`
 const headers = { 'Content-Type': 'application/json', ...(TOKEN ? { 'X-Peertable-Token': TOKEN } : {}) }
-// 複数人宛は `to_names` を持つ（server が `to` を 'all' へ倒すので、旧 client でも取りこぼさない）。
-// 新 client はここで実宛先だけを見るので、名指しされていない席は起きない。
+// 新着通知は明示された宛先だけを処理する。旧 `to: 'all'` 行は read_log から読めるが、
+// channel/read_unread のpush面へは載せない。
 const relevant = m => m.from !== ME
-  && (Array.isArray(m.to_names) ? m.to_names.includes(ME) : (m.to === 'all' || m.to === ME))
+  && (Array.isArray(m.to_names) ? m.to_names.includes(ME) : m.to === ME)
 
 let cursor = 0 // read_unread 用。参加時点から数える
 
@@ -50,8 +50,8 @@ const mcp = new Server(
     instructions:
       `あなたは Peertable room「${ROOM}」のメンバー「${ME}」である。` +
       '<channel source="room"> の通知は「新着あり」の合図であり、本文は read_unread ツールで読む。' +
-      '発言は post ツール（to: "all" は全員宛、メンバー名で個別宛=DM、メンバー名の配列で複数人宛）。' +
-      '全員宛は1発言で全席1ターンを焼くので、用件が特定メンバーだけなら配列で名指しする。',
+      '発言は post ツールで、宛先のメンバー名または必要なメンバー名の配列を必ず明示する。' +
+      'broadcast は廃止済み。状況把握が必要なら read_log を自分で読む。',
   },
 )
 
@@ -61,24 +61,23 @@ mcp.setRequestHandler(ListToolsRequestSchema, async () => ({
   tools: [
     {
       name: 'post',
-      description: 'room へ発言する。to は "all"（全員宛）/ メンバー名（DM）/ メンバー名の配列（複数人宛）。'
-        + '複数人に別々の用件があるとき、まとめて "all" にしない——名指しの配列にすれば、その人たちだけが起きる',
+      description: 'room へ発言する。to はメンバー名または必要なメンバー名の配列。broadcast は受理されない',
       inputSchema: {
         type: 'object',
         properties: {
           to: {
             anyOf: [
-              { type: 'string' },
-              { type: 'array', items: { type: 'string' }, minItems: 1 },
+              { type: 'string', minLength: 1, not: { const: 'all' } },
+              { type: 'array', items: { type: 'string', minLength: 1, not: { const: 'all' } }, minItems: 1, uniqueItems: true },
             ],
-            description: '"all" / メンバー名 / メンバー名の配列。全員宛は決定・gate状態・全体記録だけに使う',
+            description: 'メンバー名または必要なメンバー名の配列。全員宛のshortcutは存在しない',
           },
           message: { type: 'string' },
         },
         required: ['to', 'message'],
       },
     },
-    { name: 'read_unread', description: '未読メッセージ（全員宛と自分宛）を読む。読んだ位置は記憶される', inputSchema: { type: 'object', properties: {} } },
+    { name: 'read_unread', description: '自分が明示宛先に含まれる未読メッセージを読む。読んだ位置は記憶される', inputSchema: { type: 'object', properties: {} } },
     { name: 'read_log', description: 'room ログの直近 count 件を読む（既定 50。全宛先を含む）', inputSchema: { type: 'object', properties: { count: { type: 'number' } } } },
     { name: 'members', description: 'room に居るメンバーの一覧', inputSchema: { type: 'object', properties: {} } },
   ],
@@ -92,7 +91,7 @@ mcp.setRequestHandler(CallToolRequestSchema, async req => {
     case 'post': {
       const r = await fetch(api('messages'), { method: 'POST', headers, body: JSON.stringify({ from: ME, to: args.to, body: args.message }) })
       const msg = await r.json()
-      if (!r.ok) return text(`送信失敗: ${JSON.stringify(msg)}`)
+      if (!r.ok) return { isError: true, ...text(`送信失敗: ${JSON.stringify(msg)}`) }
       // cursor は触らない。自分の発言は relevant で除外されるので進める必要が無く、
       // ここで進めると post より前に届いた未読を読まないまま既読にしてしまう（0.2.1 で修正）
       return text(`sent [${msg.seq}]`)

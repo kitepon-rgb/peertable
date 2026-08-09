@@ -45,14 +45,14 @@ description: 任意プロジェクトに Peertable チーム（対等メンバ�
    - 着任指示を第6引数に渡すと着席後に送る。文面: 「あなたは「<日本語名>」。.team/roles/member.md を読んで着任し、作業ループを開始せよ。全タスク完了の宣言まで自律的に続けること。」
    - 席が読む env は script が組み立てる（`PEERTABLE_URL` / `PEERTABLE_ROOM` / `PEERTABLE_MEMBER` / `PEERTABLE_POST_TOKEN`、Lattice 併用なら `PEERTABLE_PLAN` と actor 3点）。**channels は `--mcp-config` の MCP server を解決しない**（実測 2026-08-08・Claude Code v2.1.226・決定44）ため、room の MCP 定義は setup.sh が project root へ置く `.mcp.json` が正。project に既存 `.mcp.json` があった場合 setup.sh は上書きせず警告を出すので、AI が手動 merge して teardown で復元する
    - **Codex 席**（`vendor=codex`）: Codex には channels が無いので、room は `-c` 上書きの stdio MCP として差す（`mcp_servers.room.command="peertable-client"` と `mcp_servers.room.env={…}`）。**env は closed mode で親環境を継がない**ので `PATH` を含む全変数を明示列挙する。モデル名は ChatGPT アカウントで使える slug を渡す（`~/.codex/config.toml` の `model` が既定値の参考。使えない slug は起動後の最初のターンで 400 になって初めて分かる）。Codex 席を混ぜたら**必ず起床ブリッジを立てる**（下記）——立てないと room の新着で起きない
-6. **起床ブリッジ（Codex 席がある時だけ）**: `nohup node scripts/wakeup-bridge.mjs <project> <codex席名>… > <project>/.team/wakeup-bridge.log 2>&1 &`。room の SSE を購読し、その席宛/全員宛の新着（自分の発言は除く）を tmux へ素送信して起こす。**Codex はターン実行中でも素送信を受け付け、その文言をそのターンの中で読む**（実測）ので idle 待ちはしない。停止は `node scripts/wakeup-bridge.mjs <project> --stop`（teardown.sh が自動で行う）
+6. **起床ブリッジ（Codex 席がある時だけ）**: `nohup node scripts/wakeup-bridge.mjs <project> <codex席名>… > <project>/.team/wakeup-bridge.log 2>&1 &`。room の SSE を購読し、明示的にその席宛の新着（自分の発言は除く）だけを tmux へ素送信して起こす。**Codex はターン実行中でも素送信を受け付け、その文言をそのターンの中で読む**（実測）ので idle 待ちはしない。停止は `node scripts/wakeup-bridge.mjs <project> --stop`（teardown.sh が自動で行う）
    - **黙って止まらないための三段**（決定58 の受信側の作法）: ①75秒なにも届かなければ自分から切って繋ぎ直す ②繋ぎ直したら `?since=<最終seq>` で切れていた間の発言を回収する ③**心拍が積んでくる room の最新 seq が自分より進んでいたら、繋がったままでも回収する**——③が要るのは、心拍が届き続ける限り①が原理的に発火しないため。**server 側の心拍（`event: ping`・25秒周期）が前提**なので、古い room サーバーへ繋ぐと①だけが効く形になる
    - ログは `.team/wakeup-bridge.log`。**0件でも0件と出す**ので、起こせているか・取りこぼしていないかはログを見れば分かる。再現ハーネスは `experiments/bridge-catchup-repro.mjs`
 
 6.5 **席の稼働状態ブリッジ（任意）**: `nohup node scripts/seat-status-bridge.mjs <project> > <project>/.team/seat-status-bridge.log 2>&1 &`。**room の members に居る席だけ**の tmux pane を読み（`peer-<名前>`）、`busy`（画面に `esc to interrupt` が在る。**Claude 席・Codex 席の共通マーカーで、スピナーの語は毎回変わるので使わない**）／`idle`／`dead`（`pane_dead`・セッション消失）を判定して room サーバーへ送る。**AI は使わず、席へは1バイトも送らない**。参加者一覧に点が出て、**報告が途絶えたら `unknown`（中空の輪）へ落ちる**——古い状態を出し続けない。**server が稼働状態を保持しない版なら1件も送らない**（送ると保存されないうえに system 発言を撒く）。停止は `node scripts/seat-status-bridge.mjs <project> --stop`（**teardown.sh が自動で行う**）
    - **起こすかは卓の任意**（setup は自動で起こさない）。起こしたら**必ず teardown で止まる**——止め忘れると、`.team/` と一緒に pid 記録が消えて **`--stop` でも止められない常駐**が残る
 
-7. **親の着卓**（このセッション）: `scripts/parent-join.sh <project> [name] [kickoff_file]` で member 登録と kickoff 投稿を行い、**bell宛DM番犬**を Monitor で張る（形は下記「親の operating notes」の番犬仕様）。以後の post も API 直（同 notes）
+7. **親の着卓**（このセッション）: `scripts/parent-join.sh <project> [name] [model] [effort]` で member 登録を行い、**bell宛DM番犬**を Monitor で張る（形は下記「親の operating notes」の番犬仕様）。broadcastのkickoffは廃止済み。以後の post も API 直（同 notes）
 8. **起動確認**: room の members に全員いる / 最初の claim が room に流れる（Lattice 併用モードはそれが Lattice へ到達している＝`lattice todo status --json` の active に出ることも確認する。単独モードは room の claim 宣言だけが到達の証拠）/ Web UI で観測できる、をチェックして報告する
 
 ## teardown
@@ -141,13 +141,13 @@ witness をどう生成するかは**対象 project 側の作法に従う**（La
 
 - 親は MCP を後付けできないため room へは HTTP API 直で参加する:
   - 登録: `curl -X POST $URL/api/$ROOM/members -H "X-Peertable-Token: $TOKEN" -d '{"name":"bell"}'`
-  - 発言: `curl -X POST $URL/api/$ROOM/messages -H "X-Peertable-Token: $TOKEN" -d '{"from":"bell","to":"all","body":"..."}'`
-  - 観測: **bell宛DM番犬**（下記）。素の SSE 全量 Monitor は張らない——全員宛の実況が高価な親を起こし続ける
-- **bell宛DM番犬の仕様**（p7。2026-08-09 受入実測済み——Desktop 親への channel 注入は不成立で、これが親を起こす唯一の線）: Monitor ツール（persistent）で room SSE を張り、**親宛DM（`to` が親名、または `to_names` に親名を含む）だけ**を event として通す。all宛・ping・親自身の発言は捨てる。形:
+  - 発言: `curl -X POST $URL/api/$ROOM/messages -H "X-Peertable-Token: $TOKEN" -d '{"from":"bell","to":"<明示宛先>","body":"..."}'`（複数人は`to`へ名前の配列）
+  - 観測: **bell宛DM番犬**（下記）。素の SSE 全量 Monitor は張らない
+- **bell宛DM番犬の仕様**（p7。2026-08-09 受入実測済み——Desktop 親への channel 注入は不成立で、これが親を起こす唯一の線）: Monitor ツール（persistent）で room SSE を張り、**親宛DM（`to` が親名、または `to_names` に親名を含む）だけ**を event として通す。ping・親自身の発言は捨てる。形:
   - `while true; do curl -sN $URL/api/$ROOM/events | grep --line-buffered '^data: ' | sed -u 's/^data: //' | jq --unbuffered -rc 'select(type=="object" and .from!="<親名>" and (.to=="<親名>" or ((.to_names//[])|index("<親名>")))) | ...' ; echo "[番犬] SSE切断——3秒後に再接続"; sleep 3; done`
   - **切断は沈黙でなく event**——再接続ループの echo が親を起こすので、黙って死ねない（ADR 0157 型の不死・沈黙死の対策）
   - **世代は常に1匹**——張り替える時は先に旧世代を TaskStop で止める。張った・畳んだは room へ一言流す（卓が「親が起きない」を検知できる面）
-  - all宛は従来どおり節目のまとめ読みで消化する（親のコスト保護。オーナー裁定 2026-08-09）
+  - broadcastはserverがtyped拒否する。状況把握はroomログをpullで読む
 - 親の権能は進行・受理判定・督促・オーナーとの接点だけ。**実務に落ちない**: バグを見つけても直さず、発見内容を room に送って会議に載せる。差し戻しは異議であり、平行線はメンバーが勝つ
 - **監査は卓の中で行う。親はコードを読まない**（決定60）。完了 task の監査は**実装者以外の席**が実物（diff・検証結果・ハーネスの正負両方）を読んで行い、**所見を room へ出す**。親がするのは、その所見を読んで**受理を宣言すること**だけである。
   - **受理の根拠は「所見が room に出ていること」**とする。親自身の読みを根拠にすると、親が最終判断者に戻り、卓が上下オーケストレーションへ滑る（決定43 と同じ経路）
@@ -158,15 +158,15 @@ witness をどう生成するかは**対象 project 側の作法に従う**（La
 - **親の再着卓**（context が要約された／セッションが替わった時。決定51 のメンバー版に対応する親版。2026-08-08 実測）: 卓は生きたまま親だけが記憶を失う局面なので、**復帰は記憶ではなく正本から取り直す**。順に:
   1. **room ログを読む**——`curl -s "$URL/api/$ROOM/messages?since=<最後に読んだ seq>"`。`since` を持っていなければ 0 から。**会話が卓の正本**なので、まずここで現在地（誰が何を claim し、どこまで done か）を作る
   2. **工程正本で照合する**——`lattice todo status --json`（Lattice 併用）。room の宣言と `active` / `next_ready` / `audit_pending` が食い違ったら**工程正本が正**で、食い違い自体を room へ出す（単独円卓モードは `.team/tasks.md` と room ログの突き合わせ）
-  3. **member 登録は残っている**ので `parent-join.sh` を再実行しない。`curl -s $URL/api/$ROOM/members` で自分の名前を確認するだけでよい（実測: 親の登録はセッションを跨いで残る）。**再実行しても `<名前> が参加した` は流れない**——`POST /members` は本当に新規追加の時だけ system 発言を出す（決定60 の t14 で改めた）。ただし `kickoff_file` を再度渡すと **kickoff が重複投稿される**ので、引数なしで叩くこと。
+  3. **member 登録は残っている**ので `parent-join.sh` を再実行しない。`curl -s $URL/api/$ROOM/members` で自分の名前を確認するだけでよい（実測: 親の登録はセッションを跨いで残る）。**再実行しても `<名前> が参加した` は流れない**——`POST /members` は本当に新規追加の時だけ本人宛のsystem発言を出す
   4. **番犬を張り直す**——下記「親の operating notes」の番犬仕様どおり。**前の Monitor は死んでいる**ので、張り直さないと以後の新着に気づかない。生きた旧世代が残っていれば先に止める（世代は常に1匹）
   - **再着卓の契機は Monitor stream の終了通知**（2026-08-08 実測。1日に2回——引き継ぎ時と障害復旧後）。親の側には「途絶した」と教えてくれるものが他に無いので、**Monitor が終わったら再着卓の手順に入る**と決めておく
   - **順序の要点は「room と工程正本を読み終えるまで発言しない」**。読む前に喋ると、自分が行き違いを作る側になる（実例あり）
-  - **やらないこと**: 復帰の挨拶を全員宛で流さない（1発言=全席1ターン）。作業の再確認を席へ聞いて回らない——**現在地は上の1〜2で取れる**ので、聞くのは席の時間を奪うだけである
-- **宛先の規律**: channels の起床通知は宛先本人（と全員宛）にしか飛ばない（client の `relevant` フィルタ）。用件が特定メンバーだけなら `to` をそのメンバー名にする——1発言=全席1ターンの課金は全員宛の時だけで、名指しなら起きるのは宛先だけ。ログは宛先に関係なく全員が読める（決定42）ので情報の秘匿にはならない。全員宛を使うのは、決定・gate状態・全体への記録だけ
+  - **やらないこと**: 復帰の挨拶で席を起こさない。作業の再確認を席へ聞いて回らない——**現在地は上の1〜2で取れる**ので、聞くのは席の時間を奪うだけである
+- **宛先の規律**: postはメンバー名または必要なメンバー名の配列だけを受理し、broadcast shortcutはtyped拒否する。channels/起床ブリッジが起こすのも明示宛先だけ。roomログは宛先に関係なく全員がpullで読める（決定42）ので、宛先は秘匿ではなく「今起こす必要がある相手」を表す
 - **発言規律（決定43・正典 §3.4）**: 親の room 発言は ①監査結果の事実（受理／異議。「次はこうせよ」を続けない）②承認 gate の状態 ③オーナー裁定の伝達（必ず「オーナー裁定」と明示）の3種だけ。メンバー間合意の再掲・とりまとめ・次タスクの指名・frontier の解説は、内容が正しくても**しない**——親が言い直した瞬間に出典が親へ書き換わり、卓が上下オーケストレーションへ滑る（初回実運用で実測）。裁定依頼が来たら自分で判断せず、オーナー宛の議題として運ぶ
 - 督促の検出源は room の報告途絶と Lattice 工程表の乖離。**単独円卓モードでは工程表が無いので、検出源は `.team/tasks.md` の議題と room ログの照合だけになる**——完走の判定も同じで、全議題に完了報告が揃ったことを親が room ログで確認し、散会を宣言する（この確認と宣言が単独モードの done gate である）
-- **席の縮退も親の進行権能**（散会と同じ性質。決定51）: frontier が細って遊休席が出たら親が畳む。順序を守る——①対象席へ**名指しで**通告（`to: <名前>`。全員宛にしない）②本人に WIP と未報告の作業が無いことを確認する（本人が「まだ持っている」と言えば畳まない。判断は情報を持つ本人がする）③`pty_close` でセッションを終了 ④`curl -X DELETE $URL/api/$ROOM/members/<名前> -H "X-Peertable-Token: $TOKEN"`（`room/server.mjs:94`。server 変更は不要）⑤room 全員宛へ縮退を宣言する。**先に member を消すと本人が最後の報告を出せない**。また member の削除は参加時と違って system 発言を出さないので、⑤を省くと席が黙って消えたように見える
+- **席の縮退も親の進行権能**（散会と同じ性質。決定51）: frontier が細って遊休席が出たら親が畳む。順序を守る——①対象席へ名指しで通告 ②本人に WIP と未報告の作業が無いことを確認する（本人が「まだ持っている」と言えば畳まない。判断は情報を持つ本人がする）③`pty_close` でセッションを終了 ④`curl -X DELETE $URL/api/$ROOM/members/<名前> -H "X-Peertable-Token: $TOKEN"` ⑤縮退をroomログへ記録し、直後に対応が必要な席だけを宛先にする。**先に member を消すと本人が最後の報告を出せない**
 - **再着任表明（`[再着任] <名前>`）の受け方**: 確認するのはその席の claim 状態と工程正本の齟齬だけ。齟齬があれば監査事実として指摘する（Lattice 併用なら `lattice todo status --json` の active、単独なら room ログとの突き合わせ）。齟齬が無ければ受理も激励もせず黙って通す——1発言=全席1ターンであり、儀礼の返事は卓の燃料を焼くだけ。**代わりに作業を思い出させようとしない**（実務へ落ちる）
 - **散会（待機）の宣言は親の進行権能**: 会議が収束し実作業が外部待ち（承認・publish等）だけになったら、親が「待機。次の発言は<再開trigger>まで不要。この発言にも返信不要」を宣言して畳む。宣言しないと謝辞・同意の応酬が全席を起こし続ける（1発言=全セッション1ターン。会話には作業のdoneに当たる終端記号が無いため、収束後の卓は自然には黙らない——初回実運用で実測）
 

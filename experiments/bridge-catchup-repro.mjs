@@ -23,7 +23,7 @@ const ROOM = 'catchup-repro'
 const SEAT = 'nobody' // tmux 席は用意しない。見たいのは配達判断であって送信の成否ではない
 
 // stub が抱える「本当の」履歴。head を進めると、bridge から見て取りこぼしが生まれる
-const messages = [{ seq: 1, ts: new Date(0).toISOString(), from: 'bell', to: 'all', body: '起動前からある発言' }]
+const messages = [{ seq: 1, ts: new Date(0).toISOString(), from: 'bell', to: SEAT, body: '起動前からある発言' }]
 let head = 1
 const streams = new Set()
 
@@ -69,8 +69,8 @@ await sleep(3000) // 頭出し（seq 1 まで既読）を済ませる
 
 // ここで「繋がったまま取りこぼした」状態を作る: 履歴だけ進めて、本文は流さない
 messages.push(
-  { seq: 2, ts: new Date().toISOString(), from: 'bell', to: 'all', body: '取りこぼした発言A' },
-  { seq: 3, ts: new Date().toISOString(), from: 'bell', to: 'all', body: '取りこぼした発言B' },
+  { seq: 2, ts: new Date().toISOString(), from: 'bell', to: SEAT, body: '取りこぼした発言A' },
+  { seq: 3, ts: new Date().toISOString(), from: 'bell', to: SEAT, body: '取りこぼした発言B' },
 )
 head = 3
 
