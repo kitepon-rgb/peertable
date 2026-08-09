@@ -29,6 +29,7 @@ lat_pre=$(python3 -c "import json;print(json.load(open('$state'))['lattice_preex
 runtime_pre=$(python3 -c "import json;d=json.load(open('$state'));print(d.get('runtime_preexisting', True))")
 added_runtime_ex=$(python3 -c "import json;d=json.load(open('$state'));print(d.get('added_runtime_exclude', False))")
 work_order_adapter=$(python3 -c "import json;d=json.load(open('$state'));print(d.get('work_order_adapter', False))")
+work_order_spool_ref=$(python3 -c "import json;d=json.load(open('$state'));print(d.get('work_order_spool_ref', ''))")
 # 旧 state（added_root_mcp 不在・手動フォールバック時代の root_mcp_json_fallback）も読む
 added_mcp=$(python3 -c "import json;d=json.load(open('$state'));print(d.get('added_root_mcp', d.get('root_mcp_json_fallback', False)))")
 added_mcp_ex=$(python3 -c "import json;d=json.load(open('$state'));print(d.get('added_mcp_exclude', d.get('root_mcp_json_fallback', False)))")
@@ -113,6 +114,63 @@ if [ -f "$proj/.team/run-bridge.json" ]; then
   fi
 else
   skip "run-bridge（起動記録なし）"
+fi
+
+# managed run の close は成果が既定branchへ着地した証拠ではない。bridgeを止めて配車が動かない
+# 状態にしてから、runtimeを消す前にorderが指す全runのlanding reportを読む。未着地・未pushは
+# 判断結果なので `lattice run landing` 自体はexit 0を返し、teardownも止めない。
+if yes_ "$work_order_adapter"; then
+  if [ -z "$work_order_spool_ref" ]; then
+    miss "run landing — setup-stateにwork_order_spool_refが無く、runを特定できない"
+  else
+    orders_dir="$proj/$work_order_spool_ref/orders"
+    if run_dirs=$(python3 - "$orders_dir" "$proj" <<'PY'
+import glob
+import json
+from pathlib import Path
+import sys
+
+runs = set()
+project = Path(sys.argv[2]).resolve()
+for order_path in glob.glob(str(Path(sys.argv[1]) / "*.json")):
+    with open(order_path, encoding="utf-8") as source:
+        worktree = json.load(source).get("worktree_path")
+    if not isinstance(worktree, str):
+        continue
+    parts = Path(worktree).parts
+    for index in range(len(parts) - 2):
+        if parts[index:index + 2] == (".lattice", "runs"):
+            run = Path(*parts[:index + 3]).resolve()
+            runs.add(run.relative_to(project).as_posix())
+            break
+print("\n".join(sorted(runs)))
+PY
+    ); then
+      if [ -z "$run_dirs" ]; then
+        skip "run landing（work orderなし）"
+      else
+        lattice_cli="${LATTICE_CLI:-$(command -v lattice 2>/dev/null || true)}"
+        if [ -z "$lattice_cli" ] || [ ! -x "$lattice_cli" ]; then
+          miss "run landing — LATTICE_CLIが実行可能fileを指さず、着地状態を読めない: ${lattice_cli:-未設定}"
+        else
+          while IFS= read -r run_ref; do
+            [ -n "$run_ref" ] || continue
+            if landing_report=$(cd "$proj" && "$lattice_cli" run landing --run "$run_ref" 2>&1); then
+              did "run landing ${landing_report}"
+            else
+              miss "run landing $run_ref — ${landing_report}"
+            fi
+          done <<EOF
+$run_dirs
+EOF
+        fi
+      fi
+    else
+      miss "run landing — work orderからrunを抽出できない"
+    fi
+  fi
+else
+  skip "run landing（managed run adapter登録なし）"
 fi
 
 # setupが新しく作ったhost固有runtimeだけを撤去する。既存runtimeは他adapterや進行中runの

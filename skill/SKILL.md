@@ -64,11 +64,12 @@ description: 任意プロジェクトに Peertable チーム（対等メンバ�
 段の順序（**前の段が後の段の前提**）:
 1. **room ログの写し**（archive のみ）→ `docs/archive/room-log_<room>_<日時>.md`。**原本は room に残る**ので、これは repo 側の控え（失敗しても撤去は続行する）
 2. **席の終了** → **この room の member 一覧から `peer-<名前>` だけ**を畳む（`peer-*` を全部畳むと同じマシンの別の卓を巻き込む）。他卓の席が残っていれば注記だけ出す
-3. **ブリッジの停止**（起床・稼働状態）→ `.team/` を消す前（pid 記録がその中にある）
-4. **解散**（archive）: **履歴へ解散の区切りを1行投稿してから、メンバー登録だけ外す**。**部屋も過去ログも消さない**——区切りが無いと、次の卓の発言が前の卓と地続きに読める／**`--purge`**: room ごと削除（トークンを要する唯一の段）
-5. **外部ペインの復元** → `.team/project.json.bak` が退避先なので `.team/` を消す前
-6. `.team/` 削除 → `.mcp.json` → `.git/info/exclude` の追記行を戻す
-7. **`.lattice/`**: archive では**残す**（`lattice todo status` と `gantt serve` が読む）。`--purge` かつ setup が作ったものなら削除。**残しても git 追跡外なら次の clone に残らない**ので、残すなら commit する（script は注記を出すだけ——他人の repo へ勝手に commit しない）
+3. **ブリッジの停止**（起床・稼働状態・配車）→ `.team/` を消す前（pid 記録がその中にある）
+4. **managed runの着地読み出し** → 配車停止後・`.lattice/runtime/`撤去前に、work orderが指す各runへ`lattice run landing`を実行する。出力の`landed`と`repository.unpushed_commits`を監査記録として残す。**未着地・未pushは判断結果でありexit 0**——runがclose済みでも着地済みとは限らない。release前のsource CLIを使う時はsetupと同じ`LATTICE_CLI`をteardownにも渡す
+5. **解散**（archive）: **履歴へ解散の区切りを1行投稿してから、メンバー登録だけ外す**。**部屋も過去ログも消さない**——区切りが無いと、次の卓の発言が前の卓と地続きに読める／**`--purge`**: room ごと削除（トークンを要する唯一の段）
+6. **外部ペインの復元** → `.team/project.json.bak` が退避先なので `.team/` を消す前
+7. `.team/` 削除 → `.mcp.json` → `.git/info/exclude` の追記行を戻す
+8. **`.lattice/`**: archive では**残す**（`lattice todo status` と `gantt serve` が読む）。`--purge` かつ setup が作ったものなら削除。**残しても git 追跡外なら次の clone に残らない**ので、残すなら commit する（script は注記を出すだけ——他人の repo へ勝手に commit しない）
 
 **次の卓を同じ部屋で立てる時は、setup の room 名を前と同じにする**。member は席が戻れば再登録され、履歴は続く。
 
@@ -142,6 +143,7 @@ witness をどう生成するかは**対象 project 側の作法に従う**（La
   - **監査者は自分の測定器を先に疑う**。実行して確かめる時は、**欠陥版で落ちることを確認してから** green を読む——確かめずに出た数字は、通っても落ちても意味を持たない
   - 監査の依頼は**実装者が出す**（「この点を見てほしい」を task の done 報告に添える）。依頼が無くても、手が空いた席は出た順に読んでよい
   - 監査で見つけたものは**欠陥の断定と指摘を分けて書く**。受入条件外なら「修正を求めない申し送り」として、記録先（証跡の残課題・`lattice todo note`・課題帳）まで示す
+  - **managed runの受入はcloseと着地を分けて読む**。`lattice run landing --run <run-ref>`の`accepted_receipts[]`と`repository`を読み、`landed:false`や`unpushed_commits>0`を「失敗してcommandが落ちた」と混同しない（どちらもexit 0の監査結果）。teardownも同じreportを配車停止後・runtime撤去前に自動で出す。source treeを実測する時は`LATTICE_CLI=<そのtreeのbin/lattice.mjs>`をteardownへも渡し、古いglobal installへ黙ってfallbackしない
 - **親の再着卓**（context が要約された／セッションが替わった時。決定51 のメンバー版に対応する親版。2026-08-08 実測）: 卓は生きたまま親だけが記憶を失う局面なので、**復帰は記憶ではなく正本から取り直す**。順に:
   1. **room ログを読む**——`curl -s "$URL/api/$ROOM/messages?since=<最後に読んだ seq>"`。`since` を持っていなければ 0 から。**会話が卓の正本**なので、まずここで現在地（誰が何を claim し、どこまで done か）を作る
   2. **工程正本で照合する**——`lattice todo status --json`（Lattice 併用）。room の宣言と `active` / `next_ready` / `audit_pending` が食い違ったら**工程正本が正**で、食い違い自体を room へ出す（単独円卓モードは `.team/tasks.md` と room ログの突き合わせ）
