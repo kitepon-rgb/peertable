@@ -482,13 +482,15 @@ function onHeartbeat(dataLine) {
 // ---- run の進行を room へ返す（`lattice run observe` の read-only polling） ----
 // **order から run を知る。** worktree_path は `<repo>/.lattice/runs/<run-id>/worktrees/…` なので、
 // そこから run dir を切り出せる。別 config を増やさずに済み、複数 run が同時に走っても取り違えない。
+// **返すのは repo 相対の run ref**（`.lattice/runs/<id>`）。公開 CLI は絶対 path を
+// `INVALID_RUN_REF` で拒否する——絶対 path のまま渡していて、実 run で `[run]` 進行が一度も
+// 返せていなかった（2026-08-09 の t11 で実測）。呼び出し側は cwd を project へ固定して使う。
 function runDirOf(order) {
   const marker = `${sep}.lattice${sep}runs${sep}`
   const at = order.worktree_path.indexOf(marker)
   if (at < 0) return null
-  const rest = order.worktree_path.slice(at + marker.length)
-  const runId = rest.split(sep)[0]
-  return runId ? order.worktree_path.slice(0, at + marker.length) + runId : null
+  const runId = order.worktree_path.slice(at + marker.length).split(sep)[0]
+  return runId ? `.lattice${sep}runs${sep}${runId}` : null
 }
 
 const observedRuns = new Map()   // runDir -> 直近に投稿した要約
@@ -518,7 +520,9 @@ async function pollRuns() {
   for (const dir of [...targets].sort()) {
     let observation
     try {
-      const { stdout } = await run(latticeCli, ['run', 'observe', '--run', dir], { maxBuffer: 4 * 1024 * 1024 })
+      // cwd を project へ固定する。run ref は repo 相対なので、bridge がどこから起こされても解決する
+      const { stdout } = await run(latticeCli, ['run', 'observe', '--run', dir],
+        { cwd: proj, maxBuffer: 4 * 1024 * 1024 })
       observation = JSON.parse(stdout)
     } catch (error) {
       // 観測できないことを黙らない。ただし1 run の失敗で他の run の報告を止めない

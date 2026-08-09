@@ -104,6 +104,14 @@ import { readFileSync, appendFileSync } from 'node:fs';
 appendFileSync(${JSON.stringify(callFile)}, 'x');   // 呼ばれた回数を数える（poll が止まったかの唯一の証拠）
 const argv = process.argv.slice(2);
 if (argv[0] !== 'run' || argv[1] !== 'observe') { process.stderr.write('unsupported\\n'); process.exit(2); }
+// **公開CLIと同じ強さで run ref を拒否する。** 絶対 path を受けてしまうと、実環境で
+// INVALID_RUN_REF になる実装でも repro が green になる（2026-08-09 の t11 で実際に見逃した）
+const runRef = argv[argv.indexOf('--run') + 1] ?? '';
+if (!runRef.startsWith('.lattice/runs/') || runRef.startsWith('/')) {
+  process.stderr.write(JSON.stringify({ schema: 'lattice.cli_error.v2', code: 'INVALID_RUN_REF',
+    message: 'run refは .lattice/runs/<run-id> のrepo相対形式でなければならない' }) + '\\n');
+  process.exit(1);
+}
 const s = JSON.parse(readFileSync(${JSON.stringify(stateFile)}, 'utf8'));
 process.stdout.write(JSON.stringify({ schema: 'lattice.run_observation.v1',
   running: s.running, accepted: s.accepted, terminal: s.terminal, hold_count: 0, conflict_count: 0,
