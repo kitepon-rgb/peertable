@@ -22,7 +22,11 @@
 set -e
 # `todo done` と run receipt の accept は別の正本を持つ。landing-only mode は accept の直後に
 # 同じ run ref を受け取り、受理済み receipt の着地だけを表示する。accept 自体はここへ吸収しない。
-if [ "$#" = 2 ] && [ "$1" = "--landing-run" ]; then
+if [ "${1:-}" = "--landing-run" ]; then
+  [ "$#" = 2 ] || {
+    echo "ERROR: --landing-run には run ref を1つ渡すこと（usage: done.sh --landing-run <run_ref>）" >&2
+    exit 1
+  }
   run_ref="$2"
   [ -n "$run_ref" ] || { echo "ERROR: --landing-run には run ref を渡すこと" >&2; exit 1; }
   lattice_cli="${LATTICE_CLI:-$(command -v lattice 2>/dev/null || true)}"

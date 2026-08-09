@@ -139,6 +139,13 @@ exec '${latticeCli}' "$@"
   assert.ok(expectedUnlanded > 0, 'fixtureは未着地receiptを持つこと')
 
   if (mode === 'normal') {
+    const missingRunRef = spawnSync('bash', [doneTemplate, '--landing-run'], {
+      cwd: project, env: { ...env, LATTICE_CLI: latticeCli }, encoding: 'utf8',
+    })
+    assert.notEqual(missingRunRef.status, 0, '--landing-runのref欠落をtask_idとして受理してはならない')
+    assert.match(`${missingRunRef.stdout}\n${missingRunRef.stderr}`,
+      /--landing-run には run ref を1つ渡すこと/u)
+
     const landingOnly = spawnSync('bash', [doneTemplate, '--landing-run', runRef], {
       cwd: project, env: { ...env, LATTICE_CLI: latticeCli }, encoding: 'utf8',
     })
