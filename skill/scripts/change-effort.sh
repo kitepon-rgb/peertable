@@ -77,8 +77,10 @@ requests=[r for r in rows if r.get("from")==name and addressed(r,parent)
           and r.get("body")==f"[effort変更依頼] {effort}"]
 if not requests: raise SystemExit(1)
 req=max(requests,key=lambda r:r.get("seq",0))
+marker="request #{}".format(req.get("seq",0))
 completed=[r for r in rows if r.get("from")==parent and addressed(r,name)
-           and str(r.get("body","")).startswith("[effort変更]")]
+           and str(r.get("body","")).startswith("[effort変更]")
+           and marker in str(r.get("body",""))]
 if completed and max(r.get("seq",0) for r in completed)>=req.get("seq",0): raise SystemExit(1)
 print(req["seq"])
 ' "$name" "$parent" "$effort") || {

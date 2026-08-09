@@ -116,29 +116,37 @@ try {
   assert.match(result.stderr, /EFFORT_CHANGE_REQUEST_REQUIRED/)
   assert.equal((await launchLines()).length, 1, '同じ依頼を再利用しない')
 
+  // high依頼の後にlow依頼を置き、lowだけ先に完了させる。別requestの完了でhighを
+  // 消費済みにしてはいけない（request seqへの束縛を測る）。
   await request('high')
+  await request('low')
+  result = run('low')
+  assert.equal(result.status, 0, result.stderr)
+  assert.equal((await api('members')).members.find(x => x.name === 'koharu').effort, 'low')
+  assert.equal((await launchLines()).length, 2)
+
   await writeFile(screen, 'Working… esc to interrupt\n')
   result = run('high')
   assert.notEqual(result.status, 0)
   assert.match(result.stderr, /EFFORT_CHANGE_SEAT_BUSY/)
-  assert.equal((await launchLines()).length, 1)
+  assert.equal((await launchLines()).length, 2)
   await writeFile(screen, 'idle\n')
 
   await request('ultra')
   result = run('ultra')
   assert.notEqual(result.status, 0)
   assert.match(result.stderr, /EFFORT_CHANGE_UNSUPPORTED: claude/)
-  assert.equal((await launchLines()).length, 1)
+  assert.equal((await launchLines()).length, 2)
 
   await writeFile(failOnce, 'yes\n')
   result = run('high')
   assert.notEqual(result.status, 0)
   assert.match(result.stderr, /EFFORT_CHANGE_RESTART_FAILED/)
   assert.match(result.stderr, /EFFORT_CHANGE_ROLLED_BACK/)
-  assert.equal((await launchLines()).length, 3)
-  assert.match((await launchLines())[1], /\|high\|/)
-  assert.match((await launchLines())[2], /\|max\|/)
-  assert.equal((await api('members')).members.find(x => x.name === 'koharu').effort, 'max')
+  assert.equal((await launchLines()).length, 4)
+  assert.match((await launchLines())[2], /\|high\|/)
+  assert.match((await launchLines())[3], /\|low\|/)
+  assert.equal((await api('members')).members.find(x => x.name === 'koharu').effort, 'low')
 
   await member({ vendor: 'codex', model: 'gpt-5.6-sol', effort: 'high' })
   await request('ultra')
@@ -154,7 +162,7 @@ try {
     assert.match(source, /\[effort変更依頼\] <level>/, `${ref}が本人要請protocolを持つ`)
     assert.match(source, /再起動/, `${ref}が再起動を明示する`)
   }
-  console.log('effort-change repro: 8/8 green')
+  console.log('effort-change repro: 9/9 green')
 } finally {
   server.kill('SIGTERM')
   await new Promise(resolveDone => server.once('exit', resolveDone))
