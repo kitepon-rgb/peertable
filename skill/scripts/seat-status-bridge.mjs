@@ -20,7 +20,7 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
 
-import { parsePaneTokenHint } from './seat-usage.mjs'
+import { parsePaneTokenHint, supportsMemberObservation } from './seat-usage.mjs'
 
 const args = process.argv.slice(2)
 const proj = args[0]
@@ -116,8 +116,7 @@ async function send(name, observation, observedAt) {
 // 読み返して実際に載ったかを見る。載らない版なら、そう言って**黙って成功したふりをしない**
 async function serverKeepsStatus() {
   const res = await fetch(`${url}/api/${encodeURIComponent(room)}/members`)
-  const { members } = await res.json()
-  return members.some(m => 'status' in m)
+  return supportsMemberObservation(await res.json())
 }
 
 const last = new Map()   // name -> { status, at }

@@ -86,7 +86,10 @@ http.createServer(async (req, res) => {
       return json(res, 200, { messages: readMessages(room, Number(url.searchParams.get('since') ?? 0)) }, CORS)
 
     if (req.method === 'GET' && rest === 'members')
-      return json(res, 200, { members: [...room.members].map(([name, meta]) => ({ name, ...meta })) }, CORS)
+      return json(res, 200, {
+        members: [...room.members].map(([name, meta]) => ({ name, ...meta })),
+        capabilities: { member_observation_v1: true },
+      }, CORS)
 
     if (req.method === 'GET' && rest === 'events') {
       res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive', ...CORS })
@@ -285,7 +288,7 @@ const hue=n=>{let h=5381;for(let i=0;i<n.length;i++)h=(h*33+n.charCodeAt(i))|0;r
 const initial=n=>{const c=[...String(n)][0];return c?c.toUpperCase():'?'}
 const stamp=at=>{const t=el('time','ts',at.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}));t.dateTime=at.toISOString();t.title=at.toLocaleString();return t}
 const compactCount=n=>n>=1000000?(Math.round(n/100000)/10)+'M':n>=1000?(Math.round(n/100)/10)+'k':String(n)
-const elapsed=ms=>{const min=Math.max(1,Math.floor(ms/60000));return min>=60?Math.floor(min/60)+'h '+(min%60)+'m':min+'m'}
+const elapsed=ms=>{const min=Math.floor(ms/60000);return min<1?'<1m':min>=60?Math.floor(min/60)+'h '+(min%60)+'m':min+'m'}
 const nearBottom=()=>window.innerHeight+window.scrollY>=document.body.offsetHeight-80
 // ボタンの出し入れと SSE の自動追従は同じ nearBottom で判断する。別々の閾値を持つと
 // 「ボタンは消えているのに追従しない」帯ができて、どちらが壊れたのか分からなくなる

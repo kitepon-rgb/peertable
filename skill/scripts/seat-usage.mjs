@@ -6,6 +6,10 @@ const TOKEN_MULTIPLIER = Object.freeze({
   m: 1_000_000,
 })
 
+export function supportsMemberObservation(payload) {
+  return payload?.capabilities?.member_observation_v1 === true
+}
+
 /**
  * paneのstatus行が公開しているtoken値だけを読む。
  * vendor固有のログや課金単価は推測せず、表示が無い席はnullのままにする。
