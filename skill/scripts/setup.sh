@@ -168,12 +168,13 @@ if [ "$mode" = "lattice" ]; then
     const { writeFileSync } = require("node:fs");
     const [target, binary, script, configRef] = process.argv.slice(1);
     writeFileSync(target, `${JSON.stringify({
-      schema: "lattice.runtime_adapter_registration_input.v1",
+      schema: "lattice.runtime_adapter_registration_input.v2",
       adapter_kind: "work-order",
       launch_kind: "host_binary",
       binary_path: binary,
       argv: [script],
       config_ref: configRef,
+      host_driven_epoch: true,
     })}\n`, { mode: 0o600 });
   ' "$work_order_registration" "$node_binary" "$work_order_binary" "$work_order_config_ref"
   chmod 600 "$work_order_registration"

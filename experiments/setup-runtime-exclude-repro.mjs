@@ -120,6 +120,8 @@ try {
   const added = await makeFixture(temporaryRoot, 'runtime-added', url);
   const addedState = await setupFixture(added, 'runtime-added', url);
   const registration = JSON.parse(await readFile(added.registrationCapture, 'utf8'));
+  assert.equal(registration.schema, 'lattice.runtime_adapter_registration_input.v2');
+  assert.equal(registration.host_driven_epoch, true);
   assert.equal(registration.binary_path, await realpath(process.execPath));
   assert.deepEqual(registration.argv, [await realpath(added.adapter)]);
   assert.notEqual(registration.binary_path, registration.argv[0],
