@@ -542,6 +542,22 @@ managed run に載せない Lattice 併用卓と単独円卓では、従来ど�
   `to_names` 直渡しが通る／配列1人は単一 DM へ正規化される／負のコントロール4件（空配列・`all` 混入・
   非文字列・本文なし）が 400 で止まる／**旧 client の読み口で取りこぼす発言はゼロ**（過剰受信のみ）。
 
+- **決定63（2026-08-09・オーナー裁定）: 相互独立は恒久要件である——Latticeは単独で動き、Peertableも単独で動かなくてはならない**
+
+  円卓×Lattice実行層統合（roundtable-exec-20260809）で配車の機構（work-order spool・run-bridge）が
+  入ったが、これは**統合を第3の縮退段として足した**のであって、どちらかを前提化したのではない。
+  3段はどれも生きた運用形であり、上の段の存在を理由に下の段を退役させない:
+
+  1. **Peertable単独**（決定47・standalone mode）——room・憲章・宣言claimだけで動く。Latticeへの参照ゼロ
+  2. **Peertable＋Lattice計画層**——従来のclaimループ（`todo status`→`[claim]`→`start/done`）
+  3. **Peertable＋Lattice実行層**——配車（task選択=Lattice／席選択=bridge／受諾=席）。opt-inであり、
+     `mode=lattice`かつadapter登録がある卓だけで起きる
+
+  この要件が具体に禁じること: 正典・member.md の改訂（決定25改訂を含む）で単独モードのclaim協定を
+  削らない／setup・teardown・done.sh がLattice不在で落ちる形にしない／run-bridge・spoolを
+  必須経路にしない。逆にLattice側は、Peertableを指す語をコードへ入れない（roundtable-exec計画正本の
+  非目標と同じ線）。**統合は両製品の交差点に置く。どちらの幹にも埋めない。**
+
 ---
 
 ## 9. スキル化 — 完了（2026-08-08）
