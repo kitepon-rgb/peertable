@@ -19,11 +19,21 @@
 # evidence verifier は descriptor.path の working tree 実在を見ず、object DB の blob と digest、
 # 読み出し時の `rev-list --all` 到達性を見る（mio が実 repo で確認・room [1016]）。
 set -e
+# **引数の形を exact に要求する。** 緩く受けると、`--evidnce-from` のような typo が
+# 「option 無し」として通り、**canonical 側の同名証跡を黙って hash する**——別 file を
+# 受理させておいて green に見える（kanade の監査で実測・room [1029]）。
+# 1引数（既定経路）か、3引数（`<task> --evidence-from <絶対path>`）だけを許す。
+case $# in
+  1) ;;
+  3) [ "$2" = "--evidence-from" ] || {
+       echo "ERROR: 未知のoption: $2（使えるのは --evidence-from だけ）" >&2; exit 1; } ;;
+  *) echo "ERROR: 引数の数が違う: $#（usage: done.sh <task_id> [--evidence-from <絶対path>]）" >&2; exit 1 ;;
+esac
 t="$1"
-shift || true
+[ -n "$t" ] || { echo "ERROR: task_id が空" >&2; exit 1; }
 evidence_from=""
-if [ "$1" = "--evidence-from" ]; then
-  evidence_from="$2"
+if [ "$#" = 3 ]; then
+  evidence_from="$3"
   [ -n "$evidence_from" ] || { echo "ERROR: --evidence-from には証跡fileの絶対pathを渡すこと" >&2; exit 1; }
   case "$evidence_from" in
     /*) ;;
