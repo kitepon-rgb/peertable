@@ -200,6 +200,8 @@ const UI = room => `<!doctype html><html lang="ja"><head><meta charset="utf-8"><
 .meta{display:flex;align-items:baseline;gap:7px;flex-wrap:wrap;margin:0 0 3px 2px;font-size:12px}
 .who{font-weight:700;color:hsl(var(--h) var(--sat) var(--name))}
 .to{color:var(--dim)}.ts{color:var(--dim);font-variant-numeric:tabular-nums}
+.seq{color:var(--dim);font:500 10px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;font-variant-numeric:tabular-nums;user-select:all;white-space:nowrap}
+.msg .seq{display:block;width:max-content;margin:2px 3px 0 auto}
 .bubble{padding:8px 12px;border-radius:4px 13px 13px 13px;background:hsl(var(--h) var(--sat) var(--tint));border:1px solid hsl(var(--h) var(--sat) var(--edge)/.45);overflow-wrap:anywhere}
 .bubble>*{margin:0}.bubble>*+*{margin-top:7px}
 .bubble code{font:500 .92em ui-monospace,SFMono-Regular,Menlo,monospace;background:hsl(var(--h) var(--sat) var(--edge)/.22);border-radius:3px;padding:.1em .35em}
@@ -294,7 +296,8 @@ window.addEventListener('resize',syncToBottom,{passive:true})
 let last=null,recent=null
 function render(m){
   const at=new Date(m.ts)
-  if(m.from==='system'){const d=el('div','sys');d.appendChild(el('span','body',m.body));d.appendChild(stamp(at));logEl.appendChild(d);last=null;return}
+  const seq=()=>el('span','seq','['+m.seq+']')
+  if(m.from==='system'){const d=el('div','sys');d.appendChild(el('span','body',m.body));d.appendChild(seq());d.appendChild(stamp(at));logEl.appendChild(d);last=null;return}
   const aud=m=>Array.isArray(m.to_names)?m.to_names.join(', '):m.to
   const cont=last&&last.from===m.from&&aud(last)===aud(m)&&at-new Date(last.ts)<300000
   const d=el('div','msg'+(aud(m)!=='all'?' dm':'')+(cont?' cont':''))
@@ -305,7 +308,7 @@ function render(m){
   if(aud(m)!=='all')meta.appendChild(el('span','to','→ '+aud(m)))
   meta.appendChild(stamp(at))
   const bub=el('div','bubble');bub.appendChild(md(m.body))
-  body.appendChild(meta);body.appendChild(bub)
+  body.appendChild(meta);body.appendChild(bub);body.appendChild(seq())
   d.appendChild(body);logEl.appendChild(d);last=m
 }
 async function refreshMembers(){
