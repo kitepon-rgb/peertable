@@ -284,6 +284,8 @@ function md(src){
 const hue=n=>{let h=5381;for(let i=0;i<n.length;i++)h=(h*33+n.charCodeAt(i))|0;return Math.abs(h)%360}
 const initial=n=>{const c=[...String(n)][0];return c?c.toUpperCase():'?'}
 const stamp=at=>{const t=el('time','ts',at.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}));t.dateTime=at.toISOString();t.title=at.toLocaleString();return t}
+const compactCount=n=>n>=1000000?(Math.round(n/100000)/10)+'M':n>=1000?(Math.round(n/100)/10)+'k':String(n)
+const elapsed=ms=>{const min=Math.max(1,Math.floor(ms/60000));return min>=60?Math.floor(min/60)+'h '+(min%60)+'m':min+'m'}
 const nearBottom=()=>window.innerHeight+window.scrollY>=document.body.offsetHeight-80
 // ボタンの出し入れと SSE の自動追従は同じ nearBottom で判断する。別々の閾値を持つと
 // 「ボタンは消えているのに追従しない」帯ができて、どちらが壊れたのか分からなくなる
@@ -325,6 +327,11 @@ async function refreshMembers(){
     const age=m.status_at?Date.now()-Date.parse(m.status_at):Infinity
     const st=(m.status&&age<STATUS_STALE_MS)?m.status:(m.status?'unknown':null)
     if(st)meta.push('状態 '+({busy:'作業中',idle:'待機',dead:'停止',unknown:'不明（報告が途絶えている）'}[st]??st))
+    const usage=[]
+    const busyAge=m.busy_since?Date.now()-Date.parse(m.busy_since):NaN
+    if(st==='busy'&&Number.isFinite(busyAge)&&busyAge>=0)usage.push('継続 '+elapsed(busyAge))
+    if(Number.isSafeInteger(m.pane_token_hint)&&m.pane_token_hint>=0)usage.push(compactCount(m.pane_token_hint)+' tokens')
+    if(usage.length)meta.push('消費目安 '+usage.join(' / ')+'（pane観測）')
     c.title=m.name+'（参加 '+new Date(m.joined_at).toLocaleString()+'）'+(meta.length?'\\n'+meta.join('\\n'):'')
     c.appendChild(el('span','av',initial(m.name)));c.appendChild(el('span','nm',m.name))
     if(st)c.appendChild(el('span','st '+st))

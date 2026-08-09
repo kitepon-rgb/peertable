@@ -20,6 +20,8 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
 
+import { parsePaneTokenHint } from './seat-usage.mjs'
+
 const args = process.argv.slice(2)
 const proj = args[0]
 if (!proj) { console.error('usage: seat-status-bridge.mjs <project_dir> [--interval <sec>] [--once] | --stop'); process.exit(1) }
@@ -77,21 +79,35 @@ async function seats() {
   return members.map(m => m.name)
 }
 
-function readStatus(name) {
+function readSeat(name, previous, observedAt) {
   const target = `peer-${name}`
   const dead = tmux('list-panes', '-t', target, '-F', '#{pane_dead}')
-  if (dead === null) return 'dead'            // セッションが無い
-  if (dead.trim().split('\n')[0] === '1') return 'dead'
+  if (dead === null) return { status: 'dead', busySince: null, paneTokenHint: null }
+  if (dead.trim().split('\n')[0] === '1') {
+    return { status: 'dead', busySince: null, paneTokenHint: null }
+  }
   const pane = tmux('capture-pane', '-t', target, '-p')
-  if (pane === null) return 'dead'
-  return pane.split('\n').slice(-14).join('\n').includes('esc to interrupt') ? 'busy' : 'idle'
+  if (pane === null) return { status: 'dead', busySince: null, paneTokenHint: null }
+  const tail = pane.split('\n').slice(-14).join('\n')
+  const status = tail.includes('esc to interrupt') ? 'busy' : 'idle'
+  const busySince = status === 'busy'
+    ? (previous?.status === 'busy' && previous.busySince ? previous.busySince : observedAt)
+    : null
+  return { status, busySince, paneTokenHint: parsePaneTokenHint(tail) }
 }
 
-async function send(name, status) {
+async function send(name, observation, observedAt) {
   const res = await fetch(`${url}/api/${encodeURIComponent(room)}/members`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...(token ? { 'X-Peertable-Token': token } : {}) },
-    body: JSON.stringify({ name, status, status_at: new Date().toISOString() }),
+    body: JSON.stringify({
+      name,
+      status: observation.status,
+      status_at: observedAt,
+      busy_since: observation.busySince,
+      pane_token_hint: observation.paneTokenHint,
+      usage_source: 'pane_status',
+    }),
   })
   if (!res.ok) throw new Error(`HTTP ${res.status}`)
 }
@@ -106,6 +122,7 @@ async function serverKeepsStatus() {
 
 const last = new Map()   // name -> { status, at }
 let supported = null     // server が status を保持する版か（未判定は null）
+const tokenBucket = value => value === null ? null : Math.floor(value / 1_000)
 
 async function tick() {
   let names
@@ -121,18 +138,22 @@ async function tick() {
   }
   if (!supported) { console.error(`seat-status-bridge: ${names.length} 席を見たが、server が未対応なので送っていない`); return }
   const now = Date.now()
+  const observedAt = new Date(now).toISOString()
   let sent = 0
   for (const name of names) {
-    const status = readStatus(name)
     const prev = last.get(name)
-    const changed = !prev || prev.status !== status
+    const observation = readSeat(name, prev, observedAt)
+    const changed = !prev || prev.status !== observation.status
+      || prev.busySince !== observation.busySince
+      // token表示は実行中に細かく増える。1k未満の差で8秒ごとにPOSTせず、表示精度に合う粒度で送る。
+      || tokenBucket(prev.paneTokenHint) !== tokenBucket(observation.paneTokenHint)
     const stale = prev && now - prev.at >= HEARTBEAT_MS
     if (!changed && !stale) continue
     try {
-      await send(name, status)
-      last.set(name, { status, at: now })
+      await send(name, observation, observedAt)
+      last.set(name, { ...observation, at: now })
       sent++
-      if (changed) console.error(`seat-status-bridge: ${name} → ${status}${prev ? `（${prev.status} から）` : ''}`)
+      if (changed) console.error(`seat-status-bridge: ${name} → ${observation.status}${prev ? `（${prev.status} から）` : ''}`)
     } catch (e) {
       console.error(`seat-status-bridge: ${name} の送信に失敗: ${e.message}`)
     }
