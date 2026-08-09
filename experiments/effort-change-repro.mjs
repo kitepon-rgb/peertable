@@ -84,6 +84,10 @@ const request = effort => api('messages', {
   method: 'POST', headers: { 'content-type': 'application/json', 'X-Peertable-Token': token },
   body: JSON.stringify({ from: 'koharu', to: 'bell', body: `[effort変更依頼] ${effort}` }),
 })
+const requestMany = (effort, recipients) => api('messages', {
+  method: 'POST', headers: { 'content-type': 'application/json', 'X-Peertable-Token': token },
+  body: JSON.stringify({ from: 'koharu', to: recipients, body: `[effort変更依頼] ${effort}` }),
+})
 const run = effort => spawnSync(join(scripts, 'change-effort.sh'), [project, 'koharu', effort, 'bell'], {
   env, encoding: 'utf8', timeout: 20_000,
 })
@@ -98,6 +102,12 @@ try {
   assert.notEqual(result.status, 0)
   assert.match(result.stderr, /EFFORT_CHANGE_REQUEST_REQUIRED/)
   assert.equal((await launchLines()).length, 0)
+
+  await requestMany('max', ['bell', 'nagi'])
+  result = run('max')
+  assert.notEqual(result.status, 0)
+  assert.match(result.stderr, /EFFORT_CHANGE_REQUEST_REQUIRED/)
+  assert.equal((await launchLines()).length, 0, '複数宛依頼では席を再起動しない')
 
   await request('max')
   result = run('max')
@@ -164,7 +174,7 @@ try {
     assert.match(source, /\[effort変更依頼\] <level>/, `${ref}が本人要請protocolを持つ`)
     assert.match(source, /再起動/, `${ref}が再起動を明示する`)
   }
-  console.log('effort-change repro: 9/9 green')
+  console.log('effort-change repro: 10/10 green')
 } finally {
   server.kill('SIGTERM')
   await new Promise(resolveDone => server.once('exit', resolveDone))

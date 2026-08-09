@@ -73,7 +73,9 @@ name,parent,effort=sys.argv[1:4]
 rows=json.load(sys.stdin).get("messages",[])
 def addressed(row,target):
     return row.get("to")==target or target in row.get("to_names",[])
-requests=[r for r in rows if r.get("from")==name and addressed(r,parent)
+def exact_dm(row,target):
+    return row.get("to")==target and not row.get("to_names")
+requests=[r for r in rows if r.get("from")==name and exact_dm(r,parent)
           and r.get("body")==f"[effort変更依頼] {effort}"]
 if not requests: raise SystemExit(1)
 req=max(requests,key=lambda r:r.get("seq",0))
