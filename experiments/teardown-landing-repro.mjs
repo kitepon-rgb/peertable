@@ -1,9 +1,11 @@
 #!/usr/bin/env node
 // teardownが、close済みだが未着地・未pushの実Lattice runをexit 0のまま表示する回帰検査。
 //
-// usage: node experiments/teardown-landing-repro.mjs [<Lattice repo>] [<teardown.sh>|--head-teardown]
-// 既定はsiblingの../Latticeと現行teardown。`--head-teardown`は作業開始時HEADの補修前版を
-// 使い、landing reportを出せず負のコントロールとして落ちる。本番room・本番projectは触らない。
+// usage: node experiments/teardown-landing-repro.mjs [<Lattice repo>]
+//        [<teardown.sh>|--without-landing|--failing-cli|--unusable-cli]
+// 既定はsiblingの../Latticeと現行teardown。`--without-landing`は現行scriptからlanding段だけを
+// 明示除去したdurableな欠陥版を作り、landing report欠落で落ちる。旧名`--head-teardown`も同義。
+// CLIの非0終了・実行不能も別modeでloud failureを検証する。本番room・本番projectは触らない。
 import assert from 'node:assert/strict'
 import { spawn, spawnSync } from 'node:child_process'
 import { once } from 'node:events'
@@ -16,8 +18,12 @@ import { fileURLToPath } from 'node:url'
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const latticeRepo = path.resolve(process.argv[2] ?? path.join(ROOT, '..', 'Lattice'))
 const teardownArgument = process.argv[3]
-let teardown = path.resolve(teardownArgument ?? path.join(ROOT, 'skill', 'scripts', 'teardown.sh'))
+const mode = teardownArgument?.startsWith('--') ? teardownArgument : 'normal'
+let teardown = path.resolve(mode === 'normal'
+  ? (teardownArgument ?? path.join(ROOT, 'skill', 'scripts', 'teardown.sh'))
+  : path.join(ROOT, 'skill', 'scripts', 'teardown.sh'))
 const latticeCli = path.join(latticeRepo, 'bin', 'lattice.mjs')
+let teardownLatticeCli = latticeCli
 const sourceRun = path.join(latticeRepo, '.lattice', 'runs', 't7-accept-7')
 
 function git(args, cwd, env) {
@@ -44,15 +50,28 @@ const remote = path.join(temporaryRoot, 'remote.git')
 let server
 
 try {
-  if (teardownArgument === '--head-teardown') {
-    const oldScripts = path.join(temporaryRoot, 'skill', 'scripts')
-    await cp(path.join(ROOT, 'skill', 'scripts'), oldScripts, { recursive: true })
-    teardown = path.join(oldScripts, 'teardown.sh')
-    const before = spawnSync('git', ['show', 'HEAD:skill/scripts/teardown.sh'], {
-      cwd: ROOT, encoding: 'utf8',
-    })
-    assert.equal(before.status, 0, before.stderr)
-    await writeFile(teardown, before.stdout, { mode: 0o700 })
+  if (mode === '--without-landing' || mode === '--head-teardown') {
+    const brokenScripts = path.join(temporaryRoot, 'skill', 'scripts')
+    await cp(path.join(ROOT, 'skill', 'scripts'), brokenScripts, { recursive: true })
+    teardown = path.join(brokenScripts, 'teardown.sh')
+    const source = await readFile(teardown, 'utf8')
+    const startMarker = '# managed run の close は成果が既定branchへ着地した証拠ではない。'
+    const endMarker = '# setupが新しく作ったhost固有runtimeだけを撤去する。'
+    const start = source.indexOf(startMarker)
+    const end = source.indexOf(endMarker)
+    assert.ok(start >= 0 && end > start, 'landing段を除去するmarkerが見つからない')
+    const broken = source.slice(0, start) + source.slice(end)
+    assert.doesNotMatch(broken, /run landing/u, '欠陥版からlanding段を除去できていない')
+    await writeFile(teardown, broken, { mode: 0o700 })
+  } else if (mode === '--failing-cli') {
+    teardownLatticeCli = path.join(temporaryRoot, 'failing-lattice')
+    await writeFile(teardownLatticeCli,
+      '#!/bin/sh\necho FORCED_LANDING_FAILURE >&2\nexit 17\n', { mode: 0o700 })
+  } else if (mode === '--unusable-cli') {
+    teardownLatticeCli = path.join(temporaryRoot, 'unusable-lattice')
+    await writeFile(teardownLatticeCli, '#!/bin/sh\nexit 0\n', { mode: 0o600 })
+  } else if (mode !== 'normal') {
+    assert.fail(`未知のmode: ${mode}`)
   }
   await mkdir(project, { recursive: true })
   const alternateObjects = path.join(latticeRepo, '.git', 'objects')
@@ -138,25 +157,37 @@ try {
     env: {
       ...env,
       PEERTABLE_POST_TOKEN: token,
-      LATTICE_CLI: latticeCli,
+      LATTICE_CLI: teardownLatticeCli,
       PEERTABLE_TMUX_SOCKET: path.join(temporaryRoot, 'missing-tmux.sock'),
     },
   })
-  assert.equal(result.code, 0, `${result.stdout}\n${result.stderr}`)
   const output = `${result.stdout}\n${result.stderr}`
-  const match = output.match(/run landing (\{[^\n]+\})/u)
-  assert.ok(match, `teardownがlanding reportを出していない\n${output}`)
-  const report = JSON.parse(match[1])
-  assert.equal(report.landed, false)
-  assert.equal(report.repository.unpushed_commits, baselineReport.repository.unpushed_commits)
-  assert.ok(output.indexOf('run-bridge 停止') < output.indexOf('run landing {'),
-    'landingはrun-bridge停止後でなければならない')
-  assert.ok(output.indexOf('run landing {') < output.indexOf('.lattice/runtime/ 撤去'),
-    'landingはruntime撤去前でなければならない')
-  assert.equal(await readFile(path.join(copiedRun, 'events.json'), 'utf8'),
-    await readFile(path.join(sourceRun, 'events.json'), 'utf8'), 'landingはrun storeを書き換えない')
+  if (mode === '--failing-cli') {
+    assert.notEqual(result.code, 0, 'landing CLIの非0終了をteardownが成功へ丸めた')
+    assert.match(output,
+      /\[未実施\] run landing \.lattice\/runs\/t7-accept-7 — FORCED_LANDING_FAILURE/u)
+    process.stdout.write(`OK failing landing CLI: teardown exit=${result.code}\n`)
+  } else if (mode === '--unusable-cli') {
+    assert.notEqual(result.code, 0, '実行不能なLATTICE_CLIをteardownが成功へ丸めた')
+    assert.match(output,
+      /\[未実施\] run landing — LATTICE_CLIが実行可能fileを指さず、着地状態を読めない:/u)
+    process.stdout.write(`OK unusable landing CLI: teardown exit=${result.code}\n`)
+  } else {
+    assert.equal(result.code, 0, output)
+    const match = output.match(/run landing (\{[^\n]+\})/u)
+    assert.ok(match, `teardownがlanding reportを出していない\n${output}`)
+    const report = JSON.parse(match[1])
+    assert.equal(report.landed, false)
+    assert.equal(report.repository.unpushed_commits, baselineReport.repository.unpushed_commits)
+    assert.ok(output.indexOf('run-bridge 停止') < output.indexOf('run landing {'),
+      'landingはrun-bridge停止後でなければならない')
+    assert.ok(output.indexOf('run landing {') < output.indexOf('.lattice/runtime/ 撤去'),
+      'landingはruntime撤去前でなければならない')
+    assert.equal(await readFile(path.join(copiedRun, 'events.json'), 'utf8'),
+      await readFile(path.join(sourceRun, 'events.json'), 'utf8'), 'landingはrun storeを書き換えない')
 
-  process.stdout.write(`OK teardown landing: landed=false unpushed_commits=${report.repository.unpushed_commits} exit=0\n`)
+    process.stdout.write(`OK teardown landing: landed=false unpushed_commits=${report.repository.unpushed_commits} exit=0\n`)
+  }
 } finally {
   if (server) await new Promise(resolve => server.close(resolve))
   await rm(temporaryRoot, { recursive: true, force: true })
