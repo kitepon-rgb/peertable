@@ -69,7 +69,7 @@
   正典へ明記）
 - **P4 Codex席**: SKILL.mdへCodex席の起動手順（`codex`起動+`-c`でroom MCPとenv全列挙+trustダイアログ
   通し+着任指示）、member.mdへCodex席の注記。**wakeup-bridge**（`skill/scripts/`の小さな常駐script）:
-  room SSEを購読→Codex席宛/全員宛の新着を席ごとのキューへ→tmuxへ素送信（busy中steering実測が
+  room SSEを購読→Codex席への明示宛先だけを席ごとのキューへ→tmuxへ素送信（§16で旧broadcast経路をsupersede。busy中steering実測が
   第一候補・不可ならidle検出待ち）。生死はADR 0157の作法（pid記録+起動時掃除）、teardownで確実に停止
 - **P5 立卓高速化**: `skill/scripts/launch-seat.sh <name> <model> <vendor>`（tmux作成+env注入+
   claude/codex起動+既知ダイアログの自動通過+バナー確認まで）、`skill/scripts/make-plan-input.mjs`

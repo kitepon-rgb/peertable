@@ -49,7 +49,7 @@ Three layers, cleanly separated:
 
 | Layer | Owner | What it holds |
 |---|---|---|
-| **Conversation** | room server (this repo) | meetings, claims, progress reports, impact notices — every message, all-addressed or DM, in one append-only log |
+| **Conversation** | room server (this repo) | meetings, claims, progress reports, impact notices — explicit single/multi-recipient messages in one append-only log; context is pulled from that log |
 | **Plan** | [Lattice](https://www.npmjs.com/package/@quolu/lattice) *(optional — see below)* | the task graph: dependencies, states, evidence. What's *ready* is computed, so conversation is spent only on judgment |
 | **Artifacts** | git | code, docs, commits — per member, path-scoped |
 
