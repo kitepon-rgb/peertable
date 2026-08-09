@@ -1,15 +1,46 @@
 #!/bin/bash
-# usage: .team/scripts/done.sh <task_id>
+# usage: .team/scripts/done.sh <task_id> [--evidence-from <隔離worktreeの証跡の絶対path>]
 # evidence/<plan_key>/<task_id>.md（commit 済みであること）から記述子を作り lattice todo done を実行する。
 # plan key は環境変数 PEERTABLE_PLAN から取る。
 # 証跡を plan key で仕切るのは、task_id が campaign を跨いで再利用される（t1, t2, …）ため。
 # 平置きだと次の campaign の t1 が前の campaign の t1 の監査証跡を上書きで消す（2026-08-08 実測）。
+#
+# **`--evidence-from` は pull 型の実行層で使う。** 席は隔離 worktree の中だけを触るので、
+# 証跡もそこにしか無い。一方 `todo done` は **canonical の store** へ打たないと、run の accept が
+# その done を見ない。cwd 1つで両方を兼ねると必ずどちらかが外れる（mio の監査で実測・room [1012]）:
+#   canonical で打つ → worktree にしか無い証跡を読めない
+#   worktree で打つ → worktree 側の `.lattice/todo` を書き、canonical の accept が見ない
+# なので **証跡の blob/digest は worktree の file から、`todo done` は canonical の cwd/store へ**、と
+# 明示的に分ける。**canonical へ証跡を別書きして通すのは禁止**——「worktree の中だけ」の契約を
+# 破りながら green にする偽装になる。
+#
+# 成立する理由: linked worktree は canonical と object DB を共有するので、canonical の cwd から
+# `git hash-object -w <worktree の絶対path>` で書いた blob はそのまま canonical で読める。
+# evidence verifier は descriptor.path の working tree 実在を見ず、object DB の blob と digest、
+# 読み出し時の `rev-list --all` 到達性を見る（mio が実 repo で確認・room [1016]）。
 set -e
 t="$1"
+shift || true
+evidence_from=""
+if [ "$1" = "--evidence-from" ]; then
+  evidence_from="$2"
+  [ -n "$evidence_from" ] || { echo "ERROR: --evidence-from には証跡fileの絶対pathを渡すこと" >&2; exit 1; }
+  case "$evidence_from" in
+    /*) ;;
+    *) echo "ERROR: --evidence-from は絶対pathでなければならない: $evidence_from" >&2; exit 1 ;;
+  esac
+  # **黙って canonical の証跡へ落ちない。** 落ちると「worktree の成果を done した」と見えるのに
+  # 実際は別の file を hash することになり、受理された内容と成果物が食い違う
+  [ -f "$evidence_from" ] || { echo "ERROR: --evidence-from の証跡が存在しない: $evidence_from" >&2; exit 1; }
+fi
+
+# descriptor の path は repo 内の相対（repo 外の絶対 path は --evidence が INVALID_ARGUMENTS で弾く）。
+# worktree でも canonical でも同じ相対 path に置く規約なので、この値は両者で一致する。
 f="evidence/$PEERTABLE_PLAN/$t.md"
-oid=$(git hash-object -w "$f")
-digest=$(shasum -a 256 "$f" | cut -d' ' -f1)
-# 記述子は repo 内の相対パスに置く（repo 外の絶対パスは --evidence が INVALID_ARGUMENTS で弾く）
+src="${evidence_from:-$f}"
+[ -f "$src" ] || { echo "ERROR: 証跡が見つからない: $src" >&2; exit 1; }
+oid=$(git hash-object -w "$src")
+digest=$(shasum -a 256 "$src" | cut -d' ' -f1)
 tmp=".ev-$t.json"
 printf '{"evidence_id":"ev-%s","repo_id":"self","path":"%s","git_blob_oid":"%s","content_digest":"%s","media_type":"text/markdown","anchor_digest":null}\n' "$t" "$f" "$oid" "$digest" > "$tmp"
 lattice todo done --plan "$PEERTABLE_PLAN" --task "$t" --evidence "$tmp"
