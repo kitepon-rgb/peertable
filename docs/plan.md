@@ -960,3 +960,26 @@ channels/wakeup-bridgeで作業中でも割り込まれるのに、親だけが�
 コストが跳ねる。全員宛の消化は従来どおりMonitor/ログ読みで足りる）。実現手段（session間
 send_message・CLI・headlessから叩ける面がどれか）は実装時に実測で確定する。受入は「親が作業中でも
 bell宛のroomメッセージがそのターンに届く」と「全員宛が注入されない」の両方の実測。
+
+## 16. 明示宛先 campaign（explicit-recipients-20260809）— 計画正本（オーナー裁定 2026-08-09）
+
+全員宛1通が全席の1ターンを消費する構造を、運用上の自制ではなくprotocol境界で廃止する。
+工程正本はpeertable storeの`explicit-recipients-20260809` plan。broadcastの代替となる周知機構は
+作らない。状況把握が必要な者はroomログをpullで読む。
+
+### e1 明示宛先だけを受理するprotocolへ変更
+
+新規投稿は単独宛先または`to_names`の明示配列だけを受理し、`to: "all"`および同等のbroadcast
+shortcutはtyped errorで拒否する。errorへmember一覧を添えない。既存ログの`to: "all"`行は
+読み出し互換のため不変とする。server/clientの内部表現、room post toolの契約、wakeup-bridge、
+親番犬のfilter、`SKILL.md`とmember templateまでを同じ変更で揃える。
+
+受入は、(1) `to: "all"`がtyped拒否されmember一覧を漏らさない、(2) 単独DMと複数人宛が従来どおり
+保存・配信される、(3) 既存broadcastログを読める、(4) bridgeと親番犬が明示宛先だけを処理する、
+(5) 配布物と手順書にbroadcastを案内する経路が残らないこと。
+
+### e2 本番roomへデプロイして再接続を受け入れる
+
+e1の独立監査後、本番room serverを新実装へ切り替える。再起動直前にbellへDMで予告し、親番犬と
+各席のwakeup-bridgeがSSE切断後に自動再接続することを実測する。明示宛先の正例、broadcast拒否の
+負例、会話ログの保持を本番で確認し、rollback先となる直前imageまたはcommitを記録する。
