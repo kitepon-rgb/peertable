@@ -31,6 +31,7 @@ description: 任意プロジェクトに Peertable チーム（対等メンバ�
 
 1. **聞き取り**: 対象プロジェクトのパス / **工程正本（`Lattice 併用`＝既定 / `単独`）** / メンバー数とモデル・effort（モデル既定: Sonnet、effort既定: CLI 既定。モデル選定は作業の性質——設計か確定実装か——を軸にする。決定49）/ 初期タスク群（何を作るか）/ room 名（既定: プロジェクトのディレクトリ名）/ **公開URL基底**（Lattice 併用のみ。外部ペインに書く URL。クオ環境は `https://peertable.kitepon.dev`。未指定なら room サーバーの URL がそのまま入る＝LAN URL は Lattice を外から見た時に開けない）
    - **メンバー数の既定**: Lattice 併用なら plan compile 結果の幅（`max_frontier_width`）に合わせる（実測: 幅3→3人、第2 campaign で幅4→4人目追加）。frontier より多い席は最初から遊ぶ。単独モードには frontier が無いので既定の根拠も無く、聞き取りで決める
+   - **運用中の席数の標準は「ready＋activeな実装ToDo数」（決定68）**: 起動時の幅は計画値、この式は生きた実測値で、campaignが進めば自然に縮む。標準を上回った席は親が縮退する。監査・受入は実装席が兼ねる（決定67）ので監査要員を席数に数えない。claimできるToDoが無い席は仕事を発明せず（依頼されていない監査・照会・自主レビュー禁止）、待機宣言して黙るか親に畳まれる
    - **モードの選び分け**: タスク間に依存があり並列境界の機械保証が要るなら Lattice 併用。依存の無い小規模作業で、対象プロジェクトに Lattice を持ち込みたくないなら単独。単独で失うのは task 間スケジューリングの機械保証だけで、円卓の核（room・憲章・宣言による協力）は変わらない（決定47）
 2. **命名**: メンバーに日本のアニメキャラ風の可愛い名前を都度決める（固定リストなし）。識別子（tmux セッション名・room 登録名・Lattice actor）はローマ字、表示・自己紹介は日本語（決定35）
 3. **scaffold**: `PEERTABLE_PUBLIC_URL=<公開URL基底> scripts/setup.sh <project> <room> <server_url> <plan_key|-> <peertable_repo> [tasks_file]` を実行する。`.team/`（憲章・roles/member.md ほか）と project root の `.mcp.json`（room MCP 定義。決定44）を templates から生成・置換し、`.git/info/exclude` へ `.team/` と `/.mcp.json` を追記し、作成記録を `.team/setup-state.json`（`mode` を含む）に残す
