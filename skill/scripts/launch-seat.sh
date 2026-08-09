@@ -58,6 +58,9 @@ case "$vendor" in
     # （caveat `codex-cli-v0-130-0-mcp-servers-x-env-block-is-closed-mode-parent-env-not-inherited`）。
     envtbl="PATH=\\\"$PATH\\\",PEERTABLE_URL=\\\"$url\\\",PEERTABLE_ROOM=\\\"$room\\\",PEERTABLE_MEMBER=\\\"$name\\\",PEERTABLE_POST_TOKEN=\\\"$PEERTABLE_POST_TOKEN\\\""
     cmd="codex --model $model -C $proj --dangerously-bypass-approvals-and-sandbox"
+    # Codexのeffortは環境変数だけでは適用されない。member metadataへ表示する値と、
+    # 実際の推論設定を同じ引数から渡して食い違わせない。
+    [ -n "$effort" ] && cmd="$cmd -c 'model_reasoning_effort=\"$effort\"'"
     cmd="$cmd -c 'mcp_servers.room.command=\"peertable-client\"'"
     cmd="$cmd -c \"mcp_servers.room.env={$envtbl}\""
     ;;

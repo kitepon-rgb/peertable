@@ -44,13 +44,16 @@ description: 任意プロジェクトに Peertable チーム（対等メンバ�
    - 起動前に `pty_list` で既存の `peer-*` 席を確認する（前の卓の残骸を99席実測したことがある）。同名の席は launch-seat.sh が落としてから立て直す
    - 着任指示を第6引数に渡すと着席後に送る。文面: 「あなたは「<日本語名>」。.team/roles/member.md を読んで着任し、作業ループを開始せよ。全タスク完了の宣言まで自律的に続けること。」
    - 席が読む env は script が組み立てる（`PEERTABLE_URL` / `PEERTABLE_ROOM` / `PEERTABLE_MEMBER` / `PEERTABLE_POST_TOKEN`、Lattice 併用なら `PEERTABLE_PLAN` と actor 3点）。**channels は `--mcp-config` の MCP server を解決しない**（実測 2026-08-08・Claude Code v2.1.226・決定44）ため、room の MCP 定義は setup.sh が project root へ置く `.mcp.json` が正。project に既存 `.mcp.json` があった場合 setup.sh は上書きせず警告を出すので、AI が手動 merge して teardown で復元する
-   - **Codex 席**（`vendor=codex`）: Codex には channels が無いので、room は `-c` 上書きの stdio MCP として差す（`mcp_servers.room.command="peertable-client"` と `mcp_servers.room.env={…}`）。**env は closed mode で親環境を継がない**ので `PATH` を含む全変数を明示列挙する。モデル名は ChatGPT アカウントで使える slug を渡す（`~/.codex/config.toml` の `model` が既定値の参考。使えない slug は起動後の最初のターンで 400 になって初めて分かる）。Codex 席を混ぜたら**必ず起床ブリッジを立てる**（下記）——立てないと room の新着で起きない
+   - **Codex 席**（`vendor=codex`）: Codex には channels が無いので、room は `-c` 上書きの stdio MCP として差す（`mcp_servers.room.command="peertable-client"` と `mcp_servers.room.env={…}`）。**env は closed mode で親環境を継がない**ので `PATH` を含む全変数を明示列挙する。effortはmember metadataだけでなく`model_reasoning_effort`へも同じ値を渡す。モデル名は ChatGPT アカウントで使える slug を渡す（`~/.codex/config.toml` の `model` が既定値の参考。使えない slug は起動後の最初のターンで 400 になって初めて分かる）。Codex 席を混ぜたら**必ず起床ブリッジを立てる**（下記）——立てないと room の新着で起きない
 6. **起床ブリッジ（Codex 席がある時だけ）**: `nohup node scripts/wakeup-bridge.mjs <project> <codex席名>… > <project>/.team/wakeup-bridge.log 2>&1 &`。room の SSE を購読し、明示的にその席宛の新着（自分の発言は除く）だけを tmux へ素送信して起こす。**Codex はターン実行中でも素送信を受け付け、その文言をそのターンの中で読む**（実測）ので idle 待ちはしない。停止は `node scripts/wakeup-bridge.mjs <project> --stop`（teardown.sh が自動で行う）
    - **黙って止まらないための三段**（決定58 の受信側の作法）: ①75秒なにも届かなければ自分から切って繋ぎ直す ②繋ぎ直したら `?since=<最終seq>` で切れていた間の発言を回収する ③**心拍が積んでくる room の最新 seq が自分より進んでいたら、繋がったままでも回収する**——③が要るのは、心拍が届き続ける限り①が原理的に発火しないため。**server 側の心拍（`event: ping`・25秒周期）が前提**なので、古い room サーバーへ繋ぐと①だけが効く形になる
    - ログは `.team/wakeup-bridge.log`。**0件でも0件と出す**ので、起こせているか・取りこぼしていないかはログを見れば分かる。再現ハーネスは `experiments/bridge-catchup-repro.mjs`
 
 6.5 **席の稼働状態ブリッジ（任意）**: `nohup node scripts/seat-status-bridge.mjs <project> > <project>/.team/seat-status-bridge.log 2>&1 &`。**room の members に居る席だけ**の tmux pane を読み（`peer-<名前>`）、`busy`（画面に `esc to interrupt` が在る。**Claude 席・Codex 席の共通マーカーで、スピナーの語は毎回変わるので使わない**）／`idle`／`dead`（`pane_dead`・セッション消失）を判定して room サーバーへ送る。**AI は使わず、席へは1バイトも送らない**。参加者一覧に点が出て、**報告が途絶えたら `unknown`（中空の輪）へ落ちる**——古い状態を出し続けない。**server が稼働状態を保持しない版なら1件も送らない**（送ると保存されないうえに system 発言を撒く）。停止は `node scripts/seat-status-bridge.mjs <project> --stop`（**teardown.sh が自動で行う**）
    - **起こすかは卓の任意**（setup は自動で起こさない）。起こしたら**必ず teardown で止まる**——止め忘れると、`.team/` と一緒に pid 記録が消えて **`--stop` でも止められない常駐**が残る
+
+6.7 **effort変更（本人要請→親実行）**: 本人は親だけへ`[effort変更依頼] <level>`を明示DMする。親は席がidleなのを確認して`skill/scripts/change-effort.sh <project> <member> <level> [parent_name]`を実行する。scriptは未使用の本人DMを機械確認し、room membersのvendor/modelを保って席を再起動し、metadataを読み返してから本人宛へ変更履歴を残す。同じ依頼の再利用、busy席、Claudeの未知level、Codex model catalogに無いlevelは再起動前にtyped拒否する。新設定での起動失敗時は旧effortで1回だけ明示rollbackし、両方失敗なら手動復旧が必要だと非0で出す。
+   - **会話contextは引き継がない**。本人は作業を安全に中断できる時だけ依頼し、再起動後はrole・工程正本・roomログから再着任する。変更できたのに履歴記録だけ失敗した場合も成功へ丸めず、`EFFORT_CHANGE_CHANGED_BUT_HISTORY_FAILED`で現在状態を明示する
 
 7. **親の着卓**（このセッション）: `scripts/parent-join.sh <project> [name] [model] [effort]` で member 登録を行い、**bell宛DM番犬**を Monitor で張る（形は下記「親の operating notes」の番犬仕様）。broadcastのkickoffは廃止済み。以後の post も API 直（同 notes）
 8. **起動確認**: room の members に全員いる / 最初の claim が room に流れる（Lattice 併用モードはそれが Lattice へ到達している＝`lattice todo status --json` の active に出ることも確認する。単独モードは room の claim 宣言だけが到達の証拠）/ Web UI で観測できる、をチェックして報告する
@@ -148,6 +151,7 @@ witness をどう生成するかは**対象 project 側の作法に従う**（La
   - **切断は沈黙でなく event**——再接続ループの echo が親を起こすので、黙って死ねない（ADR 0157 型の不死・沈黙死の対策）
   - **世代は常に1匹**——張り替える時は先に旧世代を TaskStop で止める。張った・畳んだは room へ一言流す（卓が「親が起きない」を検知できる面）
   - broadcastはserverがtyped拒否する。状況把握はroomログをpullで読む
+- **effort変更依頼**: 本人からexactな`[effort変更依頼] <level>` DMが来た時だけ上記6.7のscriptを使う。親が本人の代わりに依頼文を投稿しない。busy拒否は「失敗したから直接tmuxを落とす」理由にならず、本人がidleになるまで待つ
 - 親の権能は進行・受理判定・督促・オーナーとの接点だけ。**実務に落ちない**: バグを見つけても直さず、発見内容を room に送って会議に載せる。差し戻しは異議であり、平行線はメンバーが勝つ
 - **監査は卓の中で行う。親はコードを読まない**（決定60）。完了 task の監査は**実装者以外の席**が実物（diff・検証結果・ハーネスの正負両方）を読んで行い、**所見を room へ出す**。親がするのは、その所見を読んで**受理を宣言すること**だけである。
   - **受理の根拠は「所見が room に出ていること」**とする。親自身の読みを根拠にすると、親が最終判断者に戻り、卓が上下オーケストレーションへ滑る（決定43 と同じ経路）

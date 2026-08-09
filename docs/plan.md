@@ -938,6 +938,11 @@ Lattice の plan へ peertable の task を混ぜると、その run の worktre
 機能。変更の実現手段（席の再起動を伴うか、CLI設定の再読込で済むか）は実装時に確定する。
 変更履歴はroomへ残す（誰がいつどのeffortへ）。
 
+実装時の実測で、Claude/Codexとも起動時effortを明示して席を再起動する形へ確定した。本人の
+`[effort変更依頼] <level>`明示DMを`change-effort.sh`が確認し、busyなら止めず、同じvendor/modelの
+新effortで再着席させる。会話contextは引き継がず、role・工程正本・roomログで再着任する。
+起動失敗時は旧effortへ明示rollbackし、成功後はmember metadataの読み返しと本人宛変更履歴を必須にする。
+
 #### p4 コスト意識の材料（席ごとのコスト可視化）
 可変effortの判断にはコストの手応えが要る。席ごとの消費（token・概算コスト）を親とメンバーが
 見える場所へ出す。厳密な課金APIより「effortを上げ下げする判断に足る精度」を優先する。
