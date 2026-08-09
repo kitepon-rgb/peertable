@@ -1,0 +1,94 @@
+{
+  "actor": {
+    "agent": "koharu",
+    "host": "mac",
+    "session": "koharu"
+  },
+  "extraction_digest": "c2221e00d156579e5c0d827373717ac822f577cdd620900f4f811850e6056f32",
+  "hard_dependencies": [
+    {
+      "from": {
+        "plan_key": "explicit-recipients-20260809",
+        "project_id": "peertable",
+        "task_id": "e1"
+      },
+      "to": {
+        "plan_key": "explicit-recipients-20260809",
+        "project_id": "peertable",
+        "task_id": "e2"
+      }
+    }
+  ],
+  "joins": [],
+  "plan_key": "explicit-recipients-20260809",
+  "plan_version": "v1",
+  "project_id": "peertable",
+  "recorded_at": "2026-08-09T10:26:20.000Z",
+  "schema": "lattice.todo_extraction.v3",
+  "tasks": [
+    {
+      "compile_binding": null,
+      "completion": null,
+      "design_memo": "新規投稿は単独宛先またはto_namesの明示配列だけを受理し、to: \"all\"および同等のbroadcast shortcutをtyped errorで拒否する。errorへmember一覧を添えず、broadcastの代替手段も作らない。既存ログのto: \"all\"行は読み出し互換のため不変。server/client内部表現、room post tool契約、wakeup-bridge、親番犬filter、SKILL.md、member templateを同じ変更で揃える。受入=(1) broadcast typed拒否＋member一覧非漏洩 (2) 単独DM/複数人宛の保存・配信 (3) 既存broadcastログ読出し (4) bridge/親番犬が明示宛先だけを処理 (5) 配布物・手順書にbroadcast案内が残らない。",
+      "disposition": "register_pending",
+      "lane": "protocol",
+      "migration_context": {
+        "carry_over_ref": null,
+        "condition": null,
+        "evidence_refs": [],
+        "external_canonical_ref": null,
+        "h_required": false,
+        "notes": []
+      },
+      "narrative_ref": "docs/plan.md",
+      "source": {
+        "checkbox_state": "absent",
+        "heading_path": [
+          "Peertable 計画正本",
+          "16. 明示宛先 campaign（explicit-recipients-20260809）— 計画正本（オーナー裁定 2026-08-09）",
+          "e1 明示宛先だけを受理するprotocolへ変更"
+        ],
+        "markdown_depth": 3,
+        "origin_line": 970,
+        "origin_plan_ref": "docs/plan.md",
+        "parent_task_id": null,
+        "source_commit": "742c9462eb97fe40e8e7fe1f50bfdea497325947"
+      },
+      "start": null,
+      "task_id": "e1",
+      "title": "e1 明示宛先だけを受理するprotocolへ変更"
+    },
+    {
+      "compile_binding": null,
+      "completion": null,
+      "design_memo": "e1の独立監査後、本番room serverを新実装へ切り替える。再起動直前にbellへDMで予告し、親番犬と各席のwakeup-bridgeがSSE切断後に自動再接続することを実測する。明示宛先の正例、broadcast拒否の負例、会話ログ保持を本番で確認し、rollback先となる直前imageまたはcommitを記録する。",
+      "disposition": "register_pending",
+      "lane": "deploy",
+      "migration_context": {
+        "carry_over_ref": null,
+        "condition": null,
+        "evidence_refs": [],
+        "external_canonical_ref": null,
+        "h_required": false,
+        "notes": []
+      },
+      "narrative_ref": "docs/plan.md",
+      "source": {
+        "checkbox_state": "absent",
+        "heading_path": [
+          "Peertable 計画正本",
+          "16. 明示宛先 campaign（explicit-recipients-20260809）— 計画正本（オーナー裁定 2026-08-09）",
+          "e2 本番roomへデプロイして再接続を受け入れる"
+        ],
+        "markdown_depth": 3,
+        "origin_line": 981,
+        "origin_plan_ref": "docs/plan.md",
+        "parent_task_id": null,
+        "source_commit": "742c9462eb97fe40e8e7fe1f50bfdea497325947"
+      },
+      "start": null,
+      "task_id": "e2",
+      "title": "e2 本番roomへデプロイして再接続を受け入れる"
+    }
+  ]
+}
