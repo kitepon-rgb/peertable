@@ -104,8 +104,8 @@ else
   skip "seat-status-bridge（起動記録なし）"
 fi
 
-# 配車ブリッジ（managed run に載せた卓だけ立っている）。同じ理由で `.team/` を消す前に止める。
-# 止め残すと、spool を見張り続ける常駐が次の run の order を拾って**卓が無いのに配車を投稿する**
+# run 可視化ブリッジ（Lattice の実行層を使う卓だけ立っている）。同じ理由で `.team/` を消す前に止める。
+# 止め残すと、卓が無いのに run の進行と介入を投稿し続ける常駐が残る
 if [ -f "$proj/.team/run-bridge.json" ]; then
   if node "$(dirname "$0")/run-bridge.mjs" "$proj" --stop; then
     did "run-bridge 停止"
@@ -116,73 +116,50 @@ else
   skip "run-bridge（起動記録なし）"
 fi
 
-# managed run の close は成果が既定branchへ着地した証拠ではない。bridgeを止めて配車が動かない
-# 状態にしてから、runtimeを消す前にorderが指す全runのlanding reportを読む。未着地・未pushは
-# 判断結果なので `lattice run landing` 自体はexit 0を返し、teardownも止めない。
-if yes_ "$work_order_adapter"; then
-  if [ -z "$work_order_spool_ref" ]; then
-    miss "run landing — setup-stateにwork_order_spool_refが無く、runを特定できない"
-  else
-    orders_dir="$proj/$work_order_spool_ref/orders"
-    if run_dirs=$(python3 - "$orders_dir" "$proj" <<'PY'
-import glob
-import json
-from pathlib import Path
-import sys
-
-runs = set()
-project = Path(sys.argv[2]).resolve()
-for order_path in glob.glob(str(Path(sys.argv[1]) / "*.json")):
-    with open(order_path, encoding="utf-8") as source:
-        worktree = json.load(source).get("worktree_path")
-    if not isinstance(worktree, str):
-        continue
-    parts = Path(worktree).parts
-    for index in range(len(parts) - 2):
-        if parts[index:index + 2] == (".lattice", "runs"):
-            run = Path(*parts[:index + 3]).resolve()
-            runs.add(run.relative_to(project).as_posix())
-            break
-print("\n".join(sorted(runs)))
-PY
-    ); then
-      if [ -z "$run_dirs" ]; then
-        skip "run landing（work orderなし）"
-      else
-        lattice_cli="${LATTICE_CLI:-$(command -v lattice 2>/dev/null || true)}"
-        if [ -z "$lattice_cli" ] || [ ! -x "$lattice_cli" ]; then
-          miss "run landing — LATTICE_CLIが実行可能fileを指さず、着地状態を読めない: ${lattice_cli:-未設定}"
-        else
-          while IFS= read -r run_ref; do
-            [ -n "$run_ref" ] || continue
-            if landing_report=$(cd "$proj" && "$lattice_cli" run landing --run "$run_ref" 2>&1); then
-              did "run landing ${landing_report}"
-            else
-              miss "run landing $run_ref — ${landing_report}"
-            fi
-          done <<EOF
-$run_dirs
-EOF
-        fi
-      fi
-    else
-      miss "run landing — work orderからrunを抽出できない"
-    fi
-  fi
+# run の close は成果が既定branchへ着地した証拠ではない。bridgeを止めてから、`run list`が挙げる
+# 全runの landing report を読む。**旧版は spool の work order から run を逆算していた**が、
+# 配車が無くなって order が出ないので、装置に直接聞く形へ変えた（改・裁定1）。
+# 未着地・未pushは判断結果なので `lattice run landing` 自体はexit 0を返し、teardownも止めない。
+lattice_cli="${LATTICE_CLI:-$(command -v lattice 2>/dev/null || true)}"
+if [ -z "$lattice_cli" ] || [ ! -x "$lattice_cli" ]; then
+  miss "run landing — LATTICE_CLIが実行可能fileを指さず、着地状態を読めない: ${lattice_cli:-未設定}"
+elif ! run_refs=$(cd "$proj" && "$lattice_cli" run list --json 2>&1 | python3 -c '
+import json, sys
+listed = json.load(sys.stdin)
+print("\n".join(sorted(
+    entry["run_ref"] for entry in listed.get("active_runs", [])
+    if isinstance(entry.get("run_ref"), str)
+)))
+'); then
+  miss "run landing — run listからrunを取得できない"
+elif [ -z "$run_refs" ]; then
+  skip "run landing（active runなし）"
 else
-  skip "run landing（managed run adapter登録なし）"
+  while IFS= read -r run_ref; do
+    [ -n "$run_ref" ] || continue
+    if landing_report=$(cd "$proj" && "$lattice_cli" run landing --run "$run_ref" 2>&1); then
+      did "run landing ${landing_report}"
+    else
+      miss "run landing $run_ref — ${landing_report}"
+    fi
+  done <<EOF
+$run_refs
+EOF
 fi
 
 # setupが新しく作ったhost固有runtimeだけを撤去する。既存runtimeは他adapterや進行中runの
 # 所有物を含み得るので触らない。runtimeを先に消してからexcludeを戻し、teardown後に
 # untracked stateが露出する順序逆転を防ぐ。
+# **配車を撤去した後の setup は `.lattice/runtime/` を作らない**ので、新しい卓ではここは常に
+# skip になる。判定を残してあるのは、**配車時代に立てた卓を畳む時**にだけ効くからである
+# （その卓の setup-state は `work_order_adapter: true` を持つ）。
 if yes_ "$work_order_adapter" && ! yes_ "$runtime_pre"; then
   rm -rf "$proj/.lattice/runtime"
-  did ".lattice/runtime/ 撤去（setup が新規作成したhost固有state）"
+  did ".lattice/runtime/ 撤去（配車時代の setup が新規作成したhost固有state）"
 elif yes_ "$work_order_adapter"; then
   skip ".lattice/runtime/（setup 以前から存在）"
 else
-  skip ".lattice/runtime/（work-order adapter登録なし）"
+  skip ".lattice/runtime/（setup は runtime state を作っていない）"
 fi
 
 # 外部ペイン（決定53）。`.team/` を消す前に戻す——退避先が `.team/` の中にある

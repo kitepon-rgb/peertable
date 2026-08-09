@@ -53,24 +53,15 @@ fi
 
 # Lattice 併用モードは、登録に使う公開CLIと同梱work-order binaryを、projectへ
 # 何か置く前に確定する。通常はglobal installされた lattice の隣を使う。
-# release前のsource treeを実測する時だけ、2つのenvで同じtreeのbinを明示できる。
+# release前のsource treeを実測する時だけ `LATTICE_CLI` で同じtreeのbinを明示できる。
+# **adapter binary はもう要らない**（配車を撤去したので登録しない）。CLI 自体は席が
+# `todo status` / `run intake` を叩ける前提の確認として、ここで存在だけ検査する。
 lattice_cli=""
-work_order_binary=""
-node_binary=""
 if [ "$mode" = "lattice" ]; then
   lattice_cli="${LATTICE_CLI:-$(command -v lattice 2>/dev/null || true)}"
   [ -n "$lattice_cli" ] || { echo "ERROR: lattice CLI が見つからない" >&2; exit 1; }
   [ -x "$lattice_cli" ] || { echo "ERROR: lattice CLI が実行可能fileでない: $lattice_cli" >&2; exit 1; }
   lattice_cli=$(node -e 'process.stdout.write(require("node:fs").realpathSync(process.argv[1]))' "$lattice_cli")
-
-  work_order_binary="${LATTICE_WORK_ORDER_ADAPTER_BINARY:-$(dirname "$lattice_cli")/lattice-work-order-adapter.mjs}"
-  [ -f "$work_order_binary" ] && [ -x "$work_order_binary" ] || {
-    echo "ERROR: Lattice work-order adapter binary が見つからないか実行不能: $work_order_binary" >&2
-    exit 1
-  }
-  work_order_binary=$(node -e 'process.stdout.write(require("node:fs").realpathSync(process.argv[1]))' "$work_order_binary")
-  node_binary=$(node -e 'process.stdout.write(require("node:fs").realpathSync(process.execPath))')
-  [ -x "$node_binary" ] || { echo "ERROR: Node executable が実行可能fileでない: $node_binary" >&2; exit 1; }
 
   # config_refはgit root相対の公開契約。subdirectoryをprojectとして受けると別の
   # `.lattice/` を作ってしまうので、黙って親repoへ登録せずtypedに止める。
@@ -138,54 +129,14 @@ if [ "$mode" = "lattice" ] && [ -d "$proj/.git" ] \
   added_runtime_exclude=true
 fi
 
-# managed run の仕事口をLattice runtime stateとして用意する。configを`.team/`
-# に置くとarchive teardownでregistryだけが残って壊れるため、registryと同じ
-# `.lattice/runtime/`の寿命へ揃える。席はこのspoolへ直接触れない。
+# **機械配車の口はもう作らない。** 2026-08-09 のオーナー裁定（改・裁定1）で、Lattice が席へ
+# 仕事を配る向きは撤回された。席は自分で `todo start` してから `run intake` するので、
+# work-order adapter の登録も spool（orders/reports）も要らない。**setup がここで adapter を
+# 必須化していると、adapter binary が無い環境で新しい卓が立たなくなる**（配車をしないのに）。
+# 既存 project に前の卓が作った registry が残っていても触らない——他 adapter や進行中 run の
+# 所有物を含みうるので、setup が消す対象ではない。
 work_order_adapter=false
 work_order_spool_ref=""
-if [ "$mode" = "lattice" ]; then
-  work_order_root="$proj/.lattice/runtime/work-order-adapter"
-  work_order_spool="$work_order_root/spool"
-  work_order_config="$work_order_root/config.json"
-  work_order_registration="$tdir/work-order-adapter-registration.json"
-  work_order_config_ref=".lattice/runtime/work-order-adapter/config.json"
-  work_order_spool_ref=".lattice/runtime/work-order-adapter/spool"
-
-  mkdir -p "$work_order_spool/orders" "$work_order_spool/reports"
-  chmod 700 "$work_order_root" "$work_order_spool" "$work_order_spool/orders" "$work_order_spool/reports"
-  work_order_spool=$(node -e 'process.stdout.write(require("node:fs").realpathSync(process.argv[1]))' "$work_order_spool")
-
-  node -e '
-    const { writeFileSync } = require("node:fs");
-    const [target, spool] = process.argv.slice(1);
-    writeFileSync(target, `${JSON.stringify({
-      schema: "lattice.work_order_adapter_config.v1",
-      spool_dir: spool,
-    })}\n`, { mode: 0o600 });
-  ' "$work_order_config" "$work_order_spool"
-  chmod 600 "$work_order_config"
-  node -e '
-    const { writeFileSync } = require("node:fs");
-    const [target, binary, script, configRef] = process.argv.slice(1);
-    writeFileSync(target, `${JSON.stringify({
-      schema: "lattice.runtime_adapter_registration_input.v2",
-      adapter_kind: "work-order",
-      launch_kind: "host_binary",
-      binary_path: binary,
-      argv: [script],
-      config_ref: configRef,
-      host_driven_epoch: true,
-    })}\n`, { mode: 0o600 });
-  ' "$work_order_registration" "$node_binary" "$work_order_binary" "$work_order_config_ref"
-  chmod 600 "$work_order_registration"
-
-  (
-    cd "$proj"
-    "$lattice_cli" run adapter register --input "$work_order_registration"
-  )
-  work_order_adapter=true
-  echo "work-order adapter: binary=$node_binary argv=$work_order_binary config=$work_order_config_ref spool=$work_order_spool_ref" >&2
-fi
 
 # Lattice 併用モードだけ、工程表の右ペインへ円卓を差す（決定53・明示的コネクタ）。
 # 公開URL基底は `PEERTABLE_PUBLIC_URL`（クオ環境: https://peertable.kitepon.dev）。
