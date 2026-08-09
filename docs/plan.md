@@ -892,12 +892,12 @@ Peertable と Lattice は分離を維持し、結合はコードでなく契約�
 
 単独円卓モード（決定47・決定50）は Lattice を使わない。したがって上の4面はすべて存在せず、代替は次のとおり:
 
-| 面 | Lattice 併用（既定） | 単独 |
-|----|----------------------|------|
-| 仕事の取り出し口 | 依存付き ready 一覧 | `.team/tasks.md`（読み取り専用の議題表。依存なし・frontier なし） |
-| 着手・完了の記録 | 順序付き start/done journal | room の宣言だけが正 |
-| 完了の束縛 | evidence descriptor の digest 検証 | commit と room の完了報告 |
-| 完走の判定 | 監査待ち（`audit_pending`）の機械可視化 | 全員の完了報告を親が確認して散会宣言 |
+| 面 | Lattice計画層／実行層 | 単独 |
+|----|------------------------|------|
+| 境界付きready／着手助言 | ready一覧＋witness／advisory／split | `.team/tasks.md`（依存・境界判定・frontierなし） |
+| claim後の実行設備／介入 | start journal。実行層ではpull run＋worktree／lease／hold | roomのclaimだけが正。実行設備・機械介入なし |
+| 結果／証跡／着地の束縛 | evidence検証。実行層ではaccept／close／landing | commit・room完了報告・git着地を人が照合 |
+| 監査状態／公開観測 | `audit_pending`＋dashboard／Gantt | 全員の完了報告とroomログを親が確認 |
 
 単独モードで失うのは task 間スケジューリングの機械保証と、claim 裁定・完了束縛の機械的根拠である。**失わないのは円卓そのもの**——room・憲章・宣言ベースの協力は最初から Lattice 非依存であり（決定47）、task 内共同作業は Peertable の固有資産である。よって単独モードは、依存構造が浅く短命な作業に限って正当化される。長い campaign・多段の受入・証跡が要る作業では Lattice 併用が既定である。
 
