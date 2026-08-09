@@ -32,6 +32,17 @@ if [ "$1" = "--evidence-from" ]; then
   # **黙って canonical の証跡へ落ちない。** 落ちると「worktree の成果を done した」と見えるのに
   # 実際は別の file を hash することになり、受理された内容と成果物が食い違う
   [ -f "$evidence_from" ] || { echo "ERROR: --evidence-from の証跡が存在しない: $evidence_from" >&2; exit 1; }
+  # **object DB を共有していない木の file は hash-object できても意味が無い。** 別 repo の
+  # 証跡を渡された時に「書けたから成立した」と読まないよう、common git dir の一致を要求する
+  # （kanade の設計指摘・room [1018]）。linked worktree なら両者は同じ絶対 path を指す。
+  here_common=$(git rev-parse --path-format=absolute --git-common-dir)
+  from_common=$(git -C "$(dirname "$evidence_from")" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)
+  [ -n "$from_common" ] && [ "$here_common" = "$from_common" ] || {
+    echo "ERROR: --evidence-from が同じrepoのworktreeでない（object DBを共有していない）" >&2
+    echo "  canonical: ${here_common}" >&2
+    echo "  evidence : ${from_common:-（git worktree ではない）}" >&2
+    exit 1
+  }
 fi
 
 # descriptor の path は repo 内の相対（repo 外の絶対 path は --evidence が INVALID_ARGUMENTS で弾く）。
@@ -42,6 +53,10 @@ src="${evidence_from:-$f}"
 oid=$(git hash-object -w "$src")
 digest=$(shasum -a 256 "$src" | cut -d' ' -f1)
 tmp=".ev-$t.json"
+# **失敗しても記述子を残さない。** `set -e` の下で `todo done` が落ちると、後段の `rm` へ
+# 到達せず repo に `.ev-<task>.json` が残る（自分の負側 test で実測。TASK_NOT_FOUND の後に
+# untracked file が残った）。次に `git status` を撮った人が、それを誰かの作業中変更と読む。
+trap 'rm -f "$tmp"' EXIT
 printf '{"evidence_id":"ev-%s","repo_id":"self","path":"%s","git_blob_oid":"%s","content_digest":"%s","media_type":"text/markdown","anchor_digest":null}\n' "$t" "$f" "$oid" "$digest" > "$tmp"
 lattice todo done --plan "$PEERTABLE_PLAN" --task "$t" --evidence "$tmp"
 rm -f "$tmp"

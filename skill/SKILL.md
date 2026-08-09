@@ -81,7 +81,11 @@ description: 任意プロジェクトに Peertable チーム（対等メンバ�
 
 **装置は仕事を配らない。** 2026-08-09 のオーナー裁定（改・裁定1）で、Lattice が task を選んで席へ配る向きは撤回された——**作業を選ぶのも始めるのも席（AI）**であり、装置がやるのは**着手済み ToDo 同士の競合判定と介入だけ**である。着手前に装置の許可を待つ面も作らない。旧版にあった `[配車]` / `[受諾]` / `[辞退]` の3層は無くなり、**claim は従来どおり割当の主体に戻った**（決定25 のとおり）。
 
+- **pull run は卓が作る設備であって、装置が用意するものでも setup が作るものでもない。** `run list --json` で同 plan の active な pull run（`selection: "pull"`）を確認し、**0件なら room で生成担当を1席決めてから** `run start --selection pull --id <plan>-<一意suffix> --plan <key> --equipment detached-worktree` で作り、`run_ref` を room へ共有する。**1件ならそれを共有**（席ごとに作らない）、**複数件は止めて卓で決める**
+  - **id に plan key だけの固定値を使わない。** `close` しても run directory は残り `run list` は closed を返さないので、**「無いのに `RUN_EXISTS` で作れない」**袋小路に入る（2026-08-09 実測）
+  - `RUN_EXISTS` が返ったら**相手の run を推定せず**、再 list → active があれば共有、無ければ別の一意 id で作り直す
 - **席は自分で `todo start` してから `run intake` する。** intake が返すのは隔離 worktree と `intervention`（`none` か `hold`）で、**許可証ではない**。`hold` は「他の着手済み task と競合しているから留まれ」という装置の指示である
+- **`todo done` は canonical の cwd/store へ打ち、証跡は worktree から渡す。** `done.sh <task> --evidence-from <worktree>/evidence/<plan>/<task>.md`。cwd 1つで兼ねると必ずどちらかが外れる（canonical では証跡が読めず、worktree では accept が見ない store を書く）。**canonical へ証跡を複製して通すのは偽装**——linked worktree は object DB を共有するので複製は要らない
 - **worktree と lease は設備の供給である。** 席が要求すれば出てくるもので、出してもらうものではない
 - **席と spool は接触しない。** 席が触るのは room と worktree だけで、`.lattice/` の直読み・直書き禁止の契約はそのまま
 - **席の作法の正本は `templates/member.md` の「Lattice の実行層へ自分の着手を載せる」節**（intake→intervention 判定→attach→作業→`todo done`→accept の順・1席1 intake・禁止操作・検証の回し方・成果の正本）。ここに二重化しない
