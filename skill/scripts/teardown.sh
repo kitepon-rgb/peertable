@@ -124,18 +124,40 @@ fi
 # `.lattice/runs` を直に走査して補わない——consumer contract 違反で、旧 orders の保持は配車の復活になる。
 # 全 closed の再列挙が要るなら Lattice 側の公開面を足す別課題であって、ここで迂回実装しない。
 # 未着地・未pushは判断結果なので `lattice run landing` 自体はexit 0を返し、teardownも止めない。
+# **CLI の出力と exit code を先に単独で取る。** `cmd | python3` にすると pipeline の rc は
+# python のものになり、**CLI が rc≠0 で typed error JSON を返しても parser が `active_runs` 欠落を
+# 空配列として飲んで「active run なし」に化ける**（suzune の監査で実測・room [948]）。
+# 沈黙する偽 green は、着地の見落としをそのまま「確認済み」に見せる——いちばん避けたい壊れ方である。
 lattice_cli="${LATTICE_CLI:-$(command -v lattice 2>/dev/null || true)}"
+run_list_json=""
+run_list_rc=0
+if [ -n "$lattice_cli" ] && [ -x "$lattice_cli" ]; then
+  run_list_json=$(cd "$proj" && "$lattice_cli" run list --json 2>&1) || run_list_rc=$?
+fi
 if [ -z "$lattice_cli" ] || [ ! -x "$lattice_cli" ]; then
   miss "run landing — LATTICE_CLIが実行可能fileを指さず、着地状態を読めない: ${lattice_cli:-未設定}"
-elif ! run_refs=$(cd "$proj" && "$lattice_cli" run list --json 2>&1 | python3 -c '
+elif [ "$run_list_rc" != "0" ]; then
+  miss "run landing — run list が rc=${run_list_rc} で失敗: $(printf '%s' "$run_list_json" | head -c 200)"
+elif ! run_refs=$(printf '%s' "$run_list_json" | python3 -c '
 import json, sys
-listed = json.load(sys.stdin)
+
+# schema と active_runs を要求する。**typed error JSON や別 schema を黙って空扱いにしない**
+raw = sys.stdin.read()
+try:
+    listed = json.loads(raw)
+except json.JSONDecodeError as error:
+    sys.exit(f"run list がJSONでない: {error}")
+if not isinstance(listed, dict) or listed.get("schema") != "lattice.run_list.v1":
+    sys.exit(f"run list の schema が違う: {listed.get(\"schema\") if isinstance(listed, dict) else type(listed).__name__}")
+active = listed.get("active_runs")
+if not isinstance(active, list):
+    sys.exit("run list に active_runs 配列が無い")
 print("\n".join(sorted(
-    entry["run_ref"] for entry in listed.get("active_runs", [])
-    if isinstance(entry.get("run_ref"), str)
+    entry["run_ref"] for entry in active
+    if isinstance(entry, dict) and isinstance(entry.get("run_ref"), str)
 )))
-'); then
-  miss "run landing — run listからrunを取得できない"
+' 2>&1); then
+  miss "run landing — run listを解釈できない: $(printf '%s' "$run_refs" | head -c 200)"
 elif [ -z "$run_refs" ]; then
   skip "run landing（active runなし）"
 else

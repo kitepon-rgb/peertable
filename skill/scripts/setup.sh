@@ -51,11 +51,10 @@ else
   mode=lattice
 fi
 
-# Lattice 併用モードは、登録に使う公開CLIと同梱work-order binaryを、projectへ
-# 何か置く前に確定する。通常はglobal installされた lattice の隣を使う。
-# release前のsource treeを実測する時だけ `LATTICE_CLI` で同じtreeのbinを明示できる。
-# **adapter binary はもう要らない**（配車を撤去したので登録しない）。CLI 自体は席が
-# `todo status` / `run intake` を叩ける前提の確認として、ここで存在だけ検査する。
+# Lattice 併用モードは、公開CLIをprojectへ何か置く前に確定する。通常はglobal installされた
+# lattice を使い、release前のsource treeを実測する時だけ `LATTICE_CLI` で同じtreeのbinを明示する。
+# **work-order adapter binary はもう要らない**（配車を撤去したので登録しない）。ここで見るのは
+# CLI の存在だけで、席が `todo status` / `run intake` を叩ける前提の確認である。
 lattice_cli=""
 if [ "$mode" = "lattice" ]; then
   lattice_cli="${LATTICE_CLI:-$(command -v lattice 2>/dev/null || true)}"
