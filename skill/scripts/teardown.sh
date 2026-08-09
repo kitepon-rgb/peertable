@@ -26,6 +26,9 @@ room=$(python3 -c "import json;print(json.load(open('$state'))['room'])")
 url=$(python3 -c "import json;print(json.load(open('$state'))['server_url'])")
 added=$(python3 -c "import json;print(json.load(open('$state'))['added_exclude'])")
 lat_pre=$(python3 -c "import json;print(json.load(open('$state'))['lattice_preexisting'])")
+runtime_pre=$(python3 -c "import json;d=json.load(open('$state'));print(d.get('runtime_preexisting', True))")
+added_runtime_ex=$(python3 -c "import json;d=json.load(open('$state'));print(d.get('added_runtime_exclude', False))")
+work_order_adapter=$(python3 -c "import json;d=json.load(open('$state'));print(d.get('work_order_adapter', False))")
 # 旧 state（added_root_mcp 不在・手動フォールバック時代の root_mcp_json_fallback）も読む
 added_mcp=$(python3 -c "import json;d=json.load(open('$state'));print(d.get('added_root_mcp', d.get('root_mcp_json_fallback', False)))")
 added_mcp_ex=$(python3 -c "import json;d=json.load(open('$state'));print(d.get('added_mcp_exclude', d.get('root_mcp_json_fallback', False)))")
@@ -112,6 +115,18 @@ else
   skip "run-bridge（起動記録なし）"
 fi
 
+# setupが新しく作ったhost固有runtimeだけを撤去する。既存runtimeは他adapterや進行中runの
+# 所有物を含み得るので触らない。runtimeを先に消してからexcludeを戻し、teardown後に
+# untracked stateが露出する順序逆転を防ぐ。
+if yes_ "$work_order_adapter" && ! yes_ "$runtime_pre"; then
+  rm -rf "$proj/.lattice/runtime"
+  did ".lattice/runtime/ 撤去（setup が新規作成したhost固有state）"
+elif yes_ "$work_order_adapter"; then
+  skip ".lattice/runtime/（setup 以前から存在）"
+else
+  skip ".lattice/runtime/（work-order adapter登録なし）"
+fi
+
 # 外部ペイン（決定53）。`.team/` を消す前に戻す——退避先が `.team/` の中にある
 ext=$(python3 -c "import json;print(json.load(open('$state')).get('external_pane', False))")
 pj_pre=$(python3 -c "import json;print(json.load(open('$state')).get('project_json_preexisting', False))")
@@ -189,6 +204,14 @@ if yes_ "$added_mcp_ex"; then
   did "exclude から /.mcp.json を撤去"
 else
   skip "exclude の /.mcp.json（setup が足していない）"
+fi
+
+if yes_ "$added_runtime_ex"; then
+  grep -vx '/\.lattice/runtime/' "$proj/.git/info/exclude" > "$proj/.git/info/exclude.tmp" || true
+  mv "$proj/.git/info/exclude.tmp" "$proj/.git/info/exclude"
+  did "exclude から /.lattice/runtime/ を撤去"
+else
+  skip "exclude の /.lattice/runtime/（setup が足していない）"
 fi
 
 if yes_ "$added"; then

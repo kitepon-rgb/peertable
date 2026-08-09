@@ -122,6 +122,18 @@ fi
 
 lattice_preexisting=false
 [ -d "$proj/.lattice" ] && lattice_preexisting=true
+runtime_preexisting=false
+[ -d "$proj/.lattice/runtime" ] && runtime_preexisting=true
+
+# adapter registry/config/spool はhost固有のruntime stateであり、sourceとして追跡しない。
+# `.lattice/`の一部を正本として追跡するprojectでもruntimeだけをroot相対で除外する。
+added_runtime_exclude=false
+if [ "$mode" = "lattice" ] && [ -d "$proj/.git" ] \
+  && ! grep -qx '/\.lattice/runtime/' "$proj/.git/info/exclude" 2>/dev/null; then
+  mkdir -p "$proj/.git/info"
+  echo '/.lattice/runtime/' >> "$proj/.git/info/exclude"
+  added_runtime_exclude=true
+fi
 
 # managed run の仕事口をLattice runtime stateとして用意する。configを`.team/`
 # に置くとarchive teardownでregistryだけが残って壊れるため、registryと同じ
@@ -191,6 +203,6 @@ if [ ${#phases[@]} -gt 0 ]; then
   phases_json="[${phases_json%,}]"
 fi
 
-printf '{"room":"%s","server_url":"%s","public_url":"%s","mode":"%s","plan_key":"%s","phases":%s,"added_exclude":%s,"lattice_preexisting":%s,"added_root_mcp":%s,"added_mcp_exclude":%s,"external_pane":%s,"project_json_preexisting":%s,"work_order_adapter":%s,"work_order_spool_ref":"%s"}\n' \
-  "$room" "$url" "$public_url" "$mode" "$plan" "$phases_json" "$added_exclude" "$lattice_preexisting" "$added_root_mcp" "$added_mcp_exclude" "$external_pane" "$project_json_preexisting" "$work_order_adapter" "$work_order_spool_ref" > "$tdir/setup-state.json"
+printf '{"room":"%s","server_url":"%s","public_url":"%s","mode":"%s","plan_key":"%s","phases":%s,"added_exclude":%s,"lattice_preexisting":%s,"runtime_preexisting":%s,"added_runtime_exclude":%s,"added_root_mcp":%s,"added_mcp_exclude":%s,"external_pane":%s,"project_json_preexisting":%s,"work_order_adapter":%s,"work_order_spool_ref":"%s"}\n' \
+  "$room" "$url" "$public_url" "$mode" "$plan" "$phases_json" "$added_exclude" "$lattice_preexisting" "$runtime_preexisting" "$added_runtime_exclude" "$added_root_mcp" "$added_mcp_exclude" "$external_pane" "$project_json_preexisting" "$work_order_adapter" "$work_order_spool_ref" > "$tdir/setup-state.json"
 echo "scaffold done: $tdir"
