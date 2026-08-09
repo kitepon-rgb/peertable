@@ -9,7 +9,7 @@
 1. `lattice todo status --json` で ready なタスクを見る。{{CLAIM_SCOPE}}
 2. 憲章の手順で room に claim を宣言する。**`[claim]` は独立した1発言で出す**——完了報告や他タスクの話と同じ発言に畳まない。宣言としては有効でも、後から機械的に追えなくなり、監査が「宣言が無い」と誤読する（2026-08-08 実測）
 3. `lattice todo start --plan {{PLAN_KEY}} --task <id>` で着手を記録する。**誰も着手しておらず ready が2件以上ある frontier の先頭を取る時だけ `--parallel-frontier` が必須**（無いと `PARALLEL_DISPATCH_REQUIRED / parallel_frontier_requires_declaration` で弾かれる）。ready が1件だけ、または既に誰かが着手している frontier へ後から乗る時は素の start でよい
-4. 実装する。インターフェースなど他タスクに影響する決定は、決めた時点で room 全員宛に一行で共有する
+4. 実装する。インターフェースなど他タスクに影響する決定は、決めた時点で room 全員宛に一行で共有する。**正しさの確認は実測だけが与える（決定66）**——着手していない工程の設計・契約・手順を思想で検証しない。次工程の起草は「着手できる最小限」で止め、実測で答えられる問いを議論で答えない。監査も対象に触れるもの（diff・実行・突合）だけが監査で、触れない予想は監査ではない
 5. 完了手順:
    - 証跡ファイル `evidence/{{PLAN_KEY}}/<task_id>.md` に「何を作り、どう確認したか」を書く（ディレクトリが無ければ作る。task_id は campaign を跨いで再利用されるので、平置きにすると前の campaign の証跡を上書きで消す）
    - 変更ファイルと証跡を `git add` して commit する（メッセージは日本語一行。対象ファイルを明示して他人の作業中変更を巻き込まない）
@@ -28,6 +28,26 @@
 lattice run intake --run .lattice/runs/<run-id> --task <id>
   → {worktree_path, base_sha, intervention: {state: none|hold, reason}}
 ```
+
+**その run は誰が作るのか。** 装置が用意してくれるものではないし、setup も作らない——
+**卓が自分で作る設備**である。手順:
+
+0. `lattice run list --json` で **同じ plan の active な pull run**（`selection: "pull"`）を確認する
+   - **1件** → **それを共有する。** 席ごとに run を作らない
+   - **0件** → **room で生成担当を1席決めてから**作る（競争を起こさないのが安いので、先に決める）
+     ```
+     lattice run start --selection pull --id <plan>-<一意suffix> --plan <plan_key> --equipment detached-worktree
+     ```
+     **id に plan key だけの固定値を使わない。** `close` しても run directory は残り、
+     `run list` は closed を返さないので、**「無いのに `RUN_EXISTS` で作れない」**という
+     袋小路に入る（2026-08-09 実測）。時刻や通番の一意 suffix を付ける
+   - **`RUN_EXISTS` が返ったら** → **相手の run を推定しない。** 再度 `run list` して、
+     active があればそれを使い、無ければ**別の一意 id で明示的に作り直す**
+   - **複数件** → **止めて room で決める。** どれが正かは機械には決められない
+1. 作った席は **`run_ref` を room へ一行で共有する**（他の席はそれへ intake する）
+
+**これは設備の生成であって配車ではない。** run は intake の入れ物で、**中身（誰が何をやるか）は
+空のまま**である。作った席が他の席の仕事を決めたことにはならない。
 
 1. **`todo start` を先に済ませてから intake する。** 装置は Todo 正本の start event へ束縛するので、start していない task は intake できない。**逆順にしない。**
 2. **`intervention.state` を読む。** `none` なら worktree を使ってそのまま進める。`hold` なら**留まる**——他の着手済み task と競合しているという装置の判定である。理由（`reason`）を読み、room で調整するか、seam を切って解消する。**hold を無視して進めない。** 解消したかは `lattice run intake intervention --run <ref> --task <id>` で自分で読み直せる（bridge の `[介入]` 投稿を待たなくてよい。bridge は可視化であって通知の唯一経路ではない）
@@ -52,8 +72,15 @@ lattice run intake --run .lattice/runs/<run-id> --task <id>
    - それでも回らない検証は、無理に回さず room で言う。**動かないからといって canonical tree で回さない**——それは測りたい木ではない
 9. **終わったら `todo done` を打ってから accept する。**
    ```
+   # canonical repo の cwd から打つ。証跡は worktree にしか無いので絶対 path で渡す
+   cd <canonical repo>
+   PEERTABLE_PLAN={{PLAN_KEY}} .team/scripts/done.sh <id> --evidence-from <worktree>/evidence/{{PLAN_KEY}}/<id>.md
    lattice run intake accept --run <ref> --task <id>
    ```
+   **`--evidence-from` を省いてはいけない。** 省くと canonical 側の証跡（無いか、別物）を hash する。
+   **canonical へ証跡を書き写して通すのも禁止**——「worktree の中だけを触る」契約を破りながら
+   green にする偽装になる。linked worktree は canonical と object DB を共有するので、
+   **worktree に commit した証跡は canonical から読める**（複製は要らない）。
    装置が worktree の base→HEAD を独立に観測して受理する。**intake した席だけが attach / accept できる**（装置が actor で束縛している）ので、他の席に代わりに打ってもらうことはできない。
 
 **成果の正本はあなたの commit ではなく、Lattice が撮った observed diff である。** 受理されるのはその観測であって、commit そのものではない。
