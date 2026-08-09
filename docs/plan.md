@@ -202,21 +202,18 @@ Peertable が Lattice のどの面をどう消費するか（consumer contract �
 
 副産物: 親の督促の検出源が room になる（報告の途絶・同一話題の繰り返しがログから機械的に見える）。クオのブラウザには議論だけでなくチームの鼓動が映る。
 
-### 4.8 仕事の受け渡しと共同作業（決定62で managed run を改訂）
+### 4.8 仕事の選択と共同作業（決定64で実行層統合を再改訂）
 
 **Lattice は着手者を記録しない（クオの設計判断）。** assignee を永続化すると、保持セッションの死亡時に解放者が存在せず、タスクが永久ロックされる（ロック保持者の死をロック側が検知できない古典問題）。lease（期限付きロック）で解くのは Lattice への明白な汚染。
 
-managed run に載せた卓では、仕事の受け渡しを次の3層に分ける。
+実行層を使う卓でも、仕事を選び割当を成立させる主体は従来どおりメンバーである。
 
-- **task 選択=Lattice**。run の dispatch が今実行する work order を決める
-- **候補席の選択=bridge**。room の `[配車] tN → 席` は dispatch 結果と提示先を全員へ見せるが、まだ割当ではない
-- **辞退権=席**。提示された席の `[受諾] tN` で初めて席と work order の束縛が成立する。`[辞退] tN 理由` なら bridge が別席へ再配車する
+- **task 選択と割当=AI の claim**。席が ready 一覧から自分で仕事を選び、room へ `[claim]` を出してから `todo start` する。Lattice や bridge は task や席を選ばない
+- **実行設備の利用=席の pull**。開始済み task を席自身が `run intake` し、隔離 worktree と lease を設備として受け取る。intake の返り値は着手許可ではなく、既に始まった作業への `intervention:none|hold` の観測である
+- **競合制御=Lattice**。着手済み task 同士の競合を判定し、必要な時だけ hold・直列化・seam resolve を指示する。未 claim task の自動選択、別席の起動、作業指示の注入はしない
+- **可視化=bridge**。pull sidecar の run 進行と介入を room へ read-only 中継するだけで、配車・受諾・辞退・完了 report の書き込みは持たない。bridge が落ちても席は直接 intake・observe・attach・accept できる
 
-この経路では会話 claim を割当として重ねない。Lattice の run event/receipt が task の選択と実行結果を、room の
-配車・受諾・辞退が席の意思をそれぞれ一度だけ持つ。`[配車]` を割当と読むと辞退権が消え、`[claim]` も重ねると
-同じ割当を会話と装置の二重帳簿で持つことになる。
-
-managed run に載せない Lattice 併用卓と単独円卓では、従来どおり排他は物理ロックではなく**宣言ベース**:
+この宣言契約は Peertable 単独、Lattice 計画層併用、Lattice 実行層併用の全モードで共通である。排他は物理ロックではなく**宣言ベース**:
 
 - claim = room への宣言（「[claim] タスクX」）。Lattice の atomic ロックは使わない
 - 競合 = 宣言の重複。room ログは append-only で順序が付くため、先の宣言が勝ち、後の者は引く（規約）。検出手順も規約化する: claim 投稿後に直前ログを確認し、先行 claim があれば取り下げるか join へ切り替える（宣言と検出が対になって初めて先勝ちが実行可能になる）
@@ -275,8 +272,8 @@ managed run に載せない Lattice 併用卓と単独円卓では、従来ど�
 ## 5. 動作フロー（想定）
 
 1. クオが計画の初期タスク群を Lattice に投入し、メンバー N + 親 1 のセッションを起動
-2. managed run では Lattice が task を dispatch し、bridge が room へ `[配車]` を出して候補席へ work order を送る。席は `[受諾]` または `[辞退]` を返す。managed run でない卓では、各メンバーが取得可能なタスクを見て claim を宣言し、合流するなら join を宣言
-3. 進捗（managed run の受諾/辞退、その他の卓の claim/join、共通の完了・詰まり・方針変更）は room に一行で報告
+2. 各メンバーが取得可能なタスクを見て claim を宣言し、合流するなら join を宣言してから着手する。Lattice 実行層を使う卓では、着手済み task を席自身が pull intake し、隔離 worktree・lease と競合介入を受け取る
+3. 進捗（全モード共通の claim/join・完了・詰まり・方針変更）は room に一行で報告する。実行層の run 進行・介入は bridge が read-only に可視化する
 4. 個別の質問・確認・ペア作業の会話は room の個別宛（DM）。部位を跨ぐ合意は room 全員宛に持ち帰る
 5. 自分の変更が他部位に影響するときは room 全員宛で通知（関係の有無は受け手が判断）
 6. タスク完了で Lattice を更新。新タスクが生えたらメンバーが追加
@@ -550,13 +547,30 @@ managed run に載せない Lattice 併用卓と単独円卓では、従来ど�
 
   1. **Peertable単独**（決定47・standalone mode）——room・憲章・宣言claimだけで動く。Latticeへの参照ゼロ
   2. **Peertable＋Lattice計画層**——従来のclaimループ（`todo status`→`[claim]`→`start/done`）
-  3. **Peertable＋Lattice実行層**——配車（task選択=Lattice／席選択=bridge／受諾=席）。opt-inであり、
-     `mode=lattice`かつadapter登録がある卓だけで起きる
+  3. **Peertable＋Lattice実行層**——従来の claim/start の後、席自身が task を pull intake して
+     隔離 worktree・lease・競合介入を利用する。opt-inであり、`mode=lattice`かつadapter登録がある卓だけで起きる
 
   この要件が具体に禁じること: 正典・member.md の改訂（決定25改訂を含む）で単独モードのclaim協定を
-  削らない／setup・teardown・done.sh がLattice不在で落ちる形にしない／run-bridge・spoolを
+  削らない／setup・teardown・done.sh がLattice不在で落ちる形にしない／pull intake・run-bridgeを
   必須経路にしない。逆にLattice側は、Peertableを指す語をコードへ入れない（roundtable-exec計画正本の
   非目標と同じ線）。**統合は両製品の交差点に置く。どちらの幹にも埋めない。**
+
+- **決定64（2026-08-09・オーナー裁定）: 旧裁定1の機械dispatchを撤回し、claimを割当の主体へ戻す**
+
+  円卓×Lattice実行層統合の旧裁定1は「Lattice が task を dispatch し、bridge が候補席を選び、席の
+  `[受諾]` で割当が成立する」とした（下記の旧決定62）。この向きは撤回する。作業を選ぶのは判断であり、
+  Lattice の所有境界ではない。さらに装置からの指示は、メンバーの合議と自律的な選択という円卓の本体を
+  消してしまう。実装は提示された旧契約どおりであり、撤回理由は実装品質ではなく計画の向きにある。
+
+  「席が作業を持ち込み、Lattice が通行を許可する関所」への言い換えも採らない。着手は許可制ではなく、
+  **AI が claim して始める**。Lattice が供給する隔離 worktree と lease は許可証ではなく設備であり、
+  Lattice が行うのは着手済み task 同士の競合判定と、競合時の hold・直列化・seam resolve、実書き込み観測だけである。
+
+  確定した pull 契約は次のとおり: ①席が ready から task を選び `[claim]`→`todo start` する
+  ②席自身が開始済み task を `run intake` し、設備と介入状態を受け取る ③席が自分の process identity を attach し、
+  `todo done`→`run intake accept` で閉じる ④bridge は run 進行・介入の read-only 中継に限る。
+  未 claim task の自動選択、別席選定、新 worker 起動、作業指示注入、`[受諾]`／`[辞退]` による再配車は行わない。
+  これにより原決定25の宣言 claim が全モードで割当の主体として維持され、決定63の相互独立とも整合する。
 
 ---
 
@@ -746,7 +760,7 @@ Peertable と Lattice は分離を維持し、結合はコードでなく契約�
 
 - 入口: `lattice todo start --plan <key> --task <id> --parallel-frontier` / `lattice todo done`。actor は `LATTICE_TODO_ACTOR_HOST` / `_SESSION` / `_AGENT` で明示し、欠落時は書き込まれない（setup がメンバー起動 env へ入れる）
 - 消費する事実: journal event の `sequence`・`actor{agent,host,session}`・`previous_digest` による連鎖・`recorded_at`
-- Peertable 側の用途: managed run では start/done event を**席の割当記録として読まない**。task は run が選び、bridge が席を提示し、席の `[受諾]` が束縛を成立させる（§4.8・決定62）。event の actor は操作主体であって assignee ではない。managed run でない Lattice 併用卓だけは、room の claim が交差した時に start の順序を従来どおり裁定材料に使う
+- Peertable 側の用途: 全モードで room の先行 claim が割当を成立させる（§4.8・決定64）。Lattice 併用卓では claim 後の `todo start` が actor と順序を機械の事実として残し、claim が交差した時は start 記録を裁定材料に使う。実行層を使う場合も、run intake は同じ start actor bindingへ設備と介入を結び付けるだけで、task や席を選ばない。event の actor は操作主体の記録であり、Lattice に assignee 欄を新設するものではない
 - 契約として Lattice に要求するもの: ①append-only と順序が読めること ②task に assignee を持たないこと（持たれた瞬間、保持セッション死亡時の永久ロック問題が Lattice 側に生まれ、かつ円卓の宣言と競合する）
 
 ### 12.3 面3: 証跡束縛 — 完了が何に紐づくか
@@ -837,7 +851,7 @@ push は Lattice repo は既定どおり、peertable repo は**オーナー明�
     - **`--purge`**: 従来どおり全部消す。**ゲスト project を汚さない不可侵原則は、こちらが担う**——既定を反転しても原則は失われていない
     - **席の終了を teardown が持つ**（従来は AI が事前に `pty_close` して回る前提で、**やらなかったことが画面に出ない**まま5席が残った実測がある）。畳むのは **その room の member 一覧にある `peer-<名前>` だけ**で、`peer-*` を全部畳むと同じマシンの別の卓を巻き込む（bridge が members 起点なのと同じ理由）。他卓の席が残っていれば注記を出す
     - ログの Markdown は**投稿時のまま**置く（引用ブロックで包むと表とコードが崩れる）。**本文の無い発言も欠落と分かる形で残す**——消すと「そこに発言があった」ことまで消える
-62. **managed run の割当は claim でなく受諾表明で成立する（円卓×Lattice実行層統合 campaign・オーナー裁定 2026-08-09。決定25をこの経路だけ改訂）**。旧決定25は「Lattice は assignee を持たず、room の先行 claim が割当になる」とした。これは席が自分で task を取る卓では今も正しいが、managed run では Lattice が task を dispatch し、bridge が席を選ぶため、claim を重ねると割当の正本が二つになる。改訂後は **task 選択=Lattice / 候補席の選択=bridge / 辞退権=席**の3層。`[配車] tN → 席` は dispatch 結果と提示先の可視化であって割当ではなく、席の `[受諾] tN` で初めて束縛が成立する。`[辞退] tN 理由` は失敗でなく再配車の入力である。run event/receipt は task と実行結果、room の受諾・辞退は席の意思を持ち、互いを二重化しない。managed run に載せない Lattice 併用卓と単独円卓の claim/join は変更しない。
+62. **旧決定・撤回済み: managed run の割当は claim でなく受諾表明で成立する（円卓×Lattice実行層統合 campaign・旧裁定1、2026-08-09）**。この決定は、Lattice が task を dispatch し、bridge が候補席を選び、席の `[受諾]` で割当が成立する push 配車モデルを正本化した。旧モデルでは `[配車]` を提示、`[辞退]` を再配車入力とし、決定25の claim 協定を managed run だけ外していた。**オーナー裁定により向き全体を撤回し、決定64が上書きした。** 旧モデルで得た隔離 worktree・lease・diff観測・landing等の設備は残るが、task選択・席選択・受諾/辞退の配車契約は現行仕様ではない。
 
 ## 14. 申し送り対応 campaign（roundtable-carryover-20260809）— 計画正本
 
