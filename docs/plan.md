@@ -202,11 +202,21 @@ Peertable が Lattice のどの面をどう消費するか（consumer contract �
 
 副産物: 親の督促の検出源が room になる（報告の途絶・同一話題の繰り返しがログから機械的に見える）。クオのブラウザには議論だけでなくチームの鼓動が映る。
 
-### 4.8 claim の宣言ベース化と共同作業
+### 4.8 仕事の受け渡しと共同作業（決定62で managed run を改訂）
 
 **Lattice は着手者を記録しない（クオの設計判断）。** assignee を永続化すると、保持セッションの死亡時に解放者が存在せず、タスクが永久ロックされる（ロック保持者の死をロック側が検知できない古典問題）。lease（期限付きロック）で解くのは Lattice への明白な汚染。
 
-したがって排他は物理ロックではなく**宣言ベース**:
+managed run に載せた卓では、仕事の受け渡しを次の3層に分ける。
+
+- **task 選択=Lattice**。run の dispatch が今実行する work order を決める
+- **候補席の選択=bridge**。room の `[配車] tN → 席` は dispatch 結果と提示先を全員へ見せるが、まだ割当ではない
+- **辞退権=席**。提示された席の `[受諾] tN` で初めて席と work order の束縛が成立する。`[辞退] tN 理由` なら bridge が別席へ再配車する
+
+この経路では会話 claim を割当として重ねない。Lattice の run event/receipt が task の選択と実行結果を、room の
+配車・受諾・辞退が席の意思をそれぞれ一度だけ持つ。`[配車]` を割当と読むと辞退権が消え、`[claim]` も重ねると
+同じ割当を会話と装置の二重帳簿で持つことになる。
+
+managed run に載せない Lattice 併用卓と単独円卓では、従来どおり排他は物理ロックではなく**宣言ベース**:
 
 - claim = room への宣言（「[claim] タスクX」）。Lattice の atomic ロックは使わない
 - 競合 = 宣言の重複。room ログは append-only で順序が付くため、先の宣言が勝ち、後の者は引く（規約）。検出手順も規約化する: claim 投稿後に直前ログを確認し、先行 claim があれば取り下げるか join へ切り替える（宣言と検出が対になって初めて先勝ちが実行可能になる）
@@ -265,8 +275,8 @@ Peertable が Lattice のどの面をどう消費するか（consumer contract �
 ## 5. 動作フロー（想定）
 
 1. クオが計画の初期タスク群を Lattice に投入し、メンバー N + 親 1 のセッションを起動
-2. 各メンバーは Lattice から取得可能なタスクを見て、room で claim を宣言し作業開始。合流するなら join を宣言
-3. 進捗（claim/join・完了・詰まり・方針変更）は room に一行で報告
+2. managed run では Lattice が task を dispatch し、bridge が room へ `[配車]` を出して候補席へ work order を送る。席は `[受諾]` または `[辞退]` を返す。managed run でない卓では、各メンバーが取得可能なタスクを見て claim を宣言し、合流するなら join を宣言
+3. 進捗（managed run の受諾/辞退、その他の卓の claim/join、共通の完了・詰まり・方針変更）は room に一行で報告
 4. 個別の質問・確認・ペア作業の会話は room の個別宛（DM）。部位を跨ぐ合意は room 全員宛に持ち帰る
 5. 自分の変更が他部位に影響するときは room 全員宛で通知（関係の有無は受け手が判断）
 6. タスク完了で Lattice を更新。新タスクが生えたらメンバーが追加
@@ -695,7 +705,7 @@ Peertable と Lattice は分離を維持し、結合はコードでなく契約�
 
 - 入口: `lattice todo start --plan <key> --task <id> --parallel-frontier` / `lattice todo done`。actor は `LATTICE_TODO_ACTOR_HOST` / `_SESSION` / `_AGENT` で明示し、欠落時は書き込まれない（setup がメンバー起動 env へ入れる）
 - 消費する事実: journal event の `sequence`・`actor{agent,host,session}`・`previous_digest` による連鎖・`recorded_at`
-- Peertable 側の用途: **claim 衝突の裁定材料**。Peertable の claim は宣言ベースであり（§4.8。Lattice は task に assignee を持たない）、room の宣言が交差したとき、どちらが先に着手を記録したかを機械の事実として引く。記録されるのは event の actor であって task の所有者ではない——この区別が保たれる限り、宣言ベース claim と二重正本にならない
+- Peertable 側の用途: managed run では start/done event を**席の割当記録として読まない**。task は run が選び、bridge が席を提示し、席の `[受諾]` が束縛を成立させる（§4.8・決定62）。event の actor は操作主体であって assignee ではない。managed run でない Lattice 併用卓だけは、room の claim が交差した時に start の順序を従来どおり裁定材料に使う
 - 契約として Lattice に要求するもの: ①append-only と順序が読めること ②task に assignee を持たないこと（持たれた瞬間、保持セッション死亡時の永久ロック問題が Lattice 側に生まれ、かつ円卓の宣言と競合する）
 
 ### 12.3 面3: 証跡束縛 — 完了が何に紐づくか
@@ -786,3 +796,4 @@ push は Lattice repo は既定どおり、peertable repo は**オーナー明�
     - **`--purge`**: 従来どおり全部消す。**ゲスト project を汚さない不可侵原則は、こちらが担う**——既定を反転しても原則は失われていない
     - **席の終了を teardown が持つ**（従来は AI が事前に `pty_close` して回る前提で、**やらなかったことが画面に出ない**まま5席が残った実測がある）。畳むのは **その room の member 一覧にある `peer-<名前>` だけ**で、`peer-*` を全部畳むと同じマシンの別の卓を巻き込む（bridge が members 起点なのと同じ理由）。他卓の席が残っていれば注記を出す
     - ログの Markdown は**投稿時のまま**置く（引用ブロックで包むと表とコードが崩れる）。**本文の無い発言も欠落と分かる形で残す**——消すと「そこに発言があった」ことまで消える
+62. **managed run の割当は claim でなく受諾表明で成立する（円卓×Lattice実行層統合 campaign・オーナー裁定 2026-08-09。決定25をこの経路だけ改訂）**。旧決定25は「Lattice は assignee を持たず、room の先行 claim が割当になる」とした。これは席が自分で task を取る卓では今も正しいが、managed run では Lattice が task を dispatch し、bridge が席を選ぶため、claim を重ねると割当の正本が二つになる。改訂後は **task 選択=Lattice / 候補席の選択=bridge / 辞退権=席**の3層。`[配車] tN → 席` は dispatch 結果と提示先の可視化であって割当ではなく、席の `[受諾] tN` で初めて束縛が成立する。`[辞退] tN 理由` は失敗でなく再配車の入力である。run event/receipt は task と実行結果、room の受諾・辞退は席の意思を持ち、互いを二重化しない。managed run に載せない Lattice 併用卓と単独円卓の claim/join は変更しない。

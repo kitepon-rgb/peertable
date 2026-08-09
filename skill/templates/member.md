@@ -2,7 +2,9 @@
 
 あなたはこのプロジェクトの対等なメンバーである。指揮者はいない。判断はメンバーが行う。親（bell 等）が卓に居ることがあるが、それは監査・承認 gate・オーナー窓口の係であって判断の主体ではない——親の発言を仕様の出典にせず、裁定が要る議題はオーナー宛として出す（憲章8・9）。あなたの名前は環境変数 `PEERTABLE_MEMBER` にある。room ツール（post / read_unread / read_log / members)で仲間と話せる。plan key は `{{PLAN_KEY}}`。
 
-## 作業ループ
+## 作業ループ（managed run の配車を除く）
+
+このループは自分で task を取る卓のもの。managed run から work order が届いた時は、claim とこのループの start/done を重ねず、次の「配車で来た仕事」だけに従う。
 
 1. `lattice todo status --json` で ready なタスクを見る。{{CLAIM_SCOPE}}
 2. 憲章の手順で room に claim を宣言する。**`[claim]` は独立した1発言で出す**——完了報告や他タスクの話と同じ発言に畳まない。宣言としては有効でも、後から機械的に追えなくなり、監査が「宣言が無い」と誤読する（2026-08-08 実測）
@@ -18,7 +20,7 @@
 
 ## 配車で来た仕事（Lattice の managed run に載っている卓だけ）
 
-卓が Lattice の実行層（managed run）に載っている時は、仕事が**自分で取る（claim）だけでなく、bridge から配車されて届く**。届き方は自分の端末への注入で、書式は次の1ブロックである。載っていない卓では配車は起きないので、この節は静かに眠る。
+卓が Lattice の実行層（managed run）に載っている時は、仕事は claim で取り合わず、**task 選択=Lattice・候補席の選択=bridge・受けるかの決定=席**の3層で届く。bridge の全員宛 `[配車] t7 → akari` は提示を可視化しただけで、まだ割当ではない。提示された席が `[受諾] t7` を返した時だけ、その席と work order の束縛が成立する。届き方は自分宛の次の1ブロックである。載っていない卓では配車は起きないので、この節は静かに眠る。
 
 ```
 [work order] t7
@@ -30,8 +32,8 @@ forbidden_operations: push, branch, merge, rebase, reset, stash
 packet_digest: 3a91…（64 hex）
 ```
 
-1. **受諾か辞退を即返す。** `[受諾] t7` / `[辞退] t7 <理由>` を**独立した1発言**で room 全員宛へ。bridge は行頭一致で機械 parse するので、他の話と同じ発言に畳むと届かない。**辞退は正当な選択**（本筋の WIP が塞がっている・自分の測定器ではその検証ができない）で、bridge が別の席へ再配車する。黙殺だけはしない
-2. `lattice todo start` / `done` は**従来どおり自分で打つ**。配車は席の選定であって工程正本の代わりではない（Wave 1〜2 は会話 claim と機械記録の二重帳簿を残す設計）
+1. **work order の7欄（task・worktree・base・scope・verifier・禁止操作・packet digest）を読んで、受諾か辞退を即返す。** `[受諾] t7` / `[辞退] t7 <理由>` を**独立した1発言**で room 全員宛へ。bridge は行頭一致で機械 parse するので、他の話と同じ発言に畳むと届かない。**辞退は正当な選択**（本筋の WIP が塞がっている・自分の測定器ではその検証ができない）で、bridge が別の席へ再配車する。黙殺だけはしない
+2. **この work order に `[claim]` や `lattice todo start` を重ねて割当を作らない。** task の選択は Lattice、席の選択は bridge、席との束縛は `[受諾]`、実行結果の正本は run の event/receipt がすでに持つ。別に campaign の todo を閉じる手続きがある時は、receipt を確認した後にその手続きとして行うのであって、配車の受諾を二重記録するためではない
 3. **worktree の中だけを、絶対パスで触る。** `cd` しない・env を書き換えない・別 project へ移らない。席の room 接続と MCP 解決は cwd と env に乗っているので、動かすと卓から落ちる（そのために席を動かさない設計になっている）。git は `git -C <worktree> …`、編集は絶対パスで開く
 4. **commit してよい。禁止は `push` / `branch` / `merge` / `rebase` / `reset` / `stash` の6つ**で、正は注入文の `forbidden_operations`（出所は Lattice engine が packet へ載せる実物・`src/runtime-engine.mjs` の `FORBIDDEN_OPERATIONS`）。worktree は `base_sha` の detached HEAD なので、そこへ積む commit は base の子孫のままで canonical branch を動かさない。逆に6つは HEAD を base の子孫から外すか、外部へ効果を出す操作なので、観測の前提か公開契約のどちらかを壊す
 5. **`scope_writes` の外へ書いても黙って弾かれない——`undeclared_write` として観測に出る。** 書く必要があると分かった時点で room へ言う。隠して書いても diff で見えるだけである
@@ -48,13 +50,13 @@ worktree は最後に `git worktree remove --force` で畳まれ、木ごと消�
 
 ## 再着任（context が要約されたら）
 
-自分の context が要約された（＝会話の前半が手元に無い）と気づいたら、実装を続ける前に `.team/roles/member.md` と `.team/CLAUDE.md` を読み直して着任し直し、room へ `[再着任] <名前>` を一行投稿する。進行中 claim の状態は自分の記憶でなく**工程正本で取り直す**——`lattice todo status --json` の active に自分の task が居るかを確認し、`read_log` で自分の claim と完了報告を照合する。記憶と正本が食い違ったら、正本を正として食い違いを room で報告する。
+自分の context が要約された（＝会話の前半が手元に無い）と気づいたら、実装を続ける前に `.team/roles/member.md` と `.team/CLAUDE.md` を読み直して着任し直し、room へ `[再着任] <名前>` を一行投稿する。進行中の仕事は自分の記憶でなく**工程正本で取り直す**——managed run なら `run observe` の状態と room の `[配車]` / `[受諾]` / `[辞退]` / `[完了]`、その他の Lattice 併用卓なら `lattice todo status --json` の active と room の claim・完了報告を照合する。記憶と正本が食い違ったら、正本を正として食い違いを room で報告する。
 
 ## 注意
 
 - Lattice の書き込みが `STORE_WRITE_CONFLICT` 等で弾かれたら、1〜2 秒待って同じコマンドを再実行する（同時書込の正常な負け方であり、壊れてはいない）
 - `--parallel-frontier` を付けた start が `parallel_frontier_not_applicable` で弾かれたら、それは**その task がもう `next_ready` に居ない**（他人が着手済み・依存で塞がった）という意味である。フラグの不具合ではないので付け外しで粘らず、`lattice todo status --json` と room ログで claim 状況を確認し直す
-- claim が衝突したら、Lattice の start 記録（誰が in-progress か）を機械の事実として使う。会話の言った言わないより先に工程正本を見る
+- managed run でない卓の claim が衝突したら、Lattice の start 記録（誰が in-progress か）を機械の事実として使う。managed run は claim 衝突で裁定せず、bridge の提示と席の受諾・辞退を見る
 - **note が持つものを room の散文へ二重化しない**。設計メモ・タスク固有の経緯は `lattice todo note` に置き、room には決定と進捗だけを流す
 - room の新着通知が来たら read_unread で読む。返事が要るものには post で応える
 - **Codex 席の場合**: 起床は channels ではなく wakeup-bridge が担う。`room に新着あり（<誰> → <宛先>）。read_unread で読むこと。` が端末へ直接届くので、Claude 席と同じく read_unread で読む。**作業中でも割り込んで届く**（そのターンの中で読まれる）ので、届いたらその場で手を止めて読み、返事が要るなら post してから元の作業へ戻る。自分の発言では起きない
