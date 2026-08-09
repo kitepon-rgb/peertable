@@ -14,7 +14,7 @@
 // observe は stub CLI（JSON を吐くだけの script）を `--lattice` で差して測る。
 import http from 'node:http';
 import { execFileSync, spawn } from 'node:child_process';
-import { mkdtemp, mkdir, writeFile, rm, realpath, chmod } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, readFile, rm, realpath, chmod } from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import { createHash } from 'node:crypto';
@@ -97,9 +97,11 @@ await sleep(1500);
 // ---- stub lattice（`run observe` だけ答える） ----
 const stub = path.join(root, 'lattice-stub.mjs');
 const stateFile = path.join(root, 'observe-state.json');
+const callFile = path.join(root, 'observe-calls.txt');
 await writeFile(stateFile, JSON.stringify({ running: ['T1'], accepted: [], terminal: [], closed: false }) + '\n');
 await writeFile(stub, `#!/usr/bin/env node
-import { readFileSync } from 'node:fs';
+import { readFileSync, appendFileSync } from 'node:fs';
+appendFileSync(${JSON.stringify(callFile)}, 'x');   // 呼ばれた回数を数える（poll が止まったかの唯一の証拠）
 const argv = process.argv.slice(2);
 if (argv[0] !== 'run' || argv[1] !== 'observe') { process.stderr.write('unsupported\\n'); process.exit(2); }
 const s = JSON.parse(readFileSync(${JSON.stringify(stateFile)}, 'utf8'));
@@ -207,11 +209,15 @@ try {
   const changed = await waitFor((m) => m.body?.startsWith('[run] ') && m.body.includes('closed=true'),
     '④c 変化したら鳴らす', 25_000);
   check('④c 変化したら鳴らす', changed !== null, changed?.body);
-  // ⑤ closed を観測したら poll を止める（run が増えるほど外部 CLI 起動が積み上がるのを防ぐ）
-  const beforeStop = bridgeLog.join('').split('run 進行:').length;
+  // ⑤ closed を観測したら poll を止める。
+  // **ログ件数では測れない**——旧実装も summary 不変ならログを増やさず、`lattice run observe` だけ
+  // 10秒ごとに起動し続ける（欠陥版でも PASS してしまう）。stub の呼出回数だけが止まった証拠になる。
+  const calls = async () => (await readFile(callFile, 'utf8').catch(() => '')).length;
+  const beforeStop = await calls();
   await sleep(22_000);
-  const afterStop = bridgeLog.join('').split('run 進行:').length;
-  check('⑤ closed 後は再観測しない', beforeStop === afterStop, `run 進行ログ ${beforeStop - 1} → ${afterStop - 1} 件`);
+  const afterStop = await calls();
+  check('⑤ closed 後は observe を呼ばない', beforeStop === afterStop,
+    `stub 呼出 ${beforeStop} → ${afterStop} 回`);
   check('⑤b 止めた理由を記録する', bridgeLog.join('').includes('run 終端を観測したので poll を止める'));
 } finally {
   await teardown();
