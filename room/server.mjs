@@ -217,6 +217,9 @@ const UI = room => `<!doctype html><html lang="ja"><head><meta charset="utf-8"><
 @keyframes pulse{from{box-shadow:0 0 0 0 hsl(var(--h) var(--sat) var(--lum)/.6)}to{box-shadow:0 0 0 9px hsl(var(--h) var(--sat) var(--lum)/0)}}
 .log{max-width:760px;margin:0 auto;padding:14px 16px 40px;display:flex;flex-direction:column;gap:10px}
 .msg{display:flex;gap:9px;align-items:flex-start}
+.msg.flow,.sys.flow{animation:message-flow .36s cubic-bezier(.22,1,.36,1) both}
+@keyframes message-flow{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+@media (prefers-reduced-motion:reduce){.msg.flow,.sys.flow{animation:none}}
 .msg.cont{margin-top:-8px}.msg.cont .av{visibility:hidden;height:0}.msg.cont .meta{display:none}
 .msg .body{min-width:0;max-width:100%}
 .meta{display:flex;align-items:baseline;gap:7px;flex-wrap:wrap;margin:0 0 3px 2px;font-size:12px}
@@ -321,7 +324,7 @@ let last=null,recent=null
 function render(m){
   const at=new Date(m.ts)
   const seq=()=>el('span','seq','['+m.seq+']')
-  if(m.from==='system'){const d=el('div','sys');d.appendChild(el('span','body',m.body));d.appendChild(seq());d.appendChild(stamp(at));logEl.appendChild(d);last=null;return}
+  if(m.from==='system'){const d=el('div','sys');d.appendChild(el('span','body',m.body));d.appendChild(seq());d.appendChild(stamp(at));logEl.appendChild(d);last=null;return d}
   const aud=m=>Array.isArray(m.to_names)?m.to_names.join(', '):m.to
   const cont=last&&last.from===m.from&&aud(last)===aud(m)&&at-new Date(last.ts)<300000
   const d=el('div','msg'+(aud(m)!=='all'?' dm':'')+(cont?' cont':''))
@@ -333,7 +336,7 @@ function render(m){
   meta.appendChild(stamp(at))
   const bub=el('div','bubble');bub.appendChild(md(m.body))
   body.appendChild(meta);body.appendChild(bub);body.appendChild(seq())
-  d.appendChild(body);logEl.appendChild(d);last=m
+  d.appendChild(body);logEl.appendChild(d);last=m;return d
 }
 async function refreshMembers(){
   const r=await(await fetch(api('members'))).json()
@@ -395,11 +398,12 @@ const BEAT=${HEARTBEAT_MS}
 const STATUS_STALE_MS=90000 // 稼働状態の鮮度。これを過ぎた報告は unknown（bridge 心拍30秒の3倍）
 let lastSeq=0,lastBeat=Date.now(),es=null,emptyEl=null,firstLoad=true,catching=false
 // seq で二重描画を弾く。張り直し後の追いつきと SSE の新着が重なっても同じ発言は1回しか出ない
-function apply(m){
+function apply(m,live=false){
   if(m.seq<=lastSeq)return false
   lastSeq=m.seq
   if(emptyEl){emptyEl.remove();emptyEl=null}
-  render(m)
+  const row=render(m)
+  if(live)row.classList.add('flow')
   if(m.from!=='system')recent=m.from
   return true
 }
@@ -409,7 +413,8 @@ async function catchUp(force){
   try{
     const stick=force||nearBottom()
     const r=await(await fetch(api('messages')+'?since='+lastSeq)).json()
-    const added=r.messages.filter(apply).length
+    let added=0
+    for(const m of r.messages)if(apply(m,false))added++
     if(!lastSeq&&!emptyEl){emptyEl=el('div','empty','（まだ発言がない）');logEl.appendChild(emptyEl)}
     await refreshMembers()
     if(added&&stick)window.scrollTo(0,document.body.scrollHeight)
@@ -427,7 +432,7 @@ function connect(){
   es.onmessage=e=>{
     lastBeat=Date.now()
     const m=JSON.parse(e.data),stick=nearBottom()
-    if(!apply(m))return
+    if(!apply(m,true))return
     if(m.from==='system')refreshMembers();else markActive(m.from)
     if(stick)window.scrollTo(0,document.body.scrollHeight)
     syncToBottom()
