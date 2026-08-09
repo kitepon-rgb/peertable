@@ -24,7 +24,8 @@
     "channels"
   ],
   "scripts": {
-    "prepublishOnly": "PEERTABLE_URL= node room/client.mjs diagnostics"
+    "verify:release-commit": "node scripts/verify-release-commit.mjs",
+    "prepublishOnly": "npm run verify:release-commit && PEERTABLE_URL= node room/client.mjs diagnostics"
   },
   "bin": {
     "peertable-room": "room/server.mjs",
