@@ -232,6 +232,7 @@ async function runDiagnostics(asJson) {
       'scripts/teardown.sh',
       'scripts/external-pane.mjs',
       'scripts/launch-seat.sh',
+      'scripts/change-effort.sh',
       'scripts/make-plan-input.mjs',
       'scripts/parent-join.sh',
       'scripts/wakeup-bridge.mjs',

@@ -157,6 +157,8 @@ try {
 
   const launchSource = await readFile(join(REPO, 'skill/scripts/launch-seat.sh'), 'utf8')
   assert.match(launchSource, /model_reasoning_effort=/)
+  const clientSource = await readFile(join(REPO, 'room/client.mjs'), 'utf8')
+  assert.match(clientSource, /'scripts\/change-effort\.sh'/, 'diagnosticsが新scriptの梱包漏れを検出する')
   for (const ref of ['skill/SKILL.md', 'skill/templates/member.md', 'skill/templates/member-standalone.md']) {
     const source = await readFile(join(REPO, ref), 'utf8')
     assert.match(source, /\[effort変更依頼\] <level>/, `${ref}が本人要請protocolを持つ`)
