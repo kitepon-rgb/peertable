@@ -5,8 +5,9 @@
 親（オーケストレーター）に最終判断が集中しない、メンバー並列型のマルチエージェント作業システム。
 
 作成日: 2026-08-08
-状態: 設計確定 / V0〜V3 通過・V4 封印（決定41）/ スキル化完了 / GitHub 公開済み / npm 公開済み。`0.3.5` 出荷完了（Lattice pull実戦の正典同期・決定69）
-リポジトリ: github.com/kitepon-rgb/peertable（**公開済み 2026-08-08・MIT・public**）/ npm: **peertable@0.3.5 公開済み**（2026-08-09）
+状態: 設計確定 / V0〜V3 通過・V4 封印（決定41）/ スキル化完了 / GitHub 公開済み / npm 公開済み。`0.3.6` 出荷完了（release gate 導入・dotagents 工場編入・決定70）
+リポジトリ: github.com/kitepon-rgb/peertable（**公開済み 2026-08-08・MIT・public**）/ npm: **peertable@0.3.6 公開済み**（2026-08-10）
+工場: dotagents 開発工場の管理対象（**自作コア11製品の1つ**・wire v7 の固定15製品目）。統合契約は dotagents 側が所有し、本 repo の source・state・skill 配布・release は Peertable が所有し続ける
 
 ---
 
@@ -439,6 +440,7 @@ Peertable が Lattice のどの面をどう消費するか（consumer contract �
    - 不可侵原則の遵守: 新規 health endpoint を足さない、room DB や内部 state を読まない、message 本文を扱わない
    - **実装は 0.2.0（2026-08-08・円卓改良 campaign）**。入口は `peertable-client diagnostics [--json]`。引数なしは従来どおり MCP stdio サーバーで、**診断コードは起動経路に一切載らない**（起動ディレイ増加ゼロ。オーナー条件）。未知サブコマンドは usage を出して exit 1——従来は引数を黙って捨てて MCP 起動へ落ち、**応答が永久に返らなかった**（本 campaign で2名が実測）。`skill_bundle` の必須ファイル一覧は決定50 の新テンプレ2件（`templates/member-standalone.md`・`templates/tasks.md`）を含む**10ファイルへ更新**した——欠けると単独モードの setup が壊れるのに診断が green を返すため。`checks` の値は状態そのものだけを持ち、fail の理由は人間可読出力に出す（外部 adapter の exact allowlist を将来壊さないため）。到達不能は `fail` であって `unverified` ではない（`unverified` は check の実行自体が例外で判定不能な場合だけ）
    - push既定の訂正: 本 campaign の各タスク設計メモは「push 既定は両 repo で有効」としていたが、`AGENTS.md` の「push・publish・リモート作成はオーナーの明示指示時だけ行う」が project 正典として優先する（peertable はコア製品編入未完了のため恒久裁定の対象外）。本 campaign 中の peertable repo 側作業は commit までとし、push はオーナー裁定を待つ
+     - **（2026-08-10 失効）** 本条項の前提「コア製品編入未完了」は編入完了で消えた。現行は push 既定・publish のみ H である（決定70）。当時の判断記録として残す
 46. **Lattice とは分離を維持し、「Lattice をさらに面白くする隣接製品」の立場を取る（クオ裁定 2026-08-08）**。吸収しない理由: ①room・憲章・宣言規範は AI 側の社会契約であり、Lattice の所有境界（機械の真実だけを供給し、判断・会話を実装しない）の外 ②Lattice の機能優先順位は特許請求項で決まり、room はどの構成要件も埋めない ③外部消費者として wire 契約を叩く圧力が品質を作る ④MIT の薄い入口が PolyForm-Noncommercial の本体への導線になる。結合はコードでなく契約で行う: Peertable が消費する Lattice の4面（依存付き ready 一覧・順序付き start/done 記録・証跡束縛・監査状態）を consumer contract として両側の文書に明記する（未実施・campaign 完走後）
 47. **task 内共同作業は Peertable の固有資産である（クオ観察 2026-08-08・初回実運用 ap06 の実測）**。Lattice が提示するのは task 間の並列性（境界 compile・frontier）までで、task 内部の構造は持たず着手者も記録しない。ap06 で実測されたもの——claim/join の合流、宣言による分担の切り分け、ファイル名・証跡置き場・完了宣言権限の取り決め——は全て Lattice の解像度の下で room の宣言と会話だけが成立させた。静的 compile（計画時）→境界検知（実行時）→宣言ベース協力（会話）の三段目を Peertable が持つ。この帰結として**単独円卓モードの般化余地を留保する**: 円卓の核は最初から Lattice 非依存であり、依存しているのは仕事の取り出し口だけなので、意図的に素朴な作業リスト（依存なし・frontier なし・flat なチェックリスト）を差せば Lattice 無しでも小規模作業の円卓は成立しうる。失うのは task 間スケジューリングの機械保証。設計は未着手の構想であり、着手はオーナー裁定を要する
 48. **未確定境界の解決は会話が正規手段であり、規範化は最小に留める（クオ裁定 2026-08-08）**。実測: 全 ToDo done 直後、4者が独立に同じ陽性実測を宣言なしで取った（claim 規律は Lattice が ToDo を持つ間だけ効き、ready が空になると規律の空白へ全員が同時に流れる）。この穴をメンバー自身が room の会話 [64]-[71] で発見・自己申告し、約10往復で「①成果物になる作業（実測・検証・CI）は着手前に一言宣言 ②宣言の効果は排他ではなく調整——再取得できる成果物は1人に寄せ、再現不能な観測はむしろ独立に重ねて一致を証跡にする」という、単純な規則より上等な2段の解へ自力収束した。**この合意形成そのものが円卓の動作実例である。** クオ裁定: 円卓の魅力は決まっていない境界でも協力できることにあり、教訓のたびに条文を積むと規範がノイズ化して魅力ごと死ぬ。憲章への反映は最小2行（規範2へ「task 外でも成果物になる作業は着手前に一言」、規範10「決まっていない境界は規則を探すより room で喋って決める」）に留め、full episode は本決定が実例として持つ——次の卓が同じ形に会ったら、条文でなくこの前例を参照して自分たちで解く
@@ -664,6 +666,25 @@ Peertable が Lattice のどの面をどう消費するか（consumer contract �
   増やす。公開側ではdashboardと`external_pane`が同じ状態を観測可能にする。ただし前者はAIの選択を
   代行せず、後者はidentity文書の任意欄への唯一の書込例外であってstoreの直書きではない。§12の4面は
   この実態へ同期するが、LatticeへPeertable専用の面を追加しない。
+
+- **決定70（2026-08-10・オーナー裁定）: Peertable は dotagents 工場の管理対象へ編入され、push が既定になる**
+
+  Peertable は dotagents 開発工場の**自作コア11製品の1つ**（工場管理12製品目）として編入された。
+  wire v7 の固定15製品目 `peertable` であり、dotagents 側の統合契約は
+  [ADR 0127](https://github.com/kitepon-rgb/dotagents/blob/main/docs/adr/0127-wire-v7-peertable-enrollment.md)
+  と製品契約台帳が持つ。決定45 で実装した `peertable-client diagnostics --json` がその version 入口・
+  正規診断として消費される。
+
+  **編入は融合ではない。** dotagents が持つのは統合契約だけで、source・state・`skill/` の npm 同梱配布・
+  release は Peertable が所有し続ける。`skill/` を dotagents 側の配布面へ移さない。dotagents の adapter は
+  read-only で、room DB・member state・message 本文を解釈しない。
+
+  **これに伴い決定45の push 訂正条項（および §13 の push 裁定）は失効する。** 「コア製品編入未完了ゆえ
+  恒久裁定の対象外」という前提が編入で消えたため、本 repo への通常 push は既定になった（`AGENTS.md`
+  更新済み）。**publish は編入後も H 操作**であり、オーナーの明示指示と目的・影響・rollback の提示を要する。
+
+  同時に release gate（`scripts/verify-release-commit.mjs` を `prepublishOnly` へ連結）を導入し、
+  0.3.6 の publish で初実戦を通した——publish 対象は既定ブランチの祖先で clean な commit だけになる。
 
 ---
 
@@ -912,6 +933,8 @@ Peertable と Lattice は分離を維持し、結合はコードでなく契約�
 
 工程正本は Lattice store の plan `refit-20260808`（本節から `todo migrate` で起票）。証跡は `evidence/refit-20260808/<task_id>.md`。
 push は Lattice repo は既定どおり、peertable repo は**オーナー明示裁定（2026-08-09「3つとも承認」・push/publish/colima）**による（決定45のとおり peertable はコア製品編入未完了で恒久既定の対象外。当初の「両 repo とも既定どおり（工場管理 repo）」は親の誤記で、卓の指摘 [377]-[398] を経て本裁定で上書きされた）。peertable 側の script/正典変更は campaign 末尾にまとめて npm patch release 1本で出す。
+
+> **（2026-08-10 失効）** 本 campaign 当時の push 裁定である。編入完了により peertable repo への push は既定になった（決定70）。当時の判断記録として残す。
 
 ### タスク
 
