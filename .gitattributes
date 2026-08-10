@@ -1,0 +1,5 @@
+# WSL/Linux の bash・node が実行する script は、Windows checkout でも LF でなければ動かない
+# （CRLF だと bash が "/bin/bash^M: bad interpreter" で落ちる。2026-08-10 Windows 実測）。
+*.sh text eol=lf
+*.mjs text eol=lf
+*.py text eol=lf
