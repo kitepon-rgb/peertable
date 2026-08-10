@@ -24,7 +24,7 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
 
-import { classifyPaneTail, deriveMissingSession, parsePaneTokenHint, resolveTmuxSocket, supportsMemberObservation } from './seat-usage.mjs'
+import { classifyPaneTail, decideBridgeContinuation, deriveMissingSession, parsePaneTokenHint, resolvePostToken, resolveTmuxSocket, supportsMemberObservation } from './seat-usage.mjs'
 
 const args = process.argv.slice(2)
 const proj = args[0]
@@ -71,7 +71,9 @@ if (existsSync(pidPath)) {
 const setup = JSON.parse(readFileSync(setupPath, 'utf8'))
 const url = setup.server_url
 const room = setup.room
-const token = process.env.PEERTABLE_POST_TOKEN ?? ''
+// launch-seat.sh:25-27 と同じ解決規則（env が先・無ければ `~/.config/peertable.env`）。
+// **起こす側の shell の env に依存しない**——依存していた時、`export` 欠落だけで常駐が丸ごと死んだ
+const token = resolvePostToken(process.env)
 writeFileSync(pidPath, JSON.stringify({ pid: process.pid, started_at: new Date().toISOString() }) + '\n')
 
 // launch-seat.sh:14 が席を作るソケットと同じ解決規則（既定ソケットへ黙って fallback しない——
@@ -132,23 +134,28 @@ const last = new Map()   // name -> { status, at }
 let supported = null     // server が status を保持する版か（未判定は null）
 const tokenBucket = value => value === null ? null : Math.floor(value / 1_000)
 
+// 送信の結果を数えて返す。**呼び出し側が「1件も届いていない」を判定できる形にする**——
+// 数えないと、失敗を1行ずつ吐きながら永久に常駐する（2026-08-10 に4時間そうなった）
+const NOTHING_ATTEMPTED = { attempted: 0, failed: 0 }
+
 async function tick() {
   let names
-  try { names = await seats() } catch (e) { console.error(`seat-status-bridge: members を読めない: ${e.message}`); return }
+  try { names = await seats() } catch (e) { console.error(`seat-status-bridge: members を読めない: ${e.message}`); return NOTHING_ATTEMPTED }
   // **送る前に、server が status を持つ版かを確かめる。**
   // 現行の `POST /members` は、既存メンバーでも `<名前> が参加した` を必ず room へ流す（`post()` が
   // `if (!members.has(name))` の外にある）。status を保持しない版へ投げると、**保存されないうえに
   // 席全員を起こす system 発言を撒く**——2026-08-08 に私がこれで6件撒いて全席を1ターン起こした。
   // 保持する版かどうかは GET で分かるので、**分かるまで投げない**。
   if (supported === null) {
-    try { supported = await serverKeepsStatus() } catch { return }   // 判定できない間は送らない
+    try { supported = await serverKeepsStatus() } catch { return NOTHING_ATTEMPTED }   // 判定できない間は送らない
     if (!supported) console.error('seat-status-bridge: この room サーバーは稼働状態を保持しない版（GET /members に status が無い）。送信すると保存されないうえに system 発言を撒くので、送信しない')
   }
-  if (!supported) { console.error(`seat-status-bridge: ${names.length} 席を見たが、server が未対応なので送っていない`); return }
+  if (!supported) { console.error(`seat-status-bridge: ${names.length} 席を見たが、server が未対応なので送っていない`); return NOTHING_ATTEMPTED }
   const now = Date.now()
   const observedAt = new Date(now).toISOString()
   let sent = 0
   let skipped = 0
+  let failed = 0
   for (const name of names) {
     const prev = last.get(name)
     const observation = readSeat(name, prev, observedAt)
@@ -166,15 +173,49 @@ async function tick() {
       sent++
       if (changed) console.error(`seat-status-bridge: ${name} → ${observation.status}${prev ? `（${prev.status} から）` : ''}`)
     } catch (e) {
+      failed++
       console.error(`seat-status-bridge: ${name} の送信に失敗: ${e.message}`)
     }
   }
   // 0件でも0件と言う（条件付きログにしない。沈黙する失敗を作らない・決定58）
   console.error(`seat-status-bridge: ${names.length} 席を見て ${sent} 件送った（tmux席を持たず観測対象外: ${skipped}）`)
+  return { attempted: sent + failed, failed }
+}
+
+// **書けることを実証してから常駐に入る。** `serverKeepsStatus()` は GET で「保存する版か」を
+// 確かめる先例なのに、書込側は確かめずに常駐していた——だから「起動は成功したのに1件も届かない」
+// という**見分けのつかない状態**が存在できた（2026-08-10 実測: トークン欠落で全件403のまま4時間）。
+// 送るものが1件も無い tick は失敗ではない（席がまだ立っていない卓が正常にありうる）。
+const FAILED_TICK_LIMIT = 10 // wakeup-bridge の連続失敗停止と同じ本数
+
+function die(code, message) {
+  console.error(`${code}: ${message}`)
+  try { unlinkSync(pidPath) } catch { /* 既に消えている＝目的は達成されている */ }
+  process.exit(1)
+}
+
+let failedTicks = 0
+let provenWritable = false
+
+async function guardedTick() {
+  const { attempted, failed } = await tick() ?? NOTHING_ATTEMPTED
+  const decided = decideBridgeContinuation({ attempted, failed, provenWritable, failedTicks, limit: FAILED_TICK_LIMIT })
+  provenWritable = decided.provenWritable
+  failedTicks = decided.failedTicks
+  if (decided.verdict === 'write_denied') {
+    die('SEAT_STATUS_BRIDGE_WRITE_DENIED',
+      `送信 ${attempted} 件がすべて失敗し、一度も書けていない。常駐しない——書けない常駐は、`
+      + '起動していない場合と同じ結果（点が出ない）を、起動しているように見せる。'
+      + '書込トークン（環境変数 PEERTABLE_POST_TOKEN か ~/.config/peertable.env）と room の到達性を確認すること')
+  }
+  if (decided.verdict === 'unreachable') {
+    die('SEAT_STATUS_BRIDGE_UNREACHABLE',
+      `${FAILED_TICK_LIMIT} 回連続で全件送信に失敗した。黙って再試行を続けるゾンビを作らない（決定54）`)
+  }
 }
 
 process.on('SIGTERM', () => { try { unlinkSync(pidPath) } catch {} process.exit(0) })
 process.on('SIGINT', () => { try { unlinkSync(pidPath) } catch {} process.exit(0) })
 
-await tick()
-if (!once) setInterval(tick, interval * 1000)
+await guardedTick()
+if (!once) setInterval(() => { guardedTick() }, interval * 1000)

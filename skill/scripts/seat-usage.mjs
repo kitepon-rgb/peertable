@@ -1,4 +1,10 @@
+import { readFileSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
+
 const TOKEN_HINT = /[↓↑]\s*([0-9]+(?:\.[0-9]+)?)\s*([kKmM]?)\s*tokens\b/gu
+
+const POST_TOKEN_LINE = /^\s*(?:export\s+)?PEERTABLE_POST_TOKEN\s*=\s*(.*)$/
 
 const TOKEN_MULTIPLIER = Object.freeze({
   '': 1,
@@ -16,6 +22,50 @@ export function supportsMemberObservation(payload) {
  */
 export function resolveTmuxSocket(env) {
   return env.PEERTABLE_TMUX_SOCKET || `${env.TMPDIR}claude-tmux-sockets/claude.sock`
+}
+
+/**
+ * `~/.config/peertable.env` の本文から書込トークンを読む。**`export` の有無に依存しない。**
+ * 2026-08-10 実測: `export` を落とした設定ファイルを `source` した shell から `nohup node …` で
+ * 起こした bridge は、トークンを持たないまま常駐して **4時間 HTTP 403 を撃ち続けた**。
+ * 起こす側の shell の書き方に、常駐の生死を握らせない。
+ */
+export function parsePostTokenEnvFile(text) {
+  if (typeof text !== 'string') return null
+  for (const line of text.split('\n')) {
+    const matched = POST_TOKEN_LINE.exec(line)
+    if (!matched) continue
+    let value = matched[1].trim()
+    const quoted = (value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))
+    if (quoted && value.length >= 2) value = value.slice(1, -1)
+    if (value) return value
+  }
+  return null
+}
+
+/**
+ * launch-seat.sh:25-27 と同じ解決規則で書込トークンを決める（env が先・無ければ設定ファイル）。
+ * 規則を二重に書かない——bash 側だけが自力解決を持ち、.mjs 側が起こす側の env に丸投げしていたのが
+ * 上記 403 の構造的な原因だった。readFile は試験のための注入口で、既定は実ファイルを読む。
+ */
+export function resolvePostToken(env, readFile = path => { try { return readFileSync(path, 'utf8') } catch { return null } }) {
+  if (env.PEERTABLE_POST_TOKEN) return env.PEERTABLE_POST_TOKEN
+  return parsePostTokenEnvFile(readFile(join(env.HOME || homedir(), '.config', 'peertable.env'))) ?? ''
+}
+
+/**
+ * 送信結果から常駐を続けてよいかを決める。**「一度も書けていない」と「一度は書けたが今落ちている」を
+ * 分ける**——前者は起動不良で、常駐しても「点が出ない」という**起動していない場合と同じ結果**を
+ * 「起動している」ように見せてしまう。だから常駐に入らせない。後者は途中の障害なので、
+ * 連続 limit 回で止める（黙って再試行を続けるゾンビを作らない・決定54）。
+ * 送るものが1件も無い tick は失敗ではない（席がまだ立っていない卓が正常にありうる）。
+ */
+export function decideBridgeContinuation({ attempted, failed, provenWritable, failedTicks, limit }) {
+  if (attempted === 0) return { verdict: 'idle', provenWritable, failedTicks }
+  if (failed < attempted) return { verdict: 'ok', provenWritable: true, failedTicks: 0 }
+  const next = failedTicks + 1
+  if (!provenWritable) return { verdict: 'write_denied', provenWritable, failedTicks: next }
+  return { verdict: next >= limit ? 'unreachable' : 'degraded', provenWritable, failedTicks: next }
 }
 
 /**

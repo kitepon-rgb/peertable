@@ -25,6 +25,8 @@ import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 
+import { resolvePostToken } from './seat-usage.mjs'
+
 const run = promisify(execFile)
 const [proj, ...rest] = process.argv.slice(2)
 if (!proj) {
@@ -121,10 +123,12 @@ if (rest[0] === '--stop') process.exit(0)
 
 const state = JSON.parse(readFileSync(join(proj, '.team', 'setup-state.json'), 'utf8'))
 const { room, server_url: url } = state
-const token = process.env.PEERTABLE_POST_TOKEN ?? ''
+// launch-seat.sh:25-27 と同じ解決規則（env が先・無ければ `~/.config/peertable.env`）。
+// **`export` の有無に常駐の生死を握らせない**——seat-status-bridge が同じ依存で4時間死んだ（2026-08-10）
+const token = resolvePostToken(process.env)
 if (token.length === 0) {
   // 投稿できないブリッジは何も返せない。起きてから黙って何もしない常駐を作らない
-  console.error('RUN_BRIDGE_TOKEN_MISSING: PEERTABLE_POST_TOKEN が無い（export し忘れていないか）')
+  console.error('RUN_BRIDGE_TOKEN_MISSING: 書込トークンが無い（環境変数 PEERTABLE_POST_TOKEN か ~/.config/peertable.env）')
   process.exit(1)
 }
 
