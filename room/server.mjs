@@ -25,12 +25,17 @@ function loadRoom(name, create = false) {
   const dir = join(DATA, name)
   if (create) mkdirSync(dir, { recursive: true })
   const logPath = join(dir, 'log.jsonl')
-  const seq = existsSync(logPath) ? readFileSync(logPath, 'utf8').split('\n').filter(Boolean).length : 0
+  const lines = existsSync(logPath) ? readFileSync(logPath, 'utf8').split('\n').filter(Boolean) : []
+  const seq = lines.length
+  // last_ts は summary 用。末尾行を1回 parse するだけ（既にこの読み出しで行数を数えているので追加I/Oはゼロ）。
+  // 壊れた末尾行で throw すると loadRoom は全エンドポイントの入口なので巻き添えで死ぬ→null に落とす
+  let lastTs = null
+  if (lines.length) { try { lastTs = JSON.parse(lines.at(-1)).ts ?? null } catch { lastTs = null } }
   const membersPath = join(dir, 'members.json')
   // members の値は `{ joined_at, …任意欄 }`。旧形式（値が ISO 文字列）もそのまま読める
   const stored = existsSync(membersPath) ? Object.entries(JSON.parse(readFileSync(membersPath, 'utf8'))) : []
   const members = new Map(stored.map(([n, v]) => [n, typeof v === 'string' ? { joined_at: v } : v]))
-  const room = { name, dir, logPath, membersPath, seq, members, streams: new Set() }
+  const room = { name, dir, logPath, membersPath, seq, last_ts: lastTs, members, streams: new Set() }
   rooms.set(name, room)
   return room
 }
@@ -80,6 +85,7 @@ function post(room, from, to, body, toNames = null) {
     ...(toNames ? { to_names: toNames } : {}),
   }
   appendFileSync(room.logPath, JSON.stringify(msg) + '\n')
+  room.last_ts = msg.ts // 正本へ書けてから更新する
   const chunk = `data: ${JSON.stringify(msg)}\n\n`
   for (const res of room.streams) res.write(chunk)
   return msg
@@ -108,6 +114,11 @@ http.createServer(async (req, res) => {
       return json(res, 200, {
         members: [...room.members].map(([name, meta]) => ({ name, ...meta })),
         capabilities: { member_observation_v1: true },
+      }, CORS)
+
+    if (req.method === 'GET' && rest === 'summary')
+      return json(res, 200, {
+        schema: 'peertable.summary.v1', room: room.name, seq: room.seq, last_ts: room.last_ts, member_count: room.members.size,
       }, CORS)
 
     if (req.method === 'GET' && rest === 'events') {
