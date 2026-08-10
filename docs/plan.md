@@ -711,6 +711,30 @@ Peertable が Lattice のどの面をどう消費するか（consumer contract �
   該当節へ焼き込んだ。決定42・§16の「宛先は複数書ける・broadcastは拒否」という配線契約はそのまま
   正であり、本決定はその配線の上に**使い方の規律**を足す。
 
+- **決定72（2026-08-10・オーナー裁定）: 軽量サマリ口 `GET /api/<room>/summary` を追加する——決定45の「新規health endpoint禁止」には抵触しない**
+
+  RootSitePromotion側「ライブ窓」campaign（`docs/plan_live-window-activity.md`）で、kitepon.devの
+  右レールが候補room（RootSitePromotion・lattice・peertable-onboarding・iine・ChromeBlocker）の中から
+  最終発言時刻（`last_ts`）降順で表示roomを自動選定する設計に変わった。選定のたびに`/messages`や
+  `/members`で全文（RootSitePromotion実測166KB、latticeは1.6MB）を取得するのは負荷が過大なため、
+  `room/server.mjs`へ`GET /api/<room>/summary`を追加する。
+
+  レスポンス（約120バイト）: `{ schema: "peertable.summary.v1", room, seq, last_ts, member_count }`。
+  既存の`loadRoom()`が読んでいる1回のファイル読み出しから2値（`seq`・末尾行の`ts`）を取るだけで、
+  追加I/Oはゼロ。`seq`の意味（行数）は変えず、既存postの採番・SSEの`connected seq=`・`ping`はそのまま
+  変更しない。`last_ts`は発言ゼロなら`null`とし、0やepochで埋めない。
+
+  **決定45「新規health endpointは追加しない」との関係**: `/summary`はhealth probe（生死判定）ではなく、
+  既に`/members`・`/messages`で公開済みのroom状態を、外部消費者（kitepon.devのようなread-only client）が
+  O(1)で読める形へ射影しただけの口である。認可・機密情報は増えず、公開済みデータの表現を軽くする目的に
+  限る。決定45の禁止対象（新規probe・health判定用endpoint）には当たらないと判断する。
+
+  **やらないこと**: 全room一括の集約endpoint（`GET /api/summary`）は作らない。コンテナ再起動直後に
+  全roomの全文（合計2.0MB）を読むことになり、負荷をフロントからサーバーへ移すだけになる。サイドカー
+  索引も作らない（正本が2つになる）。
+
+  実装task: `pt-summary-api`（Lattice plan `live-window-activity`、project `root-site-promotion`）。
+
 ---
 
 ## 9. スキル化 — 完了（2026-08-08）
