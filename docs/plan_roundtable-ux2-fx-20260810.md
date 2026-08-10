@@ -62,3 +62,23 @@ status を送らない（UI 側は報告が無ければ点を出さない既存�
    押し込みが効いて、切り替わりが8秒以内で出ることまで見る（p6 の目的はここで初めて満たされる）
 
 **触らないもの**: `room/server.mjs`・`room/client.mjs`（前 campaign で受理済み）、`launch-seat.sh`。
+
+## 結果（2026-08-10 完了）
+
+f1 done・push 済み（`c3fc0a4`）。実装 kotone / 独立監査 tsumugi、finding 無し。
+`terminal-audit` phase も受理（証跡 `evidence/roundtable-ux2-fx-20260810/terminal-audit.md`）。
+
+修正前後の同一手順での実測:
+
+```
+修正前  tsumugi → dead   kotone → dead   bell → dead   （実際の tmux は両席とも生存）
+修正後  tsumugi → idle   kotone → idle   3 席を見て 2 件送った（tmux席を持たず観測対象外: 1）
+```
+
+本番の公開面でも `is-idle`／`状態 待機` が出ることを確認した。**公開面で本物の稼働状態が出た
+最初の記録**である。
+
+**この後、同じ面でもう1つ実害が出た。** f1 は「席が見えない」を塞いだが、「見えても書けない」は
+残っていた——トークン欠落の常駐が4時間403を撃ち続けた。決定73 でそちらを塞いだ
+（`resolvePostToken` / `WRITE_DENIED` / setup が起こす）。**f1 と決定73 で、この面の
+「起きているのに何も届かない」経路は塞がったことになる。**

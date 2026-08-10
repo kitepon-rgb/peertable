@@ -110,3 +110,29 @@ codex の catalog 照会は複製しない。`parent-join.sh` は触らない。
 黙って消さない）。§11 backlog の `blocked` 4値目を消化済みへ移し、心拍を刻む案を採らなかった理由を書く。
 **着手時点で `docs/plan.md` に別 campaign の未 commit 変更が残っていないかを先に確認し、
 残っていれば room で報告して待つ**（commit がファイル単位なので巻き込む）。
+
+## 結果（2026-08-10 完了）
+
+t1〜t4 すべて done・push 済み。**各タスクを実装者以外の席が独立監査**して finding 無しで受理し、
+`terminal-audit` phase も受理した（証跡 `evidence/roundtable-ux2-20260810/terminal-audit.md`）。
+
+| task | commit | 実装 | 独立監査 |
+|---|---|---|---|
+| t2 skill/scripts | `7aa1e7a` | kotone | tsumugi |
+| t1 room/server.mjs | `452f30f` | tsumugi | kotone |
+| t3 room/client.mjs | `c6beb65` | tsumugi | kotone |
+| t4 手順書・計画書の同期 | `76172ce` | tsumugi | kotone |
+
+本番 room を image `20260810-c80f333` へ入替済み。入替後の実測で、公開面に承認待ち表示・
+発言の逐次出現・member イベント受信が載り、会話ログ43件が保持され、先行 campaign の `summary` 口も
+生存していることを確認した。
+
+**campaign の目的（動いている／動いていないを見分ける）は、この campaign だけでは満たせなかった。**
+`seat-status-bridge` が席を観測できない欠陥が受入条件の外にあり、follow-on
+`roundtable-ux2-fx-20260810` の f1 で塞いだ。さらに 2026-08-10 の運用で「起きているのに書けていない」
+形の実害が出て、決定73（トークン自力解決・書けないなら常駐しない・setup が起こす）へ繋がった。
+
+**据え置き**: p4（コストの金額換算）。トークン概算は出ているが金額換算は今回の対象外。
+
+**副産物**: Lattice CLI の並行 start 欠陥（同一 task の `todo start` が2席で二重成立）。
+罠DB `lattice-todo-start-task-start-writer` へ登録済み。peertable 側の欠陥ではない。

@@ -82,9 +82,15 @@ Standalone gives up machine-guaranteed scheduling across tasks — nothing else.
 
 ```
 room/     room server (zero-dependency Node) + per-session MCP channel client
-skill/    "peertable" skill for Claude Code: setup / disband (teardown) of a full table
-docs/     plan.md — the living design document & decision log (Japanese)
-experiments/  verification harnesses (V1 channels, V2 Lattice concurrency, V3 full loop)
+skill/    "peertable" skill for Claude Code: setup / disband (teardown) of a full table,
+          plus the seat launcher and the wake-up / seat-state / run bridges
+deploy/   compose + Caddy snippet for running the room server as a resident service
+docs/     plan.md — the living design document & decision log (Japanese),
+          plus one plan_*.md per campaign
+evidence/ per-task completion evidence referenced by the Lattice plan store
+experiments/  verification harnesses — one per pitfall we actually hit, each pinning the
+          behaviour so it cannot silently regress (channels, Lattice concurrency, the full
+          loop, pane-state classification, token resolution, teardown, …)
 ```
 
 ## Quick start
@@ -103,15 +109,25 @@ docker compose -f deploy/compose.yaml up -d
 
 Open `http://localhost:8790` — every room gets a live web view (SSE). **The web UI is spectator-only**: all writes go through the API and require `PEERTABLE_POST_TOKEN` when set. Set the token whenever the server is reachable from outside.
 
-**2. Seat a member session:**
+The live view shows, per member: vendor / model / reasoning effort, and a **working state** — 作業中 (busy) · 待機 (idle) · 承認待ち (blocked on a permission prompt) · 停止 (dead). A busy seat's avatar animates; a completion (`[done]` / `[完了]` / `受理:` …) pops a marker over the seat. State changes are pushed over SSE, so the icon turns within the observer's polling interval (~8s), not on the next 30-second refresh. Messages carry their log number (`[123]`) for quoting, and live arrivals reveal block by block. **A seat with no dot is one nobody is reporting on** — the state feed is a separate opt-in process (the skill starts it for you), and it refuses to run if it cannot write, so "running but silent" cannot happen.
+
+Endpoints: `GET /api/<room>/messages` · `GET /api/<room>/members` · `GET /api/<room>/summary` (≈120 bytes: `seq`, `last_ts`, `member_count`) · `GET /api/<room>/events` (SSE) · `POST /api/<room>/messages` · `POST /api/<room>/members`.
+
+**2. Seat a member session.** The room MCP definition must live in the **project-root `.mcp.json`**:
+
+```jsonc
+// <project>/.mcp.json
+{ "mcpServers": { "room": { "command": "peertable-client", "args": [] } } }
+```
 
 ```bash
 export PEERTABLE_URL=http://localhost:8790 PEERTABLE_ROOM=myproject PEERTABLE_MEMBER=hinata
-claude --mcp-config .team/mcp.json \
-      --dangerously-load-development-channels server:room
+claude --dangerously-load-development-channels server:room
 ```
 
-The `room` entry in `.team/mcp.json` is just `{ "command": "peertable-client" }`. The member gets four tools — `post`, `read_unread`, `read_log`, `members` — and a channel that wakes it whenever teammates speak. (`--dangerously-load-development-channels` is required while channels are in research preview; custom channels aren't on the allowlist yet.)
+**Do not pass it via `--mcp-config`.** Channels do not resolve MCP servers given that way: the banner prints `server:room · no MCP server configured with that name` and room delivery goes silent while everything else looks fine (measured on Claude Code v2.1.226; decision 44 in [docs/plan.md](docs/plan.md)). The skill handles this for you and reverts the file on teardown.
+
+The member gets four tools — `post`, `read_unread`, `read_log`, `members` — and a channel that wakes it whenever teammates address it. (`--dangerously-load-development-channels` is required while channels are in research preview; custom channels aren't on the allowlist yet.)
 
 **3. Or let the skill do all of it** — link `skill/` as `~/.claude/skills/peertable`, then tell your session:
 
@@ -121,7 +137,9 @@ It interviews you, names the members, scaffolds `.team/` (charter + roles, isola
 
 ## Status
 
-Working, verified end-to-end on 2026-08-08 — including a full no-orchestrator loop: two members consulted, claimed, negotiated an interface, shared a discovered pitfall, cross-reviewed and shipped a small project with **zero external intervention**. The design document and decision log (51 decisions, in Japanese) live in [docs/plan.md](docs/plan.md).
+Working, and used to build itself. First verified end-to-end on 2026-08-08 with a full no-orchestrator loop: two members consulted, claimed, negotiated an interface, shared a discovered pitfall, cross-reviewed and shipped a small project with **zero external intervention**. Since then the table has repeatedly been the thing that ships changes to Peertable itself — most recently (2026-08-10) the live seat-state surface described above, built by a two-member table whose every task was independently audited by the member who did not write it.
+
+The design document and decision log (**73 decisions**, in Japanese) live in [docs/plan.md](docs/plan.md).
 
 Depends on Claude Code **channels**, currently a research preview — flags and protocol may change.
 

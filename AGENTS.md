@@ -29,9 +29,16 @@ peertable/
 ├── CLAUDE.md             # @AGENTS.md の 1 行 import のみ
 ├── package.json          # npm: peertable（bin 2 種・files 限定）
 ├── README.md / README.ja.md / LICENSE(MIT)
-├── docs/plan.md          # 計画書（設計・決定履歴の正本）
+├── docs/plan.md          # 計画書（設計・決定履歴の正本）。決定は通し番号（現在 73 まで）
+├── docs/plan_<campaign>.md  # campaign 単位の計画正本。ここから `lattice todo migrate` で起票する
+├── docs/archive/         # 解散した卓の room ログの控え（原本は room 側に残る）
+├── evidence/<plan>/<task>.md  # 完了証跡。Lattice の記述子が digest で束縛する
 ├── room/                 # room サーバー + セッションクライアント + Dockerfile
-├── deploy/               # MS-A2 常駐用 compose と Caddy snippet
-├── skill/                # peertable スキル（setup/teardown。~/.claude/skills/peertable へ symlink）
-└── experiments/          # V ゲートの検証コードと記録
+├── deploy/               # MS-A2 常駐用 compose と Caddy snippet + deploy 手順書
+├── scripts/              # release gate（既定ブランチ祖先の検証）
+├── skill/                # peertable スキル（setup/teardown・席の起動・各ブリッジ。~/.claude/skills/peertable へ symlink）
+└── experiments/          # 再現ハーネス。**踏んだ罠ごとに1本**置いて、退行を機械で止める
 ```
+
+- **campaign の計画正本を `docs/plan.md` へ相乗りさせない。** commit はファイル単位なので、別 campaign が同じファイルを未 commit で触っていると、他人の未監査変更を巻き込んで公開へ出す（2026-08-10 実測）。`docs/plan_<campaign>.md` を1本立てて、そこから起票する
+- **Lattice store が初期化済みの本 repo では、新規 plan は `lattice plan create` でなく `lattice todo migrate --input <extraction.json>` で入れる**（`plan create` は空 store の初期化専用で、`STORE_WRITE_CONFLICT / store_already_exists` を返す）
