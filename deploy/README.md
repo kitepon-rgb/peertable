@@ -40,6 +40,19 @@ ssh main-server "docker images peertable-room --format '{{.Repository}}:{{.Tag}}
 
 ### 3. compose のタグを上げて入れ替える
 
+**repo の `deploy/compose.yaml` を「本番で今動いている image」の情報源にしない。** MS-A2 の
+`~/peertable/` は git 管理外なので、compose.yaml は scp で運ぶ運用になっている。**運んだ後に
+repo 側へ commit し忘れると、repo と本番が静かに食い違う。** 2026-08-10 の実測では、repo が
+`20260809-d44d435` を指したまま本番は `20260809-918d660` で動いていた。ロールバック先を repo から
+読んだ人は、存在しない「直前の版」へ戻そうとすることになる。
+
+今動いている版を知りたい時は、必ず実物を見る:
+
+```bash
+ssh main-server "docker ps --filter name=peertable-room --format '{{.Image}}'"
+ssh main-server "grep image: ~/peertable/deploy/compose.yaml"
+```
+
 `deploy/compose.yaml` の `image:` を新しいタグへ書き換え、MS-A2 の `~/peertable/deploy/compose.yaml` へ反映してから:
 
 ```bash
