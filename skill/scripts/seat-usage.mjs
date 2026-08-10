@@ -10,6 +10,23 @@ export function supportsMemberObservation(payload) {
   return payload?.capabilities?.member_observation_v1 === true
 }
 
+/**
+ * launch-seat.sh:14 と同じ解決規則で aiterm-mcp の tmux ソケットを決める。
+ * 規則を二重に書かない——片方だけ直すと同じ穴がもう一度開く。
+ */
+export function resolveTmuxSocket(env) {
+  return env.PEERTABLE_TMUX_SOCKET || `${env.TMPDIR}claude-tmux-sockets/claude.sock`
+}
+
+/**
+ * tmux セッションが見つからない席の扱いを決める。**tmux 席を持たない member（親など）は
+ * 一度も観測できない**ので `null`（送らない）。**過去に観測できていた席が消えたら実際に落ちた**
+ * ので `dead` を返す。previous は直前に送信できた観測（`{status,...}` か undefined）。
+ */
+export function deriveMissingSession(previous) {
+  return previous ? { status: 'dead', busySince: null, paneTokenHint: null } : null
+}
+
 // launch-seat.sh:74-77 と docs/plan.md §11 が実測で記録した既知ダイアログ文言の集合
 export const BLOCKED_MARKERS = [
   '1. Yes, I trust this folder',

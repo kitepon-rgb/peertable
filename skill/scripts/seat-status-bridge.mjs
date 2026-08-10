@@ -24,7 +24,7 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
 
-import { classifyPaneTail, parsePaneTokenHint, supportsMemberObservation } from './seat-usage.mjs'
+import { classifyPaneTail, deriveMissingSession, parsePaneTokenHint, resolveTmuxSocket, supportsMemberObservation } from './seat-usage.mjs'
 
 const args = process.argv.slice(2)
 const proj = args[0]
@@ -74,7 +74,10 @@ const room = setup.room
 const token = process.env.PEERTABLE_POST_TOKEN ?? ''
 writeFileSync(pidPath, JSON.stringify({ pid: process.pid, started_at: new Date().toISOString() }) + '\n')
 
-const tmux = (...a) => { try { return execFileSync('tmux', a, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }) } catch { return null } }
+// launch-seat.sh:14 が席を作るソケットと同じ解決規則（既定ソケットへ黙って fallback しない——
+// 見えないなら「見えない」と言う。同じルールを二重に書かない）
+const socket = resolveTmuxSocket(process.env)
+const tmux = (...a) => { try { return execFileSync('tmux', ['-S', socket, ...a], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }) } catch { return null } }
 
 // 監視するのは room の members に居る席だけ。tmux の `peer-*` を全部拾うと、同じマシンで走る別の卓を晒す
 async function seats() {
@@ -86,7 +89,9 @@ async function seats() {
 function readSeat(name, previous, observedAt) {
   const target = `peer-${name}`
   const dead = tmux('list-panes', '-t', target, '-F', '#{pane_dead}')
-  if (dead === null) return { status: 'dead', busySince: null, paneTokenHint: null }
+  // セッションが見つからない。tmux 席を持たない member（親など）は一度も観測できないので送らない
+  // （`previous` が無い＝一度も観測できていない）。過去に観測できていた席が消えたなら実際に落ちた
+  if (dead === null) return deriveMissingSession(previous)
   if (dead.trim().split('\n')[0] === '1') {
     return { status: 'dead', busySince: null, paneTokenHint: null }
   }
@@ -143,9 +148,12 @@ async function tick() {
   const now = Date.now()
   const observedAt = new Date(now).toISOString()
   let sent = 0
+  let skipped = 0
   for (const name of names) {
     const prev = last.get(name)
     const observation = readSeat(name, prev, observedAt)
+    // tmux 席を持たない member（親など）は一度も観測できないので送らない（deriveMissingSession が null を返す）
+    if (observation === null) { skipped++; continue }
     const changed = !prev || prev.status !== observation.status
       || prev.busySince !== observation.busySince
       // token表示は実行中に細かく増える。1k未満の差で8秒ごとにPOSTせず、表示精度に合う粒度で送る。
@@ -162,7 +170,7 @@ async function tick() {
     }
   }
   // 0件でも0件と言う（条件付きログにしない。沈黙する失敗を作らない・決定58）
-  console.error(`seat-status-bridge: ${names.length} 席を見て ${sent} 件送った`)
+  console.error(`seat-status-bridge: ${names.length} 席を見て ${sent} 件送った（tmux席を持たず観測対象外: ${skipped}）`)
 }
 
 process.on('SIGTERM', () => { try { unlinkSync(pidPath) } catch {} process.exit(0) })
