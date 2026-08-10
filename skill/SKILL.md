@@ -29,7 +29,7 @@ description: 任意プロジェクトに Peertable チーム（対等メンバ�
 
 手順は **聞き取り → script → 着任指示** の3段である。scripts が機械部分を全部持つので、AI が手で tmux を組み立てることはしない。
 
-1. **聞き取り**: 対象プロジェクトのパス / **工程正本（`Lattice 併用`＝既定 / `単独`）** / メンバー数とモデル・effort（モデル既定: Sonnet、effort既定: CLI 既定。モデル選定は作業の性質——設計か確定実装か——を軸にする。決定49）/ 初期タスク群（何を作るか）/ room 名（既定: プロジェクトのディレクトリ名）/ **公開URL基底**（Lattice 併用のみ。外部ペインに書く URL。クオ環境は `https://peertable.kitepon.dev`。未指定なら room サーバーの URL がそのまま入る＝LAN URL は Lattice を外から見た時に開けない）
+1. **聞き取り**: 対象プロジェクトのパス / **工程正本（`Lattice 併用`＝既定 / `単独`）** / メンバー数とモデル・effort（モデル既定: Sonnet。**effort は既定値を置かない——席ごとに必ず決める**。`launch-seat.sh` の effort は必須引数で、未指定は着席前に非ゼロ終了する。モデル選定は作業の性質——設計か確定実装か——を軸にする。決定49）/ 初期タスク群（何を作るか）/ room 名（既定: プロジェクトのディレクトリ名）/ **公開URL基底**（Lattice 併用のみ。外部ペインに書く URL。クオ環境は `https://peertable.kitepon.dev`。未指定なら room サーバーの URL がそのまま入る＝LAN URL は Lattice を外から見た時に開けない）
    - **メンバー数の既定**: Lattice 併用なら plan compile 結果の幅（`max_frontier_width`）に合わせる（実測: 幅3→3人、第2 campaign で幅4→4人目追加）。frontier より多い席は最初から遊ぶ。単独モードには frontier が無いので既定の根拠も無く、聞き取りで決める
    - **運用中の席数の標準は「ready＋activeな実装ToDo数」（決定68）**: 起動時の幅は計画値、この式は生きた実測値で、campaignが進めば自然に縮む。標準を上回った席は親が縮退する。監査・受入は実装席が兼ねる（決定67）ので監査要員を席数に数えない。claimできるToDoが無い席は仕事を発明せず（依頼されていない監査・照会・自主レビュー禁止）、待機宣言して黙るか親に畳まれる
    - **モードの選び分け**: タスク間に依存があり並列境界の機械保証が要るなら Lattice 併用。依存の無い小規模作業で、対象プロジェクトに Lattice を持ち込みたくないなら単独。単独で失うのは task 間スケジューリングの機械保証だけで、円卓の核（room・憲章・宣言による協力）は変わらない（決定47）
@@ -41,7 +41,7 @@ description: 任意プロジェクトに Peertable チーム（対等メンバ�
 4. **Lattice plan（Lattice 併用モードのみ・単独はこの手順ごとスキップ）**: `lattice status --json` で正本を判定する。`uninitialized` なら聞き取ったタスクを JSON へ落として `scripts/make-plan-input.mjs <tasks.json> --project <project>` で `plan create` 入力を生成し、`lattice plan create --input .lattice/plan-create.json` を打つ。初期化済みなら `todo migrate` の作法（Lattice 正典）に従う。設計メモは各タスクに必ず書く
    - `make-plan-input.mjs` が digest 計算と `hard_dependencies` の `(from,to)` 昇順ソートを持つ（**手書きで2回踏んだ罠**。順序が崩れると `INPUT_INVALID / pointer:"/"` としか言われない）。`project_id` の既定は project ディレクトリ名で、`external-pane.mjs` が書く `project.json` の既定と一致させてある——**両者がずれると Lattice が identity 検証で落ちる**
    - 単独モードのタスク正本は手順3で生成した `.team/tasks.md` だけである。状態（誰が持っているか・何が終わったか）は持たせない——claim と完了は room の宣言だけが正（決定48 の延長）。ミニタスクトラッカーを別途作らない（決定36）
-5. **メンバー起動**: メンバーごとに `scripts/launch-seat.sh <project> <name> <model> [claude|codex] [effort] [着任指示]` を実行する。tmux 作成（aiterm と同じソケットなので、立った席はそのまま `pty_read`/`pty_send` で読める）→ env 注入 → 起動 → 既知ダイアログ通過 → 着席確認まで1回で行き、着席しなければ最後の画面を出して非ゼロで落ちる（黙って進まない）
+5. **メンバー起動**: メンバーごとに `scripts/launch-seat.sh <project> <name> <model> <claude|codex> <effort> [着任指示]` を実行する。**vendor・effort とも必須引数**（未指定は usage を出して非ゼロ終了。既定値をコードへ埋めない——席を立てる時に決める）。tmux 作成（aiterm と同じソケットなので、立った席はそのまま `pty_read`/`pty_send` で読める）→ env 注入 → 起動 → 既知ダイアログ通過 → 着席確認まで1回で行き、着席しなければ最後の画面を出して非ゼロで落ちる（黙って進まない）
    - 起動前に `pty_list` で既存の `peer-*` 席を確認する（前の卓の残骸を99席実測したことがある）。同名の席は launch-seat.sh が落としてから立て直す
    - 着任指示を第6引数に渡すと着席後に送る。文面: 「あなたは「<日本語名>」。.team/roles/member.md を読んで着任し、作業ループを開始せよ。全タスク完了の宣言まで自律的に続けること。」
    - 席が読む env は script が組み立てる（`PEERTABLE_URL` / `PEERTABLE_ROOM` / `PEERTABLE_MEMBER` / `PEERTABLE_POST_TOKEN`、Lattice 併用なら `PEERTABLE_PLAN` と actor 3点）。**channels は `--mcp-config` の MCP server を解決しない**（実測 2026-08-08・Claude Code v2.1.226・決定44）ため、room の MCP 定義は setup.sh が project root へ置く `.mcp.json` が正。project に既存 `.mcp.json` があった場合 setup.sh は上書きせず警告を出すので、AI が手動 merge して teardown で復元する
@@ -50,13 +50,13 @@ description: 任意プロジェクトに Peertable チーム（対等メンバ�
    - **黙って止まらないための三段**（決定58 の受信側の作法）: ①75秒なにも届かなければ自分から切って繋ぎ直す ②繋ぎ直したら `?since=<最終seq>` で切れていた間の発言を回収する ③**心拍が積んでくる room の最新 seq が自分より進んでいたら、繋がったままでも回収する**——③が要るのは、心拍が届き続ける限り①が原理的に発火しないため。**server 側の心拍（`event: ping`・25秒周期）が前提**なので、古い room サーバーへ繋ぐと①だけが効く形になる
    - ログは `.team/wakeup-bridge.log`。**0件でも0件と出す**ので、起こせているか・取りこぼしていないかはログを見れば分かる。再現ハーネスは `experiments/bridge-catchup-repro.mjs`
 
-6.5 **席の稼働状態ブリッジ（任意）**: `nohup node scripts/seat-status-bridge.mjs <project> > <project>/.team/seat-status-bridge.log 2>&1 &`。**room の members に居る席だけ**の tmux pane を読み（`peer-<名前>`）、`busy`（画面に `esc to interrupt` が在る。**Claude 席・Codex 席の共通マーカーで、スピナーの語は毎回変わるので使わない**）／`idle`／`dead`（`pane_dead`・セッション消失）を判定して room サーバーへ送る。**AI は使わず、席へは1バイトも送らない**。参加者一覧に点が出て、**報告が途絶えたら `unknown`（中空の輪）へ落ちる**——古い状態を出し続けない。**server が稼働状態を保持しない版なら1件も送らない**（送ると保存されないうえに system 発言を撒く）。停止は `node scripts/seat-status-bridge.mjs <project> --stop`（**teardown.sh が自動で行う**）
+6.5 **席の稼働状態ブリッジ（任意）**: `nohup node scripts/seat-status-bridge.mjs <project> > <project>/.team/seat-status-bridge.log 2>&1 &`。**room の members に居る席だけ**の tmux pane を読み（`peer-<名前>`）、`busy`（画面に `esc to interrupt` が在る。**Claude 席・Codex 席の共通マーカーで、スピナーの語は毎回変わるので使わない**）／`blocked`（既知の承認ダイアログ文言が在る。判定順は busy → blocked → idle——承認プロンプト表示中は `esc to interrupt` が消えるため。動けない席を「待機」と誤表示しない）／`idle`／`dead`（`pane_dead`・セッション消失）を判定して room サーバーへ送る。**AI は使わず、席へは1バイトも送らない**。参加者一覧に点が出て、**報告が途絶えたら `unknown`（中空の輪）へ落ちる**——古い状態を出し続けない。**server が稼働状態を保持しない版なら1件も送らない**（送ると保存されないうえに system 発言を撒く）。停止は `node scripts/seat-status-bridge.mjs <project> --stop`（**teardown.sh が自動で行う**）
    - **起こすかは卓の任意**（setup は自動で起こさない）。起こしたら**必ず teardown で止まる**——止め忘れると、`.team/` と一緒に pid 記録が消えて **`--stop` でも止められない常駐**が残る
 
 6.7 **effort変更（本人要請→親実行）**: 本人は親だけへ`[effort変更依頼] <level>`を明示DMする。親は席がidleなのを確認して`skill/scripts/change-effort.sh <project> <member> <level> [parent_name]`を実行する。scriptは未使用の本人DMを機械確認し、room membersのvendor/modelを保って席を再起動し、metadataを読み返してから本人宛へ変更履歴を残す。同じ依頼の再利用、busy席、Claudeの未知level、Codex model catalogに無いlevelは再起動前にtyped拒否する。新設定での起動失敗時は旧effortで1回だけ明示rollbackし、両方失敗なら手動復旧が必要だと非0で出す。
    - **会話contextは引き継がない**。本人は作業を安全に中断できる時だけ依頼し、再起動後はrole・工程正本・roomログから再着任する。変更できたのに履歴記録だけ失敗した場合も成功へ丸めず、`EFFORT_CHANGE_CHANGED_BUT_HISTORY_FAILED`で現在状態を明示する
 
-7. **親の着卓**（このセッション）: `scripts/parent-join.sh <project> [name] [model] [effort]` で member 登録を行い、**bell宛DM番犬**を Monitor で張る（形は下記「親の operating notes」の番犬仕様）。broadcastのkickoffは廃止済み。以後の post も API 直（同 notes）
+7. **親の着卓**（このセッション）: `scripts/parent-join.sh <project> [name] [model] [effort]` で member 登録を行う。**`effort` は任意のまま据え置く**——席は `launch-seat.sh` が `--effort` で実際に設定するので「渡した値＝実挙動」だが、親は既に走っているセッションで自分の effort を機械的に知る経路が無く、推測して載せると画面が嘘をつく。**bell宛DM番犬**を Monitor で張る（形は下記「親の operating notes」の番犬仕様）。broadcastのkickoffは廃止済み。以後の post も API 直（同 notes）
 8. **起動確認**: room の members に全員いる / 最初の claim が room に流れる（Lattice 併用モードはそれが Lattice へ到達している＝`lattice todo status --json` の active に出ることも確認する。単独モードは room の claim 宣言だけが到達の証拠）/ Web UI で観測できる、をチェックして報告する
 
 ## teardown
