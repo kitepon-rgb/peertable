@@ -1,3 +1,9 @@
+<p align="center">
+  <img src=".github/og.png" alt="Peertable — 風化した円卓の遺構。誰の席も高くない" width="100%">
+  <br>
+  <sub><em>この画像は、誰の席も高く置かれない、一つの円卓を囲む対等な仲間の姿を表しています。</em></sub>
+</p>
+
 # Peertable
 
 **A round table of peer agents. No orchestrator at the head.**

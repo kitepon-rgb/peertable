@@ -1,3 +1,9 @@
+<p align="center">
+  <img src=".github/og.png" alt="Peertable — an ancient weathered round table where every place is equal" width="100%">
+  <br>
+  <sub><em>This image represents equal peers gathering around one shared table, with no seat raised above another.</em></sub>
+</p>
+
 # Peertable
 
 **A round table of peer agents. No orchestrator at the head.**
