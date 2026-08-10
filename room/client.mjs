@@ -144,7 +144,12 @@ async function subscribe() {
         while ((i = buf.indexOf('\n\n')) >= 0) {
           const frame = buf.slice(0, i)
           buf = buf.slice(i + 2)
-          const data = frame.split('\n').filter(l => l.startsWith('data: ')).map(l => l.slice(6)).join('')
+          const lines = frame.split('\n')
+          // 名前付きイベント（ping/member等）はチャット発言ではない。明示的に読み飛ばす——
+          // 現状は relevant() が宛先無しの payload を弾いて偶然安全なだけで、将来のイベント追加が
+          // 席を起こす経路を open のままにしない
+          if (lines.some(l => l.startsWith('event: '))) continue
+          const data = lines.filter(l => l.startsWith('data: ')).map(l => l.slice(6)).join('')
           if (!data) continue
           const m = JSON.parse(data)
           if (!relevant(m)) continue
