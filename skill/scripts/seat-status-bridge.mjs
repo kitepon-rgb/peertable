@@ -6,12 +6,16 @@
 // AI は使わない。読むのは `tmux capture-pane -p` の末尾だけで、席へは1バイトも送らない。
 //
 // 判定（2026-08-08 実測。**推測でパターンを書かない**）:
-//   busy = pane の末尾に `esc to interrupt` が在る。Claude 席のステータス行にも Codex 席の `Working (…)` にも
-//          同じ文字列が入るので **vendor 分岐が要らない**。実行中の動名詞（Cogitating/Coalescing/Effecting/
-//          Gallivanting/Fermenting/Symbioting…）は**毎回変わる**ので判定に使わない——語で照合すると全席を
-//          idle と誤判定して、画面が嘘をつく
-//   dead = tmux セッションが無い／`pane_dead=1`
-//   idle = 生きていて busy でない
+//   busy    = pane の末尾に `esc to interrupt` が在る。Claude 席のステータス行にも Codex 席の `Working (…)` にも
+//             同じ文字列が入るので **vendor 分岐が要らない**。実行中の動名詞（Cogitating/Coalescing/Effecting/
+//             Gallivanting/Fermenting/Symbioting…）は**毎回変わる**ので判定に使わない——語で照合すると全席を
+//             idle と誤判定して、画面が嘘をつく
+//   blocked = 既知の承認ダイアログ文言が末尾に在る（`esc to interrupt` は消えている）。2026-08-08 実測:
+//             確認ダイアログで停止した席が busy と `esc to interrupt` 不在から idle 側に誤判定され、
+//             動けない席へ卓が代走を申し出るところまで進んだ。判定順は busy → blocked → idle
+//             （承認プロンプト表示中は `esc to interrupt` が消えるので、この順で正しい）
+//   dead    = tmux セッションが無い／`pane_dead=1`
+//   idle    = 生きていて busy でも blocked でもない
 //
 // 送信は「変化した時」＋「変化が無くても心拍」の2本立て。変化時だけだと、**bridge が死んだのか状態が
 // 変わっていないのかを server が区別できない**（決定58 の liveness と cursor の分離と同じ形）。
@@ -20,7 +24,7 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
 
-import { parsePaneTokenHint, supportsMemberObservation } from './seat-usage.mjs'
+import { classifyPaneTail, parsePaneTokenHint, supportsMemberObservation } from './seat-usage.mjs'
 
 const args = process.argv.slice(2)
 const proj = args[0]
@@ -89,9 +93,9 @@ function readSeat(name, previous, observedAt) {
   const pane = tmux('capture-pane', '-t', target, '-p')
   if (pane === null) return { status: 'dead', busySince: null, paneTokenHint: null }
   const tail = pane.split('\n').slice(-14).join('\n')
-  const status = tail.includes('esc to interrupt') ? 'busy' : 'idle'
-  const busySince = status === 'busy'
-    ? (previous?.status === 'busy' && previous.busySince ? previous.busySince : observedAt)
+  const status = classifyPaneTail(tail)
+  const busySince = status === 'busy' || status === 'blocked'
+    ? ((previous?.status === 'busy' || previous?.status === 'blocked') && previous.busySince ? previous.busySince : observedAt)
     : null
   return { status, busySince, paneTokenHint: parsePaneTokenHint(tail) }
 }

@@ -1,15 +1,24 @@
 #!/bin/bash
 # 席を1つ立てる（tmux 作成 → env 注入 → エージェント起動 → 既知ダイアログ通過 → 着席確認）。
-# usage: launch-seat.sh <project_dir> <name> <model> [vendor] [effort] [brief]
-#   vendor: claude（既定）/ codex
+# usage: launch-seat.sh <project_dir> <name> <model> <vendor> <effort> [brief]
+#   vendor: claude / codex
+#   effort: 必須。既定値をコードへ埋めない——席を立てる時に決める（オーナー裁定）
 #   brief:  着席が成立したら送る着任指示（省略時は送らない）
 #
 # room 名・server URL・モード・plan key は <project>/.team/setup-state.json から読む（setup.sh の後に呼ぶ）。
 # 書込トークンは環境変数 PEERTABLE_POST_TOKEN、無ければ ~/.config/peertable.env から取る。
 # tmux は aiterm-mcp と同じソケットへ作るので、立てた席はそのまま pty_read / pty_send で読める。
 set -e
-proj="$1"; name="$2"; model="$3"; vendor="${4:-claude}"; effort="$5"; brief="$6"
-[ -n "$proj" ] && [ -n "$name" ] && [ -n "$model" ] || { echo "usage: launch-seat.sh <project_dir> <name> <model> [vendor] [effort] [brief]" >&2; exit 1; }
+proj="$1"; name="$2"; model="$3"; vendor="$4"; effort="$5"; brief="$6"
+[ -n "$proj" ] && [ -n "$name" ] && [ -n "$model" ] && [ -n "$vendor" ] && [ -n "$effort" ] || {
+  echo "usage: launch-seat.sh <project_dir> <name> <model> <vendor> <effort> [brief]" >&2; exit 1;
+}
+if [ "$vendor" = "claude" ]; then
+  case "$effort" in
+    low|medium|high|xhigh|max) ;;
+    *) echo "unknown effort: ${effort}（claude は low|medium|high|xhigh|max）" >&2; exit 1 ;;
+  esac
+fi
 
 sock="${PEERTABLE_TMUX_SOCKET:-${TMPDIR}claude-tmux-sockets/claude.sock}"
 sess="peer-$name"

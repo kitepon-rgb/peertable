@@ -10,6 +10,25 @@ export function supportsMemberObservation(payload) {
   return payload?.capabilities?.member_observation_v1 === true
 }
 
+// launch-seat.sh:74-77 と docs/plan.md §11 が実測で記録した既知ダイアログ文言の集合
+export const BLOCKED_MARKERS = [
+  '1. Yes, I trust this folder',
+  '1. I am using this for local development',
+  '1. Yes, continue',
+  'Do you want to proceed?',
+]
+
+/**
+ * pane 末尾の生文字列から画面状態を判定する。判定順は busy → blocked → idle
+ * （承認プロンプト表示中は `esc to interrupt` が消えるので busy を先に見る）。
+ */
+export function classifyPaneTail(tail) {
+  if (typeof tail !== 'string') return 'idle'
+  if (tail.includes('esc to interrupt')) return 'busy'
+  if (BLOCKED_MARKERS.some(marker => tail.includes(marker))) return 'blocked'
+  return 'idle'
+}
+
 /**
  * paneのstatus行が公開しているtoken値だけを読む。
  * vendor固有のログや課金単価は推測せず、表示が無い席はnullのままにする。
