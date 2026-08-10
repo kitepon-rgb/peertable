@@ -78,6 +78,15 @@ function normalizeAudience(to, toNames) {
   return { to: null, to_names: names }
 }
 
+// SSE の member イベントで押し込む欄。閲覧者が気づく欄だけに絞る（POST /members 参照）
+const MEMBER_EVENT_FIELDS = ['status', 'busy_since', 'vendor', 'model', 'effort']
+
+// room ログへは書かない・system 発言も出さない稼働状態の push。post() とは別の経路
+function emitMember(room, name, meta) {
+  const chunk = `event: member\ndata: ${JSON.stringify({ name, ...meta })}\n\n`
+  for (const res of room.streams) res.write(chunk)
+}
+
 function post(room, from, to, body, toNames = null) {
   const msg = {
     seq: ++room.seq, ts: new Date().toISOString(), from, body,
@@ -153,11 +162,16 @@ http.createServer(async (req, res) => {
       // **渡された欄だけ更新し、渡されなかった欄は既存を保つ**——席の client は `{name}` だけで
       // 登録するので、これが無いと再接続のたびに素性が消える。`joined_at` は最初の登録を保つ。
       const known = room.members.get(name)
-      room.members.set(name, { joined_at: known?.joined_at ?? new Date().toISOString(), ...known, ...meta })
+      const merged = { joined_at: known?.joined_at ?? new Date().toISOString(), ...known, ...meta }
+      room.members.set(name, merged)
       saveMembers(room)
       // **system 発言は本当に新規の時だけ**。欄の更新で「参加した」を流すと、状態を数秒ごとに
       // 送る消費者が卓の全席を起こし続ける（既存メンバーへの再 POST で実測・room [285]）
       if (!known) post(room, 'system', name, `${name} が参加した`)
+      // 閲覧者が気づく欄が変わった時だけ member イベントを流す。status_at（心拍のたび必ず変わる）と
+      // pane_token_hint（作業中に刻み変わる）は対象外——含めると数秒ごとに再描画が走り稼働アニメがちらつく
+      else if (MEMBER_EVENT_FIELDS.some(f => known[f] !== merged[f]))
+        emitMember(room, name, merged)
       return json(res, 200, { ok: true })
     }
     if (req.method === 'DELETE' && seg[2] === 'members' && seg[3]) {
@@ -195,8 +209,8 @@ const FAVICON = `<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://
 // 発言者ごとの色は名前ハッシュ（--h）から作る。彩度・明度だけテーマで持ち替えれば dark/light 両方が成立する
 const STYLE = `
 *{box-sizing:border-box}
-:root{color-scheme:light dark;--fg:#1a1a1a;--bg:#f7f6f3;--surface:#fff;--line:#e4e2dc;--accent:#1d4ed8;--dim:#8a877f;--sat:55%;--lum:45%;--name:32%;--tint:96%;--edge:82%;--busy:#1f9d55;--idle:#b9b6ae;--dead:#d03b3b}
-@media(prefers-color-scheme:dark){:root{--fg:#e8e6e0;--bg:#141418;--surface:#1e1e24;--line:#2c2c33;--accent:#7aa2ff;--dim:#8b8892;--sat:48%;--lum:56%;--name:75%;--tint:18%;--edge:32%;--busy:#3ecf7e;--idle:#4d4b52;--dead:#ff6b6b}}
+:root{color-scheme:light dark;--fg:#1a1a1a;--bg:#f7f6f3;--surface:#fff;--line:#e4e2dc;--accent:#1d4ed8;--dim:#8a877f;--sat:55%;--lum:45%;--name:32%;--tint:96%;--edge:82%;--busy:#1f9d55;--idle:#b9b6ae;--dead:#d03b3b;--blocked:#d97706}
+@media(prefers-color-scheme:dark){:root{--fg:#e8e6e0;--bg:#141418;--surface:#1e1e24;--line:#2c2c33;--accent:#7aa2ff;--dim:#8b8892;--sat:48%;--lum:56%;--name:75%;--tint:18%;--edge:32%;--busy:#3ecf7e;--idle:#4d4b52;--dead:#ff6b6b;--blocked:#f0a63a}}
 body{margin:0;font-family:ui-sans-serif,system-ui,-apple-system,"Hiragino Kaku Gothic ProN","Noto Sans JP",sans-serif;font-size:14px;line-height:1.65;color:var(--fg);background:var(--bg)}
 a{color:var(--accent)}
 .brand{display:flex;align-items:center;gap:8px;font-size:15px;font-weight:650;letter-spacing:.01em}
@@ -216,6 +230,7 @@ const UI = room => `<!doctype html><html lang="ja"><head><meta charset="utf-8"><
 .chip .st.busy{background:var(--busy)}
 .chip .st.idle{background:var(--idle)}
 .chip .st.dead{background:var(--dead)}
+.chip .st.blocked{background:var(--blocked)}
 .chip .st.unknown{background:transparent;box-shadow:inset 0 0 0 1.5px var(--dim)}
 .metapop{position:fixed;z-index:20;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:8px 10px;font-size:12px;box-shadow:0 6px 20px rgba(0,0,0,.18);max-width:70vw}
 .metapop .metaname{font-weight:600;margin-bottom:2px}
@@ -228,8 +243,10 @@ const UI = room => `<!doctype html><html lang="ja"><head><meta charset="utf-8"><
 .chip.is-busy .av{animation:seat-working 1.15s ease-in-out infinite;box-shadow:0 0 0 2px color-mix(in srgb,var(--busy) 38%,transparent)}
 .chip.is-busy.pulse .av{animation:seat-working 1.15s ease-in-out infinite,pulse 1.6s ease-out 2}
 .chip.is-busy .st{animation:seat-beat .8s ease-in-out infinite alternate}
+.chip.is-blocked .av{animation:seat-blocked 2.2s ease-in-out infinite}
 @keyframes seat-working{0%,100%{transform:translateY(0) rotate(-2deg)}50%{transform:translateY(-2px) rotate(2deg)}}
 @keyframes seat-beat{from{transform:scale(.78);opacity:.7}to{transform:scale(1.28);opacity:1}}
+@keyframes seat-blocked{0%,100%{opacity:1}50%{opacity:.5}}
 .victory{position:fixed;z-index:30;left:var(--victory-x);top:var(--victory-y);pointer-events:none;color:var(--busy);font-size:13px;font-weight:800;letter-spacing:.03em;text-shadow:0 1px 0 var(--surface);animation:victory-rise 1.45s cubic-bezier(.18,.8,.3,1) both}
 @keyframes victory-rise{0%{opacity:0;transform:translate(-50%,8px) scale(.75)}18%{opacity:1;transform:translate(-50%,-7px) scale(1.08)}72%{opacity:1;transform:translate(-50%,-15px) scale(1)}100%{opacity:0;transform:translate(-50%,-27px) scale(.92)}}
 @keyframes pulse{from{box-shadow:0 0 0 0 hsl(var(--h) var(--sat) var(--lum)/.6)}to{box-shadow:0 0 0 9px hsl(var(--h) var(--sat) var(--lum)/0)}}
@@ -238,7 +255,10 @@ const UI = room => `<!doctype html><html lang="ja"><head><meta charset="utf-8"><
 .msg.flow,.sys.flow{animation:message-flow .36s cubic-bezier(.22,1,.36,1) both}
 @keyframes message-flow{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
 @media (prefers-reduced-motion:reduce){.msg.flow,.sys.flow{animation:none}}
-@media (prefers-reduced-motion:reduce){.chip.is-busy .av,.chip.is-busy .st,.victory{animation:none}}
+@media (prefers-reduced-motion:reduce){.chip.is-busy .av,.chip.is-busy .st,.chip.is-blocked .av,.victory{animation:none}}
+.bubble.reveal>*{animation:block-in .32s cubic-bezier(.22,1,.36,1) both}
+@keyframes block-in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+@media (prefers-reduced-motion:reduce){.bubble.reveal>*{animation:none}}
 .msg.cont{margin-top:-8px}.msg.cont .av{visibility:hidden;height:0}.msg.cont .meta{display:none}
 .msg .body{min-width:0;max-width:100%}
 .meta{display:flex;align-items:baseline;gap:7px;flex-wrap:wrap;margin:0 0 3px 2px;font-size:12px}
@@ -364,17 +384,19 @@ async function refreshMembers(){
   for(const m of r.members){
     const c=el('span','chip'+(m.name===recent?' recent':''))
     c.style.setProperty('--h',hue(m.name));c.dataset.name=m.name
-    // 素性は任意欄。名乗っていない席は行ごと出ない（空欄を「不明」として見せない）
-    const meta=[m.model&&(m.vendor?m.vendor+' / '+m.model:m.model),m.effort&&('effort '+m.effort)].filter(Boolean)
+    // 素性は任意欄。名乗っていない席は行ごと出ない（空欄を「不明」として見せない）。
+    // vendor/model/effort を1行へ畳む（launch-seat.sh:108 の着席ログと読み口を揃える。effort の語は出さない）
+    const idParts=[m.vendor,m.model,m.effort].filter(Boolean)
+    const meta=[idParts.length?idParts.join(' / '):null].filter(Boolean)
     // 稼働状態は**報告が新しい時だけ**採る。途絶えたら unknown へ落とす——古い状態を出し続けるのが
     // いちばん悪い（動いていない席を「動いている」と見せる）。閾値は bridge の心拍30秒の3倍
     const age=m.status_at?Date.now()-Date.parse(m.status_at):Infinity
     const st=(m.status&&age<STATUS_STALE_MS)?m.status:(m.status?'unknown':null)
     if(st)c.classList.add('is-'+st)
-    if(st)meta.push('状態 '+({busy:'作業中',idle:'待機',dead:'停止',unknown:'不明（報告が途絶えている）'}[st]??st))
+    if(st)meta.push('状態 '+({busy:'作業中',idle:'待機',dead:'停止',blocked:'承認待ち',unknown:'不明(報告が途絶えている)'}[st]??st))
     const usage=[]
     const busyAge=m.busy_since?Date.now()-Date.parse(m.busy_since):NaN
-    if(st==='busy'&&Number.isFinite(busyAge)&&busyAge>=0)usage.push('継続 '+elapsed(busyAge))
+    if((st==='busy'||st==='blocked')&&Number.isFinite(busyAge)&&busyAge>=0)usage.push('継続 '+elapsed(busyAge))
     if(Number.isSafeInteger(m.pane_token_hint)&&m.pane_token_hint>=0)usage.push(compactCount(m.pane_token_hint)+' tokens')
     if(usage.length)meta.push('消費目安 '+usage.join(' / ')+'（pane観測）')
     c.title=m.name+'（参加 '+new Date(m.joined_at).toLocaleString()+'）'+(meta.length?'\\n'+meta.join('\\n'):'')
@@ -429,14 +451,19 @@ function celebrate(name){
 }
 const BEAT=${HEARTBEAT_MS}
 const STATUS_STALE_MS=90000 // 稼働状態の鮮度。これを過ぎた報告は unknown（bridge 心拍30秒の3倍）
-let lastSeq=0,lastBeat=Date.now(),es=null,emptyEl=null,firstLoad=true,catching=false
+let lastSeq=0,lastBeat=Date.now(),es=null,emptyEl=null,firstLoad=true,catching=false,memberDebounce=null
 // seq で二重描画を弾く。張り直し後の追いつきと SSE の新着が重なっても同じ発言は1回しか出ない
 function apply(m,live=false){
   if(m.seq<=lastSeq)return false
   lastSeq=m.seq
   if(emptyEl){emptyEl.remove();emptyEl=null}
   const row=render(m)
-  if(live)row.classList.add('flow')
+  if(live){
+    row.classList.add('flow')
+    // ライブ新着だけ、バブル内の各ブロックへ順に出現アニメを当てる。実際の生成とは同期しない単なる演出
+    const bub=row.querySelector('.bubble')
+    if(bub){bub.classList.add('reveal');[...bub.children].forEach((c,i)=>{c.style.animationDelay=(Math.min(i,8)*90)+'ms'})}
+  }
   if(m.from!=='system')recent=m.from
   return true
 }
@@ -462,6 +489,8 @@ function connect(){
   // 心拍は room の最新 seq を積んでくる。繋がったまま取りこぼした（＝途絶しないので watchdog が気づけない）
   // 場合は、この差分だけが手掛かりになる
   es.addEventListener('ping',e=>{lastBeat=Date.now();if(Number(e.data)>lastSeq)catchUp()})
+  // 稼働状態・素性の変化。既存の refreshMembers() を150msデバウンスで呼ぶ（部分更新は実装しない）
+  es.addEventListener('member',()=>{clearTimeout(memberDebounce);memberDebounce=setTimeout(refreshMembers,150)})
   es.onmessage=e=>{
     lastBeat=Date.now()
     const m=JSON.parse(e.data),stick=nearBottom()
