@@ -25,10 +25,18 @@ session="peertable-${name}-${room}"
 # 起動したと言う」＝この supervisor が塞ぐはずの穴そのものになる。
 rm -f "$record"
 : > "$log"
+# **手渡された env を常駐へ渡す。** 新しい session が継ぐのは tmux *server* の環境であって
+# 呼び出し元 client の環境ではないので、素で起こすと `PEERTABLE_TMUX_SOCKET` の手渡しが黙って消え、
+# 常駐が別の socket（本番の既定）を観測しにいく（2026-08-11 実測）。決定73 と同じ形の裏返しである。
+env_prefix=""
+for v in PEERTABLE_TMUX_SOCKET PEERTABLE_POST_TOKEN PEERTABLE_URL; do
+  eval "val=\${$v:-}"
+  [ -n "$val" ] && env_prefix="$env_prefix $v=$(printf '%q' "$val")"
+done
 # **session が在るだけでは常駐が生きている証拠にならない**（中の node だけ死んで殻が残る）。
 # 上で pid 生存を確かめて here まで来た＝生きていないので、殻は畳んでから立て直す。
 tmux -S "$sock" kill-session -t "$session" 2>/dev/null || true
-tmux -S "$sock" new-session -d -s "$session" "node $(dirname "$0")/$script $(printf '%q ' "$proj" "$@") >> $(printf '%q' "$log") 2>&1"
+tmux -S "$sock" new-session -d -s "$session" "env${env_prefix} node $(dirname "$0")/$script $(printf '%q ' "$proj" "$@") >> $(printf '%q' "$log") 2>&1"
 for _ in $(seq 1 30); do
   if [ -f "$record" ] && node -e 'process.exit(require(process.argv[1]).ready_at?0:1)' "$record"; then
     # **末尾は本物の改行にする。** `"\\n"` と書くと JS がリテラルの `\`+`n` を足し、
