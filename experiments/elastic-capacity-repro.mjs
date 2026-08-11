@@ -207,10 +207,26 @@ const workerLostAfterConvergence = capacityProjection({
   members: [member('bell', null), member('idle-a', 'busy'), member('idle-b', 'busy'), member('new-a', 'busy')],
   previous: reachedTarget.state,
 })
-check('target到達途中は残数launchを重複要求せず、収束後の席喪失だけ再要求する', () => {
+const baselineAtTarget = capacityProjection({
+  todoStatus: status({ ready: ['r1', 'r2', 'r3', 'r4'] }),
+  members: [member('bell', null), member('a', 'busy'), member('b', 'busy'), member('c', 'busy'), member('d', 'busy')],
+})
+const baselineWorkerLost = capacityProjection({
+  todoStatus: status({ ready: ['r1', 'r2', 'r3', 'r4'] }),
+  members: [member('bell', null), member('a', 'busy'), member('b', 'busy'), member('c', 'busy')],
+  previous: baselineAtTarget.state,
+})
+const frontierGrewAfterNoClaim = capacityProjection({
+  todoStatus: status({ ready: ['r1', 'r2', 'r3', 'r4', 'r5'] }),
+  members: [member('bell', null), member('idle-a', 'busy'), member('idle-b', 'busy'), member('new-a', 'busy')],
+  previous: workerLostAfterConvergence.state,
+})
+check('launch wave中と無仕事退席では再要求せず、未通知の席喪失とfrontier増加だけ起動する', () => {
   assert.equal(firstLaunchedWorker.event, null)
   assert.equal(reachedTarget.event, null)
-  assert.equal(workerLostAfterConvergence.event?.launch_count, 1)
+  assert.equal(workerLostAfterConvergence.event, null)
+  assert.equal(baselineWorkerLost.event?.launch_count, 1)
+  assert.equal(frontierGrewAfterNoClaim.event?.launch_count, 2)
 })
 
 const ownerlessActive = capacityProjection({

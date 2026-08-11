@@ -157,10 +157,15 @@ export function capacityProjection({ todoStatus, members, parentName = 'bell', p
   const newReclaimWorkers = reclaimWorkers.filter(name => !notifiedReclaim.includes(name))
   state.reclaim_notified = [...new Set([...notifiedReclaim, ...reclaimWorkers])].sort()
 
-  const launchAlreadyNotified = launchCount > 0
-    && previous?.launch_notified_target === target
+  // 一度増員してtargetへ達したあと、新席が「claim可能なし」で正規退席しても、
+  // 同じfrontierを不足として再起動し続けない。launch済みtargetはfrontierが
+  // 変わるまで保持し、新しい作業面が開いた時だけ次のlaunch waveを許す。
+  const carriedLaunchTarget = previous?.target === target
+    ? (previous.launch_notified_target ?? null)
+    : null
+  const launchAlreadyNotified = launchCount > 0 && carriedLaunchTarget === target
   const launchTriggered = launchCount > 0 && !launchAlreadyNotified
-  state.launch_notified_target = launchCount > 0 ? target : null
+  state.launch_notified_target = launchTriggered ? target : carriedLaunchTarget
   state.action = actionFor(state)
   state.next_operation = nextOperation(state)
 
