@@ -6,7 +6,7 @@
 #   brief:  着席が成立したら送る着任指示（省略時は送らない）
 #
 # room 名・server URL・モード・plan key は <project>/.team/setup-state.json から読む（setup.sh の後に呼ぶ）。
-# 書込トークンは環境変数 PEERTABLE_POST_TOKEN、無ければ ~/.config/peertable.env から取る。
+# 書込トークンは helper が ~/.config/peertable.env から席別 0600 file へ移し、pathだけを席へ渡す。
 # tmux は aiterm-mcp と同じソケットへ作るので、立てた席はそのまま pty_read / pty_send で読める。
 set -e
 proj="$1"; name="$2"; model="$3"; vendor="$4"; effort="$5"; brief="$6"
@@ -19,6 +19,15 @@ if [ "$vendor" = "claude" ]; then
     *) echo "unknown effort: ${effort}（claude は low|medium|high|xhigh|max）" >&2; exit 1 ;;
   esac
 fi
+
+# 呼出元が古い手順でtokenをexportしていても、preflight・tmux・model CLIへ継承しない。
+# 値の解決はcredential helperだけが設定fileから行う。env/argvへのfallbackは持たない。
+unset PEERTABLE_POST_TOKEN
+credential_helper="${PEERTABLE_CREDENTIAL_HELPER:-$(dirname "$0")/seat-credential.mjs}"
+peertable_repo=$(cd "$(dirname "$0")/../.." && pwd -P)
+peertable_client="$peertable_repo/room/client.mjs"
+credential_file=""
+credential_persist=false
 
 # brief は tmux のコマンド引数へ直接載せない。長さを着席前に検証してから一時 file へ置き、
 # tmux の buffer 経由で貼る。入力を受理できない時は model preflight・tmux・member 登録を
@@ -69,16 +78,11 @@ rollback_brief() {
       rollback_failed=1
       echo "LAUNCH_BRIEF_ROLLBACK_FAILED: member 名を URL 化できない: ${name}" >&2
     else
-      member_code=$(curl -s -o /dev/null -w '%{http_code}' -X DELETE \
-        "$url/api/$room/members/$encoded_name" \
-        -H "X-Peertable-Token: ${PEERTABLE_POST_TOKEN:-}" || printf '000')
-      case "$member_code" in
-        2??) ;;
-        *)
-          rollback_failed=1
-          echo "LAUNCH_BRIEF_ROLLBACK_FAILED: room member を解除できない: HTTP ${member_code}" >&2
-          ;;
-      esac
+      if ! env -u PEERTABLE_POST_TOKEN node "$credential_helper" request "$credential_file" DELETE \
+        "$url/api/$room/members/$encoded_name" >/dev/null; then
+        rollback_failed=1
+        echo "LAUNCH_BRIEF_ROLLBACK_FAILED: room member を解除できない" >&2
+      fi
       listing=$(curl -sf "$url/api/$room/members" || true)
       if ! printf '%s' "$listing" | python3 -c 'import json,sys; name=sys.argv[1]; members=json.load(sys.stdin).get("members",[]); raise SystemExit(0 if not any(m.get("name") == name for m in members) else 1)' "$name"; then
         rollback_failed=1
@@ -109,6 +113,12 @@ on_exit() {
     else
       rollback_rc=$?
       [ "$exit_rc" -eq 0 ] && exit_rc="$rollback_rc"
+    fi
+  fi
+  if [ -n "$credential_file" ] && [ "$credential_persist" != true ]; then
+    if ! env -u PEERTABLE_POST_TOKEN node "$credential_helper" remove "$proj" "$credential_file"; then
+      echo "SEAT_CREDENTIAL_ROLLBACK_FAILED: ${credential_file}" >&2
+      [ "$exit_rc" -eq 0 ] && exit_rc=1
     fi
   fi
   exit "$exit_rc"
@@ -184,8 +194,9 @@ EOF
 # 無い卓（旧 setup-state）では空になり、席は既定どおり `lattice` を使う。
 lattice_cli=$(python3 -c "import json;print(json.load(open('$state')).get('lattice_cli') or '')")
 
-if [ -z "${PEERTABLE_POST_TOKEN:-}" ] && [ -f "$HOME/.config/peertable.env" ]; then
-  . "$HOME/.config/peertable.env"
+if ! credential_file=$(env -u PEERTABLE_POST_TOKEN node "$credential_helper" prepare "$proj" "$room" "$name"); then
+  echo "SEAT_CREDENTIAL_PREPARE_FAILED: 席別credentialを用意できない（席は立てない）" >&2
+  exit 1
 fi
 
 # 前の卓の残骸を回収してから立てる（同名セッションが残ると起動が黙って古い席に化ける）
@@ -203,7 +214,8 @@ seat_tmux=$(tmux -S "$sock" display-message -p -t "$sess" '#{socket_path}')
 seat_tmux_pane=$(tmux -S "$sock" display-message -p -t "$sess" '#{pane_id}')
 
 # 素性は席の env にも入れる。client が**登録のたびに**載せるので、member の状態が失われても戻る
-env_line="export PEERTABLE_URL=$url PEERTABLE_ROOM=$room PEERTABLE_MEMBER=$name PEERTABLE_POST_TOKEN=$PEERTABLE_POST_TOKEN"
+credential_shell=$(printf '%q' "$credential_file")
+env_line="export PEERTABLE_URL=$url PEERTABLE_ROOM=$room PEERTABLE_MEMBER=$name PEERTABLE_CREDENTIAL_FILE=$credential_shell"
 env_line="$env_line PEERTABLE_VENDOR=$vendor PEERTABLE_MODEL=$model"
 [ -n "$effort" ] && env_line="$env_line PEERTABLE_EFFORT=$effort"
 if [ "$mode" = "lattice" ]; then
@@ -223,12 +235,13 @@ case "$vendor" in
     # Codex には channels が無いので room は stdio MCP として差す。
     # `[mcp_servers.X.env]` は closed mode（親 env を継がない）ので全変数を明示列挙する
     # （caveat `codex-cli-v0-130-0-mcp-servers-x-env-block-is-closed-mode-parent-env-not-inherited`）。
-    envtbl="PATH=\\\"$PATH\\\",PEERTABLE_URL=\\\"$url\\\",PEERTABLE_ROOM=\\\"$room\\\",PEERTABLE_MEMBER=\\\"$name\\\",PEERTABLE_POST_TOKEN=\\\"$PEERTABLE_POST_TOKEN\\\",TMUX=\\\"$seat_tmux\\\",TMUX_PANE=\\\"$seat_tmux_pane\\\""
+    envtbl="PATH=\\\"$PATH\\\",PEERTABLE_URL=\\\"$url\\\",PEERTABLE_ROOM=\\\"$room\\\",PEERTABLE_MEMBER=\\\"$name\\\",PEERTABLE_CREDENTIAL_FILE=\\\"$credential_file\\\",TMUX=\\\"$seat_tmux\\\",TMUX_PANE=\\\"$seat_tmux_pane\\\""
     cmd="codex --model $model -C $proj --dangerously-bypass-approvals-and-sandbox"
     # Codexのeffortは環境変数だけでは適用されない。member metadataへ表示する値と、
     # 実際の推論設定を同じ引数から渡して食い違わせない。
     [ -n "$effort" ] && cmd="$cmd -c 'model_reasoning_effort=\"$effort\"'"
-    cmd="$cmd -c 'mcp_servers.room.command=\"peertable-client\"'"
+    cmd="$cmd -c 'mcp_servers.room.command=\"node\"'"
+    cmd="$cmd -c 'mcp_servers.room.args=[\"$peertable_client\"]'"
     cmd="$cmd -c \"mcp_servers.room.env={$envtbl}\""
     ;;
   # 変数展開の直後に全角括弧を置かない（bash が高位バイトを変数名の一部として食い、
@@ -348,8 +361,7 @@ fi
 #
 # 持たせるのは6欄だけで、**`lattice.pull_worker_attach_input.v1` の exact 集合から `schema` を
 # 除いたもの**と一致する。席は読んで `schema` を被せるだけで attach input になる（変換不要）。
-# **raw argv を持たせない**——Codex 起動の argv には `PEERTABLE_POST_TOKEN` が載るので、
-# 保存すれば秘密の複製になる（2026-08-09 実測）。digest だけを持つ。
+# **raw argv を持たせない**——秘密値はargvから除いたが、将来の引数も含めて複製しない。digest だけを持つ。
 # この file が主張するのは「この pid はこの席だった」という**識別**であって、生死ではない。
 # 生きているかは attach する側（Lattice）が lstart+argv の再観測で確かめる。
 seat_pid=""
@@ -423,8 +435,8 @@ if effort:
 print(json.dumps(body))
 PY
 )
-if curl -sf -o /dev/null -X POST "$url/api/$room/members" \
-    -H "X-Peertable-Token: ${PEERTABLE_POST_TOKEN:-}" -H 'content-type: application/json' -d "$meta"; then
+if env -u PEERTABLE_POST_TOKEN node "$credential_helper" request "$credential_file" POST \
+    "$url/api/$room/members" "$meta" >/dev/null; then
   # **200 は保存の証拠にならない**。素性欄を知らない server も 200 {"ok":true} を返して黙って捨てる
   # （登録が `if (!members.has(name))` の no-op になる経路もある）。読み返して実際に載ったかを見る。
   # **パイプと heredoc を同じ stdin へ重ねない**。`curl | python3 - <<'PY'` は
@@ -458,6 +470,7 @@ else
   echo "seat-status-bridge の起動確認に失敗した（席は着席済み）" >&2
 fi
 
+credential_persist=true
 if [ "$brief_not_ready" = true ]; then
   # 空席の後段セットアップ（identity / metadata / bridge）まで済ませたうえで、
   # 呼び出し側にはready未確認を非0で返す。席はAiterm手動dispatchへ引き継ぐ。

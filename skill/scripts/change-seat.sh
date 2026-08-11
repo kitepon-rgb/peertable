@@ -14,6 +14,10 @@
 # vendor 変更は対象外（vendor を跨ぐと席の入口・MCP配線ごと別物になる）。
 set -eu
 
+# token値はこの制御processや再起動する席へ継承しない。launch後のroom記録も席別file経由で行う。
+unset PEERTABLE_POST_TOKEN
+credential_helper="${PEERTABLE_CREDENTIAL_HELPER:-$(dirname "$0")/seat-credential.mjs}"
+
 proj="${1:-}"; name="${2:-}"
 shift 2 2>/dev/null || true
 opt_model=""; opt_effort=""; parent="bell"; reason=""
@@ -44,11 +48,6 @@ state="$proj/.team/setup-state.json"
 read -r room url <<EOF
 $(python3 -c "import json;d=json.load(open('$state'));print(d['room'],d['server_url'])")
 EOF
-
-if [ -z "${PEERTABLE_POST_TOKEN:-}" ] && [ -f "$HOME/.config/peertable.env" ]; then
-  . "$HOME/.config/peertable.env"
-fi
-[ -n "${PEERTABLE_POST_TOKEN:-}" ] || { echo "SEAT_CHANGE_TOKEN_MISSING" >&2; exit 1; }
 
 members=$(curl -sf "$url/api/$room/members") || {
   echo "SEAT_CHANGE_ROOM_UNREACHABLE: membersを読めない" >&2; exit 1;
@@ -174,8 +173,9 @@ fi
 body="[席設定変更] ${parent} が ${name} の ${changes} に変更（席を再起動）"
 [ -z "$reason" ] || body="${body}。理由: ${reason}"
 history=$(python3 -c 'import json,sys;print(json.dumps({"from":sys.argv[1],"to":sys.argv[2],"body":sys.argv[3]},ensure_ascii=False))' "$parent" "$name" "$body")
-if ! curl -sf -o /dev/null -X POST "$url/api/$room/messages" \
-  -H "X-Peertable-Token: $PEERTABLE_POST_TOKEN" -H 'content-type: application/json' -d "$history"; then
+credential_file=$(env -u PEERTABLE_POST_TOKEN node "$credential_helper" path "$proj" "$room" "$name")
+if ! env -u PEERTABLE_POST_TOKEN node "$credential_helper" request "$credential_file" POST \
+  "$url/api/$room/messages" "$history" >/dev/null; then
   echo "SEAT_CHANGE_CHANGED_BUT_HISTORY_FAILED: ${name} は ${changes} で再着席済み、room履歴の記録に失敗" >&2
   exit 1
 fi

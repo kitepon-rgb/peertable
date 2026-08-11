@@ -23,6 +23,8 @@ const deadModels = join(root, 'dead-models')
 
 await mkdir(join(project, '.team'), { recursive: true })
 await mkdir(bin)
+await mkdir(join(root, '.config'))
+await writeFile(join(root, '.config/peertable.env'), 'export PEERTABLE_POST_TOKEN=fixture-token\n')
 await writeFile(join(project, '.team/setup-state.json'), JSON.stringify({
   room: 'fixture', server_url: 'http://127.0.0.1:1', mode: 'team', plan_key: null,
 }) + '\n')
@@ -63,7 +65,7 @@ await writeFile(deadModels, 'fable-5\ngpt-9-nonexistent\n')
 const env = {
   ...process.env,
   PATH: `${bin}:${process.env.PATH}`,
-  PEERTABLE_POST_TOKEN: 'test-token',
+  HOME: root,
   TMUX_LOG: tmuxLog,
   DEAD_MODELS: deadModels,
 }

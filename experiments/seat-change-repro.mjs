@@ -24,6 +24,7 @@ const data = join(root, 'data')
 const screen = join(root, 'screen.txt')
 const launchLog = join(root, 'launch.log')
 const failModel = join(root, 'fail-model')
+const credentialHelper = join(root, 'seat-credential.mjs')
 const port = 19200 + Math.floor(Math.random() * 500)
 const base = `http://127.0.0.1:${port}`
 const token = 'test-token'
@@ -71,7 +72,15 @@ if [ -f "$FAIL_MODEL" ] && [ "$3" = "$(cat "$FAIL_MODEL")" ]; then exit 9; fi
 effort="$5"
 [ -n "\${STALE_META:-}" ] && effort="\$STALE_META"
 payload=$(python3 -c 'import json,sys;print(json.dumps({"name":sys.argv[1],"vendor":sys.argv[2],"model":sys.argv[3],"effort":sys.argv[4]}))' "$2" "$4" "$3" "\$effort")
-curl -sf -o /dev/null -X POST "$PEERTABLE_URL/api/fixture/members" -H "X-Peertable-Token: $PEERTABLE_POST_TOKEN" -H 'content-type: application/json' -d "$payload"
+curl -sf -o /dev/null -X POST "$PEERTABLE_URL/api/fixture/members" -H "X-Peertable-Token: ${token}" -H 'content-type: application/json' -d "$payload"
+`)
+await writeFile(credentialHelper, `#!/usr/bin/env node
+const [action, ...args] = process.argv.slice(2)
+if (action === 'path') process.stdout.write(args[0] + '/.team/fixture.token\\n')
+else if (action === 'request') {
+  const response = await fetch(args[2], { method: args[1], headers: { 'content-type': 'application/json', 'X-Peertable-Token': ${JSON.stringify(token)} }, ...(args[3] ? { body: args[3] } : {}) })
+  if (!response.ok) process.exit(1)
+} else process.exit(2)
 `)
 await Promise.all(['tmux', 'claude', 'codex'].map(name => chmod(join(bin, name), 0o755)))
 await chmod(join(scripts, 'launch-seat.sh'), 0o755)
@@ -84,6 +93,7 @@ const env = {
   ...process.env,
   PATH: `${bin}:${process.env.PATH}`,
   PEERTABLE_POST_TOKEN: token,
+  PEERTABLE_CREDENTIAL_HELPER: credentialHelper,
   PEERTABLE_URL: base,
   PEERTABLE_TMUX_SOCKET: join(root, 'tmux.sock'),
   FAKE_SCREEN: screen,

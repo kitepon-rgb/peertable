@@ -32,7 +32,16 @@ if (sub !== undefined) {
 const URL_BASE = process.env.PEERTABLE_URL
 const ROOM = process.env.PEERTABLE_ROOM
 const ME = process.env.PEERTABLE_MEMBER
-const TOKEN = process.env.PEERTABLE_POST_TOKEN ?? null
+const CREDENTIAL_FILE = process.env.PEERTABLE_CREDENTIAL_FILE ?? null
+const TOKEN = (() => {
+  if (!CREDENTIAL_FILE) return process.env.PEERTABLE_POST_TOKEN ?? null
+  let value
+  try { value = readFileSync(CREDENTIAL_FILE, 'utf8').trim() } catch {
+    throw new Error('PEERTABLE_CREDENTIAL_UNREADABLE: credential fileを読めない')
+  }
+  if (!value) throw new Error('PEERTABLE_CREDENTIAL_INVALID: credential fileが空')
+  return value
+})()
 if (!URL_BASE || !ROOM || !ME) throw new Error('PEERTABLE_URL / PEERTABLE_ROOM / PEERTABLE_MEMBER を設定すること')
 
 const api = p => `${URL_BASE}/api/${ROOM}/${p}`

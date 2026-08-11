@@ -27,6 +27,9 @@ const submitMarker = join(root, 'brief-submitted')
 const codexReady = join(root, 'codex-ready')
 const codexUpdateCount = join(root, 'codex-update-count')
 const memberState = join(root, 'member-state')
+const credentialHelper = join(root, 'seat-credential.mjs')
+const credentialSentinel = 'K2_LAUNCH_FIXTURE_SENTINEL_5d915c'
+const fixtureCredential = join(project, '.team', 'credentials', 'fixture.token')
 const legacyLaunch = join(root, 'launch-seat-legacy.sh')
 const fixedLaunch = join(root, 'launch-seat-fixed.sh')
 const rollbackLaunch = join(root, 'launch-seat-rollback.sh')
@@ -45,6 +48,26 @@ await writeFile(join(root, 'tmux-socket.mjs'),
   "process.stdout.write(process.env.PEERTABLE_TMUX_SOCKET || '')\n")
 await writeFile(join(root, 'ensure-bridge.sh'), '#!/bin/bash\nexit 0\n')
 await chmod(join(root, 'ensure-bridge.sh'), 0o755)
+await writeFile(credentialHelper, `#!/usr/bin/env node
+import { chmodSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+const [action, ...args] = process.argv.slice(2)
+const credential = project => join(project, '.team', 'credentials', 'fixture.token')
+if (action === 'prepare') {
+  const path = credential(args[0]); mkdirSync(join(args[0], '.team', 'credentials'), { recursive: true, mode: 0o700 })
+  chmodSync(join(args[0], '.team', 'credentials'), 0o700); writeFileSync(path, ${JSON.stringify(credentialSentinel + '\n')}, { mode: 0o600 }); console.log(path)
+} else if (action === 'path') console.log(credential(args[0]))
+else if (action === 'remove') rmSync(args[1], { force: true })
+else if (action === 'request') {
+  const method = args[1], url = args[2]
+  if (url.includes('/members')) {
+    if (method === 'DELETE') rmSync(process.env.MEMBER_STATE, { force: true })
+    if (method === 'POST') writeFileSync(process.env.MEMBER_STATE, '')
+  }
+  process.stdout.write('{}')
+} else process.exit(2)
+`)
+await chmod(credentialHelper, 0o755)
 await writeFile(join(root, '.zshrc'),
   'export PATH=' + bin + ':$PATH\nexport SUBMIT_MARKER=' + submitMarker + '\n')
 
@@ -175,7 +198,7 @@ await chmod(legacyLaunch, 0o755)
 const env = {
   ...process.env,
   PATH: `${bin}:${process.env.PATH}`,
-  PEERTABLE_POST_TOKEN: 'test-token',
+  PEERTABLE_CREDENTIAL_HELPER: credentialHelper,
   PEERTABLE_TMUX_SOCKET: tmuxSocket,
   TMUX_LOG: tmuxLog,
   CLAUDE_LOG: claudeLog,
@@ -242,6 +265,15 @@ try {
     assert.equal(Number.parseInt(readFileSync(briefEnterCount, 'utf8'), 10), 1,
       'brief dispatch はexactly-once')
   })
+  check('token値はpane・起動argv相当・launcher出力・seat identityへ出ない', () => {
+    const sessionEnv = spawnSync(realTmux,
+      ['-S', tmuxSocket, 'show-environment', '-t', 'peer-fixture-seat'],
+      { encoding: 'utf8' }).stdout
+    const identityPath = join(project, '.team', 'seats', 'fixture-seat.json')
+    const identity = existsSync(identityPath) ? readFileSync(identityPath, 'utf8') : ''
+    const observed = [result.stdout, result.stderr, fixedScreen, fixedCalls.join('\n'), sessionEnv, identity].join('\n')
+    assert.doesNotMatch(observed, new RegExp(credentialSentinel))
+  })
 
   // 3. ready 判定だけが成立しない実席を再現する。brief未投入の空席は残し、
   // Aiterm の pty_send + Enter で後から dispatch できる状態とする。
@@ -265,6 +297,8 @@ try {
     assert.equal(existsSync(briefEnterCount), false)
     assert.equal(existsSync(join(project, '.team/seats/fixture-seat.json')), true,
       'NOT_READYでも手動dispatch可能なseat identityを残す')
+    assert.equal(existsSync(fixtureCredential), true,
+      'NOT_READYのlive席が読むcredentialを残す')
     assert.match(notReadyResult.stdout, /metadata: codex \/ gpt-5.6-luna/)
   })
 
@@ -291,6 +325,8 @@ try {
     assert.ok(rollbackCalls.some((line) => line.includes('kill-session')))
     assert.equal(existsSync(memberState), false)
     assert.equal(existsSync(join(project, '.team/seats/fixture-seat.json')), false)
+    assert.equal(existsSync(fixtureCredential), false,
+      '起動rollbackで対象席credentialを残さない')
   })
 
   // 5. 上限超過は着席前に typed reject し、副作用をゼロにする。
