@@ -23,7 +23,9 @@ if (!config || typeof config !== 'object' || Array.isArray(config))
   fail('SEAT_ROOM_MCP_INVALID', `${file} のrootがobjectでない`)
 const expected = { command: 'node', args: [resolve(peertableRepo, 'room', 'client.mjs')] }
 const current = config?.mcpServers?.room
-if (current?.command === expected.command
+if (current && typeof current === 'object' && !Array.isArray(current)
+    && Object.keys(current).sort().join(',') === 'args,command'
+    && current.command === expected.command
     && Array.isArray(current.args)
     && current.args.length === 1
     && current.args[0] === expected.args[0]) process.exit(0)

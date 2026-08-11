@@ -60,11 +60,27 @@ rollback_brief() {
   local encoded_name member_code listing
 
   if [ -n "$sock" ] && [ -n "$sess" ] && [ "$seat_created" = true ]; then
-    tmux -S "$sock" kill-session -t "$sess" 2>/dev/null || true
     if tmux -S "$sock" has-session -t "$sess" 2>/dev/null; then
+      if ! tmux -S "$sock" kill-session -t "$sess" 2>/dev/null; then
+        rollback_failed=1
+        echo "LAUNCH_BRIEF_ROLLBACK_FAILED: tmux session を停止できない: ${sess}" >&2
+      elif tmux -S "$sock" has-session -t "$sess" 2>/dev/null; then
+        rollback_failed=1
+        echo "LAUNCH_BRIEF_ROLLBACK_FAILED: tmux session が停止後も残っている: ${sess}" >&2
+      fi
+    elif tmux -S "$sock" list-sessions >/dev/null 2>&1; then
+      : # serverへ到達でき、対象sessionが無い
+    elif [ -S "$sock" ]; then
       rollback_failed=1
-      echo "LAUNCH_BRIEF_ROLLBACK_FAILED: tmux session を撤去できない: ${sess}" >&2
+      echo "LAUNCH_BRIEF_ROLLBACK_FAILED: tmux session を観測できない: ${sess}" >&2
     fi
+  fi
+
+  if [ "$rollback_failed" -ne 0 ]; then
+    # live clientを止めたと確認できない時は、member/identity/credentialを先に消して
+    # rollback済みに見せない。credential cleanupはon_exitにもさせない。
+    credential_persist=true
+    return 1
   fi
 
   if [ -n "$seat_file" ] && [ -e "$seat_file" ]; then
@@ -107,7 +123,7 @@ on_exit() {
   local rollback_rc
   trap - EXIT
   cleanup_brief
-  if [ "$seat_created" = true ] && [ -n "$brief" ] && [ "$brief_completed" != true ] && [ "$brief_not_ready" != true ] && [ "$rollback_done" != true ]; then
+  if [ "$seat_created" = true ] && [ "$brief_completed" != true ] && [ "$brief_not_ready" != true ] && [ "$rollback_done" != true ]; then
     rollback_done=true
     if rollback_brief "$exit_rc"; then
       :
@@ -481,6 +497,7 @@ else
   echo "seat-status-bridge の起動確認に失敗した（席は着席済み）" >&2
 fi
 
+if [ -z "$brief" ]; then brief_completed=true; fi
 credential_persist=true
 if [ "$brief_not_ready" = true ]; then
   # 空席の後段セットアップ（identity / metadata / bridge）まで済ませたうえで、

@@ -74,6 +74,9 @@ await writeFile(join(root, '.zshrc'),
 // 長い send-keys だけを旧版の失敗として再現し、それ以外は実 tmux へ渡す。
 await writeFile(join(bin, 'tmux'), `#!/bin/bash
 real_tmux=${JSON.stringify(realTmux)}
+if [ "\${TMUX_ROLLBACK_UNREADABLE:-0}" = 1 ]; then
+  case "$3" in has-session|list-sessions|kill-session) exit 1 ;; esac
+fi
 for arg in "$@"; do
   if [ "\$arg" = "send-keys" ]; then
     for value in "$@"; do
@@ -328,6 +331,30 @@ try {
     assert.equal(existsSync(fixtureCredential), false,
       '起動rollbackで対象席credentialを残さない')
   })
+
+  // sessionを停止確認できない時は、live clientの観測面とcredentialを先に消して成功へ丸めない。
+  spawnSync(realTmux, ['-S', tmuxSocket, 'kill-server'], { stdio: 'ignore' })
+  await rm(codexReady, { force: true })
+  await rm(briefPasted, { force: true })
+  await rm(briefEnterCount, { force: true })
+  await rm(submitMarker, { force: true })
+  await rm(memberState, { force: true })
+  const unreadableRollback = run(rollbackLaunch, longBrief, 'codex', {
+    NO_TURN: '1', TMUX_ROLLBACK_UNREADABLE: '1',
+  })
+  const liveAfterRefusal = spawnSync(realTmux,
+    ['-S', tmuxSocket, 'has-session', '-t', 'peer-fixture-seat'], { stdio: 'ignore' })
+  check('rollbackでsession観測不能なら後段を消さずtyped failureにする', () => {
+    assert.notEqual(unreadableRollback.status, 0)
+    assert.match(unreadableRollback.stderr, /LAUNCH_BRIEF_ROLLBACK_FAILED: tmux session を観測できない/)
+    assert.doesNotMatch(unreadableRollback.stderr, /LAUNCH_BRIEF_ROLLED_BACK/)
+    assert.equal(liveAfterRefusal.status, 0, '観測不能を再現したlive sessionが消えている')
+    assert.equal(existsSync(memberState), true, 'session未停止なのにmemberを先に消した')
+    assert.equal(existsSync(fixtureCredential), true, 'session未停止なのにcredentialを先に消した')
+  })
+  spawnSync(realTmux, ['-S', tmuxSocket, 'kill-session', '-t', 'peer-fixture-seat'], { stdio: 'ignore' })
+  await rm(memberState, { force: true })
+  await rm(fixtureCredential, { force: true })
 
   // 5. 上限超過は着席前に typed reject し、副作用をゼロにする。
   spawnSync(realTmux, ['-S', tmuxSocket, 'kill-server'], { stdio: 'ignore' })

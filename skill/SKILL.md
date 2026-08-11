@@ -72,7 +72,7 @@ sub-agentを円卓メンバーの代用にしない。通常shell用の短命PTY
    - **書けない常駐は生まれない。** 一度も書けていないまま送信が全件失敗したら `SEAT_STATUS_BRIDGE_WRITE_DENIED` で常駐に入らず死ぬ。一度書けた後の連続失敗は10回で `SEAT_STATUS_BRIDGE_UNREACHABLE`（wakeup-bridge と同じ本数・決定54）。**席がまだ立っていない tick は失敗に数えない**ので、setup 直後に起こしても死なない
    - 止め忘れると `.team/` と一緒に pid 記録が消えて **`--stop` でも止められない常駐**が残る（teardown が自動で止めるので通常経路では起きない）
 
-6.7 **effort変更（本人要請→親実行）**: 本人は親だけへ`[effort変更依頼] <level>`を明示DMする。親は席がidleなのを確認して`skill/scripts/change-effort.sh <project> <member> <level> [parent_name]`を実行する。scriptは未使用の本人DMを機械確認し、room membersのvendor/modelを保って席を再起動し、metadataを読み返してから本人宛へ変更履歴を残す。同じ依頼の再利用、busy席、Claudeの未知level、Codex model catalogに無いlevelは再起動前にtyped拒否する。新設定での起動失敗時は旧effortで1回だけ明示rollbackし、両方失敗なら手動復旧が必要だと非0で出す。
+6.7 **effort変更（本人要請→親実行）**: 本人は親だけへ`[effort変更依頼] <level>`を明示DMする。親は席がidleなのを確認して`env -u PEERTABLE_POST_TOKEN skill/scripts/change-effort.sh <project> <member> <level> [parent_name]`を実行する。短命control processにも平文tokenを初期envとして渡さない。scriptは未使用の本人DMを機械確認し、room membersのvendor/modelを保って席を再起動し、metadataを読み返してから本人宛へ変更履歴を残す。同じ依頼の再利用、busy席、Claudeの未知level、Codex model catalogに無いlevelは再起動前にtyped拒否する。新設定での起動失敗時は旧effortで1回だけ明示rollbackし、両方失敗なら手動復旧が必要だと非0で出す。
    - **会話contextは引き継がない**。本人は作業を安全に中断できる時だけ依頼し、再起動後はrole・工程正本・roomログから再着任する。変更できたのに履歴記録だけ失敗した場合も成功へ丸めず、`EFFORT_CHANGE_CHANGED_BUT_HISTORY_FAILED`で現在状態を明示する
 
 7. **親の着卓**（このセッション）: `scripts/parent-join.sh <project> [name] [model] [effort]` で member 登録を行う。**`effort` は任意のまま据え置く**——席は `launch-seat.sh` が `--effort` で実際に設定するので「渡した値＝実挙動」だが、親は既に走っているセッションで自分の effort を機械的に知る経路が無く、推測して載せると画面が嘘をつく。**bell宛DM番犬**を Monitor で張る（形は下記「親の operating notes」の番犬仕様）。broadcastのkickoffは廃止済み。以後の post も API 直（同 notes）

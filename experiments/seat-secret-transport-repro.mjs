@@ -100,7 +100,10 @@ try {
   mkdirSync(managedMcpProject)
   const managedMcp = join(managedMcpProject, '.mcp.json')
   writeFileSync(managedMcp, JSON.stringify({
-    mcpServers: { room: { command: 'peertable-client', args: [] }, other: { command: 'other' } },
+    mcpServers: {
+      room: { command: 'node', args: [CLIENT], env: { PEERTABLE_POST_TOKEN: TOKEN } },
+      other: { command: 'other' },
+    },
   }) + '\n')
   const syncedMcp = await run(process.execPath, [MCP_HELPER, managedMcpProject, REPO, 'managed'], cleanEnv)
   assert.equal(syncedMcp.code, 0, syncedMcp.stderr)
@@ -111,7 +114,9 @@ try {
   const preexistingMcpProject = join(root, 'preexisting-mcp')
   mkdirSync(preexistingMcpProject)
   const preexistingMcp = join(preexistingMcpProject, '.mcp.json')
-  const staleMcp = '{"mcpServers":{"room":{"command":"peertable-client","args":[]}}}\n'
+  const staleMcp = `${JSON.stringify({
+    mcpServers: { room: { command: 'node', args: [CLIENT], env: { PEERTABLE_POST_TOKEN: TOKEN } } },
+  })}\n`
   writeFileSync(preexistingMcp, staleMcp)
   const refusedMcp = await run(process.execPath, [MCP_HELPER, preexistingMcpProject, REPO, 'preexisting'], cleanEnv)
   assert.notEqual(refusedMcp.code, 0, '既存mcpを無断更新した')
