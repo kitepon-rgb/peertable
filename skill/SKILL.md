@@ -25,6 +25,19 @@ description: 任意プロジェクトに Peertable チーム（対等メンバ�
   - **本番のコネクタを検証のために外さない。** 「外すと痕跡ゼロで戻る」ことの確認は**使い捨ての project** でやる。**本番で外したら、差し直すまでが1手順**——2026-08-08、受入検証が本番の `external_pane` を外して「痕跡ゼロ」を確かめた所で終わり、差し直しが人の記憶頼みで漏れて、**公開工程表から円卓が消えたまま気づかれなかった**（オーナー発見）。外した状態は**画面から何も言ってこない**（そういう仕様なので正しい）
   - 気づく仕掛けとして、`done.sh` が **卓が Lattice 併用モードなのに `external_pane` が無い時に1行警告**する。出すだけで止めない
 
+## Peertableの正規席と委譲入口
+
+Peertableのメンバー席は、aiterm-mcpの外部PTYに長寿命で着席させる。新しい席は
+`scripts/launch-seat.sh <project> <name> <model> <vendor> <effort> [brief]`で起こし、既存席の分担・起床・確認は
+`mcp__aiterm__pty_read` / `mcp__aiterm__pty_send` / `mcp__aiterm__pty_key`、roomの`read_unread` / `post`、
+Latticeの`todo`で行う。通常shellのために開いた短命PTYと、メンバーが着席する長寿命PTYは別物である。
+
+このprojectでは、`mcp__aiterm__codex_agent` / `mcp__aiterm__claude_agent`、Claude Codeの`Task` / `Agent`、
+その他のnative sub-agentを円卓メンバーの代用にしない。global規約のnative sub-agent既定より、このprojectの
+外部PTY席・room・工程正本を優先する。Codexの`ultra`はmax推論に加えてproactiveなnative multi-agentを有効に
+するため、PeertableのCodex席では受理せず、必要なら`max`以下へ明示的に誘導する。入口を迷った場合は
+native spawnではなく、既存席へのaiterm操作かroom上のjoinを選ぶ。
+
 ## setup
 
 手順は **聞き取り → script → 着任指示** の3段である。scripts が機械部分を全部持つので、AI が手で tmux を組み立てることはしない。
