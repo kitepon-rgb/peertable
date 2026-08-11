@@ -88,7 +88,7 @@ fi
 # capacity通知はroomへ記録するだけでなく、上で準備したname→session descriptor経路から
 # 親を実際に起こせて初めて届く。Codex親ではwakeup-bridge readyより先に初回差分を送らない。
 if [ "$capacity_delivery_ready" = "1" ]; then
-  if "$here/ensure-bridge.sh" "$proj" capacity; then
+  if PEERTABLE_PARENT_NAME="$name" "$here/ensure-bridge.sh" "$proj" capacity; then
     echo "capacity-bridge を親（${name}）の配送経路準備後に起動した"
   else
     echo "WARN: capacity-bridge の起動に失敗した。手動で ${here}/ensure-bridge.sh ${proj} capacity を実行すること" >&2

@@ -314,6 +314,25 @@ fi
 
 echo "seated: ${sess}（${vendor} / ${model}${effort:+ / $effort} / room=${room} / mode=${mode}）"
 
+# CodexのヘッダはCLIが起動した証拠であって、必須room MCPが初期化された証拠ではない。
+# 無関係MCPのwarningが画面へ出ても、room clientがmember登録まで到達した席だけを着席として扱う。
+# 登録が無ければ「着席済み」と丸めず、on_exitのrollbackへ渡す。
+room_ready_deadline=$((SECONDS + 30))
+room_ready=false
+while [ $SECONDS -lt "$room_ready_deadline" ]; do
+  room_members=$(curl -sf "$url/api/$room/members" 2>/dev/null || true)
+  if printf '%s' "$room_members" | python3 -c 'import json,sys; name=sys.argv[1]; members=json.load(sys.stdin).get("members",[]); raise SystemExit(0 if any(m.get("name") == name for m in members) else 1)' "$name"; then
+    room_ready=true
+    break
+  fi
+  sleep 1
+done
+if [ "$room_ready" != true ]; then
+  echo "SEAT_ROOM_MCP_NOT_READY: room member登録を観測できない（無関係MCP warningとroom不成立を分離。席をrollbackする）" >&2
+  exit 1
+fi
+echo "room ready: ${room}/${name}"
+
 if [ -n "$brief" ]; then
   # Codex はヘッダを描いた後も MCP 初期化を続ける。Aiterm の ready 契約に合わせ、
   # 同じ可視 pane 内に入力候補行とモデルフッタがある構造を連続して観測する。

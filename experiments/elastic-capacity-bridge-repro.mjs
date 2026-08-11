@@ -216,7 +216,7 @@ try {
     room, server_url: serverUrl, mode: 'standalone',
   })}\n`)
   await copyFile(join(repo, 'skill/scripts/parent-join.sh'), join(parentScripts, 'parent-join.sh'))
-  await writeFile(join(parentScripts, 'ensure-bridge.sh'), `#!/bin/bash\nprintf '%s\\n' "$*" >> "$CAPACITY_FIXTURE_ENSURE_LOG"\n`)
+  await writeFile(join(parentScripts, 'ensure-bridge.sh'), `#!/bin/bash\nprintf 'parent=%s args=%s\\n' "\${PEERTABLE_PARENT_NAME:-}" "$*" >> "$CAPACITY_FIXTURE_ENSURE_LOG"\n`)
   await writeFile(join(fakeBin, 'tmux'), `#!/bin/bash\ncase "$3" in\n  '#{socket_path}') printf '%s\\n' /tmp/capacity-fixture.sock ;;\n  '#{pane_id}') printf '%s\\n' %42 ;;\nesac\n`)
   await chmod(join(parentScripts, 'parent-join.sh'), 0o755)
   await chmod(join(parentScripts, 'ensure-bridge.sh'), 0o755)
@@ -228,13 +228,15 @@ try {
     TMUX: 'capacity-fixture',
     CAPACITY_FIXTURE_ENSURE_LOG: ensureLog,
   }
-  const joined = await runProcess('bash', [join(parentScripts, 'parent-join.sh'), parentProject, 'bell', '', '', 'codex'], { env: parentEnv })
+  const joined = await runProcess('bash', [join(parentScripts, 'parent-join.sh'), parentProject, 'parent-a', '', '', 'codex'], { env: parentEnv })
   check('Codex親はname→descriptor配送bridge ready後にcapacityを起動する', () => {
     assert.equal(joined.status, 0, joined.stderr)
     const calls = readFileSync(ensureLog, 'utf8').trim().split('\n')
-    assert.match(calls[0], / wakeup bell$/u)
-    assert.match(calls[1], / capacity$/u)
+    assert.match(calls[0], /parent= args=.* wakeup parent-a$/u)
+    assert.match(calls[1], /parent=parent-a args=.* capacity$/u)
     assert.equal(joinedMembers.at(-1)?.observe?.tmux_target, '%42')
+    assert.match(readFileSync(join(repo, 'skill/scripts/ensure-bridge.sh'), 'utf8'),
+      /PEERTABLE_PARENT_NAME/u)
   })
 
   await rm(ensureLog, { force: true })
