@@ -86,7 +86,10 @@ async function wake(seat, msgs) {
     ? `room に新着あり（${last.from} → ${audience}）。read_unread で読むこと。`
     : `room に新着 ${msgs.length} 件（最新: ${last.from} → ${audience}）。read_unread で読むこと。`
   try {
-    const observation = resolveSeatObservation(members.get(seat), sock)
+    // bridge 起動後の着席も次の配達で取り直す。初回だけの snapshot にすると
+    // 新席を「member 不明」として永久に起こせず、旧 peer- 互換より後退する。
+    await refreshMembers()
+    const observation = resolveSeatObservation(members.get(seat) ?? { name: seat }, sock)
     if (observation === null) throw new Error(`観測記述子も既定 socket も無い: ${seat}`)
     await run('tmux', ['-S', observation.socket, 'send-keys', '-t', observation.target, text])
     await sleep(400)

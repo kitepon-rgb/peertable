@@ -43,6 +43,10 @@ tmux -S "$sock" kill-session -t "$sess" 2>/dev/null || true
 # **消すのは同名の自分の分だけ**——`peer-*` を一括で消すと同じマシンの別卓を巻き込む。
 rm -f "$proj/.team/seats/$name.json"
 tmux -S "$sock" new-session -d -s "$sess" -x 200 -y 50 -c "$proj"
+# Codex の closed env には launcher 自身でなく、今作った session の識別子を渡す。
+# 自己申告の observe が別 pane を指すと、稼働状態・起床とも別席を誤操作する。
+seat_tmux=$(tmux -S "$sock" display-message -p -t "$sess" '#{socket_path}')
+seat_tmux_pane=$(tmux -S "$sock" display-message -p -t "$sess" '#{pane_id}')
 
 # 素性は席の env にも入れる。client が**登録のたびに**載せるので、member の状態が失われても戻る
 env_line="export PEERTABLE_URL=$url PEERTABLE_ROOM=$room PEERTABLE_MEMBER=$name PEERTABLE_POST_TOKEN=$PEERTABLE_POST_TOKEN"
@@ -65,7 +69,7 @@ case "$vendor" in
     # Codex には channels が無いので room は stdio MCP として差す。
     # `[mcp_servers.X.env]` は closed mode（親 env を継がない）ので全変数を明示列挙する
     # （caveat `codex-cli-v0-130-0-mcp-servers-x-env-block-is-closed-mode-parent-env-not-inherited`）。
-    envtbl="PATH=\\\"$PATH\\\",PEERTABLE_URL=\\\"$url\\\",PEERTABLE_ROOM=\\\"$room\\\",PEERTABLE_MEMBER=\\\"$name\\\",PEERTABLE_POST_TOKEN=\\\"$PEERTABLE_POST_TOKEN\\\",TMUX=\\\"$TMUX\\\",TMUX_PANE=\\\"$TMUX_PANE\\\""
+    envtbl="PATH=\\\"$PATH\\\",PEERTABLE_URL=\\\"$url\\\",PEERTABLE_ROOM=\\\"$room\\\",PEERTABLE_MEMBER=\\\"$name\\\",PEERTABLE_POST_TOKEN=\\\"$PEERTABLE_POST_TOKEN\\\",TMUX=\\\"$seat_tmux\\\",TMUX_PANE=\\\"$seat_tmux_pane\\\""
     cmd="codex --model $model -C $proj --dangerously-bypass-approvals-and-sandbox"
     # Codexのeffortは環境変数だけでは適用されない。member metadataへ表示する値と、
     # 実際の推論設定を同じ引数から渡して食い違わせない。

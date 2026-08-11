@@ -69,6 +69,7 @@ if [ -z "$members_json" ]; then
 else
   closed=0
   while IFS= read -r member; do
+    [ -n "$member" ] || continue
     name=$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["name"])' "$member")
     target=$(python3 -c 'import json,sys; x=json.loads(sys.argv[1]); print((x.get("observe") or {}).get("tmux_target") or "peer-" + x["name"])' "$member")
     member_sock=$(python3 -c 'import json,sys; x=json.loads(sys.argv[1]); print((x.get("observe") or {}).get("tmux_socket") or sys.argv[2])' "$member" "$sock")
