@@ -18,8 +18,8 @@ plan_key の同一性までは求められていないと判断）。本 campaig
 
 ### f4 稼働中 plan へ欠陥を追加する正規手順の案内不足
 
-所有: `docs/plan_peertable-autonomy-runtime-20260811.md`（§2.5 への追記のみ。他 task の所有 file
-は触らない）。
+所有: `skill/scripts/todo-extraction-from-plan.mjs`（新規）、`docs/plan_peertable-autonomy-runtime-20260811.md`
+（§2.5 への追記のみ。他 task の所有 file は触らない）。
 
 campaign §2.5 は「発見者自身が `todo split` / `todo revise` の適切な authoring transaction で新しい
 ToDo を工程正本へ追加する」と案内するが、**main plan（`peertable-autonomy-runtime-20260811`）は
@@ -27,9 +27,22 @@ migrate 時に narrative_ref へ行番号（`#L<line>`）を持たせなかっ�
 `predecessor_source_inventory_unavailable` で機構的に失敗する**（実測: nagi, 2026-08-11T07:29Z）。
 `todo revise` は使えるが、desired_plan 全体・task_migration・source_inventory・
 source_cutover_batch を要求する重量級 API で、案内無しに現場が選べる手段ではない。この案内不足に
-より、実際に親裁定を要した（bell[20]）。§2.5 へ「narrative_ref に行番号が無い plan では split が
-機構的に失敗しうる。その場合は同一 campaign の companion fix plan を `todo migrate` で新規作成し、
-各欠陥を独立 task として `dependency connect` で前提へ接続する」という代替手順を追記する。
+より、実際に親裁定を要した（bell[20]）。
+
+**主受入は文書追記ではなく仕組み修理（owner裁定[60]）**: `skill/scripts/todo-extraction-from-plan.mjs`
+を新設する。計画 Markdown に `### <task_id> <title>` 見出しで独立欠陥 task を書くだけで、見出し階層
+（`heading_path`）・行番号（`origin_line`）・本文（`design_memo`）・digest を自動抽出し
+`lattice.todo_extraction.v3` を機械的に生成する。発見者は「Markdown に書く→ツール実行→
+`lattice todo migrate` で companion plan として起票」の3手順だけで、重量級 revise や親裁定なしに
+独立 task 化できる。`docs/plan_peertable-autonomy-runtime-20260811.md` §2.5 には、この正規入口への
+案内（narrative_ref 行番号が無い plan では split が機構的に失敗しうること、その場合は本ツールで
+companion plan を起票し `dependency connect` で前提へ接続すること）を追記する——文書はツールの
+説明として従属する。
+
+実測（メタ実害・nagi 2026-08-11T07:57Z）: 本ツールを実装している最中、まさにこのツールが解決しよう
+としている問題（工程化入口の重さ）により、`lattice todo start` で claim する前に実装ファイルが
+canonical へ現れる形で作業が先行してしまった（bell[63] 実測・指摘）。ツール未整備の状態では発見者が
+「まず動く形を作ってから工程へ載せる」順に流れやすいこと自体が、f4 が修理する対象の実例である。
 
 関連症例（担当は各 task の文脈保持者に委ねる。ここでは記載のみ）: suzune[42] が t1 の accept で
 `RUNTIME_CONFLICT_HOLD`（`undeclared_write` 2件）に遭った件は、design_memo の散文で書いた所有範囲
