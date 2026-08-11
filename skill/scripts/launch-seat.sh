@@ -20,6 +20,35 @@ if [ "$vendor" = "claude" ]; then
   esac
 fi
 
+# brief は tmux のコマンド引数へ直接載せない。長さを着席前に検証してから一時 file へ置き、
+# tmux の buffer 経由で貼る。入力を受理できない時は model preflight・tmux・member 登録を
+# 一つも行わず、何が拒否されたかを機械的に読める形で返す。
+brief_file=""
+brief_max_bytes=65536
+cleanup_brief() {
+  if [ -n "$brief_file" ]; then rm -f "$brief_file"; fi
+  return 0
+}
+trap cleanup_brief EXIT
+if [ -n "$brief" ]; then
+  brief_bytes=$(printf '%s' "$brief" | LC_ALL=C wc -c | tr -d '[:space:]')
+  case "$brief_bytes" in
+    ''|*[!0-9]*) echo "LAUNCH_BRIEF_INVALID: brief の byte 長を測定できない（席は立てない）" >&2; exit 2 ;;
+  esac
+  if [ "$brief_bytes" -gt "$brief_max_bytes" ]; then
+    echo "LAUNCH_BRIEF_TOO_LONG: brief が ${brief_bytes} bytes（上限 ${brief_max_bytes} bytes・席は立てない）" >&2
+    exit 2
+  fi
+  if ! brief_file=$(mktemp "${TMPDIR:-/tmp}/peertable-brief.XXXXXX"); then
+    echo "LAUNCH_BRIEF_PREPARE_FAILED: brief の輸送 file を作れない（席は立てない）" >&2
+    exit 2
+  fi
+  if ! printf '%s' "$brief" >"$brief_file"; then
+    echo "LAUNCH_BRIEF_PREPARE_FAILED: brief を輸送 file へ書けない（席は立てない）" >&2
+    exit 2
+  fi
+fi
+
 # **画面の文字列は「model が使えること」を意味しない。** 2026-08-11 実測: fable-5 の席は
 # Claude の channels バナーが出たので下の着席判定を通ったが、その後の入力は全て
 # model unavailable で 0 秒失敗し、席は一度も仕事をできなかった（room [11]）。
@@ -278,8 +307,39 @@ fi
 
 if [ -n "$brief" ]; then
   sleep 2
-  tmux -S "$sock" send-keys -t "$sess" "$brief"
-  sleep 1
-  tmux -S "$sock" send-keys -t "$sess" Enter
+  brief_before=$(tmux -S "$sock" capture-pane -S -1000 -t "$sess" -p 2>/dev/null || true)
+  brief_buffer="peertable-brief-${name}-$$"
+  if ! tmux -S "$sock" load-buffer -b "$brief_buffer" "$brief_file"; then
+    echo "LAUNCH_BRIEF_SEND_FAILED: brief の tmux buffer 読み込みに失敗（席は着席済み）" >&2
+    exit 1
+  fi
+  if ! tmux -S "$sock" paste-buffer -b "$brief_buffer" -d -t "$sess"; then
+    tmux -S "$sock" delete-buffer -b "$brief_buffer" 2>/dev/null || true
+    echo "LAUNCH_BRIEF_SEND_FAILED: brief の tmux paste に失敗（席は着席済み）" >&2
+    exit 1
+  fi
+  if ! tmux -S "$sock" send-keys -t "$sess" Enter; then
+    echo "LAUNCH_BRIEF_SEND_FAILED: brief の submit に失敗（席は着席済み）" >&2
+    exit 1
+  fi
+
+  # 入力欄へ置けた事実だけでは着任成功としない。既存の席状態判定と同じ live marker が、
+  # brief 投入後に画面へ現れたことを観測する。高速な fake/CLI の残像を拾わないよう、投入前の
+  # 画面と異なることも同時に要求する。
+  brief_deadline=$((SECONDS + 30))
+  brief_turn_started=false
+  while [ $SECONDS -lt "$brief_deadline" ]; do
+    brief_screen=$(tmux -S "$sock" capture-pane -S -1000 -t "$sess" -p 2>/dev/null || true)
+    case "$brief_screen" in
+      *"esc to interrupt"*)
+        if [ "$brief_screen" != "$brief_before" ]; then brief_turn_started=true; break; fi
+        ;;
+    esac
+    sleep 1
+  done
+  if [ "$brief_turn_started" != true ]; then
+    echo "LAUNCH_BRIEF_TURN_NOT_STARTED: brief 投入後の turn 開始を観測できない（席は着席済み）" >&2
+    exit 1
+  fi
   echo "briefed: $sess"
 fi
