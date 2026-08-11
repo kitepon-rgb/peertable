@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url'
 import {
   capacityProjection,
   createCapacityTracker,
+  readLatticeCapacityStatus,
   seatIntakeDecision,
   standaloneTodoStatus,
 } from '../skill/scripts/capacity-advisor.mjs'
@@ -232,6 +233,33 @@ try {
 } finally {
   await rm(trackerRoot, { recursive: true, force: true })
 }
+
+const latticeCalls = []
+const latticeStatus = await readLatticeCapacityStatus('/fixture/project', {
+  latticeCli: '/fixture/lattice',
+  run: async (command, args, options) => {
+    latticeCalls.push({ command, args, options })
+    if (args[1] === 'status') {
+      return { stdout: JSON.stringify({
+        active_set: [],
+        next_ready: [task('one', 't1'), task('two', 't2')],
+        parallel_candidates: [],
+      }) }
+    }
+    return { stdout: JSON.stringify({
+      plan_key: args[3], coverage: 'verified',
+      frontier: { unknown: [], parallel_groups: [], serialize_pairs: [], conflicts_with_active: [] },
+    }) }
+  },
+})
+check('runtime readerはready planごとにtodo independence projectionを必ず読む', () => {
+  assert.equal(latticeCalls.length, 3)
+  assert.deepEqual(latticeCalls.map(call => call.args.slice(0, 2)), [
+    ['todo', 'status'], ['todo', 'independence'], ['todo', 'independence'],
+  ])
+  assert.equal(latticeStatus.independence_projections.length, 2)
+  assert.ok(latticeCalls.every(call => call.options.cwd === '/fixture/project'))
+})
 
 console.log(`elastic capacity repro: ${checks.filter(Boolean).length}/${checks.length} green`)
 process.exit(checks.every(Boolean) ? 0 : 1)

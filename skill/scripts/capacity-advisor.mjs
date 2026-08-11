@@ -1,3 +1,10 @@
+import { execFile } from 'node:child_process'
+import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { promisify } from 'node:util'
+
+const runFile = promisify(execFile)
+
 const ref = task => `${task.plan_key}/${task.task_id}`
 
 const groupTaskIds = group => {
@@ -241,5 +248,15 @@ export function createCapacityTracker({ project, readTodoStatus, readMembers, po
     },
   }
 }
-import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+export async function readLatticeCapacityStatus(project, { latticeCli = 'lattice', run = runFile } = {}) {
+  const { stdout } = await run(latticeCli, ['todo', 'status', '--json'], { cwd: project })
+  const status = JSON.parse(stdout)
+  const planKeys = [...new Set((status.next_ready ?? []).map(task => task.plan_key))]
+  const independenceProjections = []
+  for (const planKey of planKeys) {
+    const result = await run(latticeCli,
+      ['todo', 'independence', '--plan', planKey, '--json'], { cwd: project })
+    independenceProjections.push(JSON.parse(result.stdout))
+  }
+  return { ...status, independence_projections: independenceProjections }
+}
