@@ -21,7 +21,7 @@
 // 生死の作法は Lattice ADR 0157 に倣う: 自分の pid を記録に置き、起動時に前の記録を掃除し、
 // 止まらなければ黙って諦めず typed error で落ちる。
 import { execFile } from 'node:child_process'
-import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 
@@ -166,12 +166,21 @@ const runSummaries = new Map()      // run_ref -> 直近に記録した要約
 const interventions = new Map()     // `${run_ref}\0${task_id}` -> 直近に観測した介入の形
 const closedRuns = new Set()        // closed を観測した run。以後 poll しない
 let pollTicks = 0
+let readyRecorded = false
+function markReady() {
+  if (readyRecorded) return
+  const temp = `${record}.tmp`
+  writeFileSync(temp, JSON.stringify({ ...JSON.parse(readFileSync(record, 'utf8')), ready_at: new Date().toISOString() }) + '\n')
+  renameSync(temp, record)
+  readyRecorded = true
+}
 
 // **どの run を見るかは `run list` から取る。** 旧版は order の worktree_path から run dir を
 // 切り出していたが、その order がもう出ないので、装置に聞く形へ変えた。
 // `selection: 'pull'` だけを対象にする——legacy automatic run は席が居ないので中継しても意味がない。
 async function pullRunRefs() {
   const listed = await lattice(['run', 'list', '--json'])
+  markReady()
   return (listed.active_runs ?? [])
     .filter(entry => entry.selection === 'pull' && typeof entry.run_ref === 'string')
     .map(entry => entry.run_ref)

@@ -3,7 +3,7 @@
 
 usage:
   archive-room-log.py <server_url> <room> <out.md>   ログを書き出す
-  archive-room-log.py --members <server_url> <room>  member 名を空白区切りで出す（席を畳む相手）
+  archive-room-log.py --members [--json] <server_url> <room>  member を出す（席を畳む相手）
 
 本文は投稿時の Markdown をそのまま置く（引用ブロックで包むと表とコードが崩れる）。
 本文の無い発言（過去に本文なし POST が着地した分）は、欠落と分かる形で残す——
@@ -21,9 +21,13 @@ def fetch(url, path):
 
 def main(argv):
     if argv[:1] == ["--members"]:
-        url, room = argv[1], argv[2]
+        as_json = argv[1:2] == ["--json"]
+        url, room = argv[2:4] if as_json else argv[1:3]
         members = fetch(url, f"/api/{room}/members")["members"]
-        print(" ".join(m["name"] for m in members))
+        if as_json:
+            print(json.dumps([{"name": m["name"], "observe": m.get("observe")} for m in members]))
+        else:
+            print(" ".join(m["name"] for m in members))
         return 0
 
     url, room, out = argv[0], argv[1], argv[2]

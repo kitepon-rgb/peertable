@@ -20,7 +20,7 @@ if [ "$vendor" = "claude" ]; then
   esac
 fi
 
-sock="${PEERTABLE_TMUX_SOCKET:-${TMPDIR}claude-tmux-sockets/claude.sock}"
+sock=$(node "$(dirname "$0")/tmux-socket.mjs")
 sess="peer-$name"
 state="$proj/.team/setup-state.json"
 read -r room url mode plan <<EOF
@@ -65,7 +65,7 @@ case "$vendor" in
     # Codex には channels が無いので room は stdio MCP として差す。
     # `[mcp_servers.X.env]` は closed mode（親 env を継がない）ので全変数を明示列挙する
     # （caveat `codex-cli-v0-130-0-mcp-servers-x-env-block-is-closed-mode-parent-env-not-inherited`）。
-    envtbl="PATH=\\\"$PATH\\\",PEERTABLE_URL=\\\"$url\\\",PEERTABLE_ROOM=\\\"$room\\\",PEERTABLE_MEMBER=\\\"$name\\\",PEERTABLE_POST_TOKEN=\\\"$PEERTABLE_POST_TOKEN\\\""
+    envtbl="PATH=\\\"$PATH\\\",PEERTABLE_URL=\\\"$url\\\",PEERTABLE_ROOM=\\\"$room\\\",PEERTABLE_MEMBER=\\\"$name\\\",PEERTABLE_POST_TOKEN=\\\"$PEERTABLE_POST_TOKEN\\\",TMUX=\\\"$TMUX\\\",TMUX_PANE=\\\"$TMUX_PANE\\\""
     cmd="codex --model $model -C $proj --dangerously-bypass-approvals-and-sandbox"
     # Codexのeffortは環境変数だけでは適用されない。member metadataへ表示する値と、
     # 実際の推論設定を同じ引数から渡して食い違わせない。
@@ -188,10 +188,10 @@ fi
 # **欄が無い登録で既存の素性を消さない**（upsert）ことが前提である。
 # effort は渡された時だけ入れる——欄が無い＝「不明」ではなく「CLI 既定で走っている」。
 # ここが失敗しても席は着席済みなので落とさない。ただし黙っては飲まない。
-meta=$(python3 - "$name" "$vendor" "$model" "$effort" <<'PY'
+meta=$(python3 - "$name" "$vendor" "$model" "$effort" "$sock" "$sess" <<'PY'
 import json, sys
-name, vendor, model, effort = sys.argv[1:5]
-body = {'name': name, 'vendor': vendor, 'model': model}
+name, vendor, model, effort, sock, sess = sys.argv[1:7]
+body = {'name': name, 'vendor': vendor, 'model': model, 'observe': {'tmux_socket': sock, 'tmux_target': sess}}
 if effort:
     body['effort'] = effort
 print(json.dumps(body))
@@ -214,7 +214,7 @@ try:
 except Exception:
     members = []
 m = next((x for x in members if x.get('name') == sys.argv[1]), {})
-print('yes' if m.get('model') else 'no')
+print('yes' if m.get('model') and m.get('observe', {}).get('tmux_target') else 'no')
 PY
 )
   if [ "$stored" = yes ]; then
@@ -224,6 +224,12 @@ PY
   fi
 else
   echo "metadata の登録に失敗した: 席は着席済みで、参加者一覧に素性が出ないだけ（room の到達性とトークンを確認）" >&2
+fi
+
+if "$(dirname "$0")/ensure-bridge.sh" "$proj" seat-status; then
+  echo "seat-status-bridge: 起動確認済み"
+else
+  echo "seat-status-bridge の起動確認に失敗した（席は着席済み）" >&2
 fi
 
 if [ -n "$brief" ]; then

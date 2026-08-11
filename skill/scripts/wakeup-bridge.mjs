@@ -12,9 +12,10 @@
 // 送った文言はそのターンの中で読まれ、指示どおりに動いた（steering が効く）。したがって
 // idle 待ちの経路は持たない——待ちを入れると、混んでいる席ほど起床が遅れる。
 import { execFile } from 'node:child_process'
-import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
+import { resolveSeatObservation, resolveTmuxSocket } from './seat-usage.mjs'
 
 const run = promisify(execFile)
 const [proj, ...rest] = process.argv.slice(2)
@@ -24,7 +25,8 @@ if (!proj || rest.length === 0) {
 }
 
 const record = join(proj, '.team', 'wakeup-bridge.json')
-const sock = process.env.PEERTABLE_TMUX_SOCKET ?? `${process.env.TMPDIR}claude-tmux-sockets/claude.sock`
+const socketResult = resolveTmuxSocket(process.env)
+const sock = socketResult.socket
 const alive = pid => { try { process.kill(pid, 0); return true } catch { return false } }
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 const log = line => console.log(`[${new Date().toISOString()}] ${line}`)
@@ -63,6 +65,19 @@ process.on('SIGINT', cleanup)
 
 // 席ごとに未配達を溜めて、2秒ごとにまとめて1回起こす（連投で席を何度も起こさない）
 const pending = new Map(seats.map(s => [s, []]))
+let members = new Map()
+async function refreshMembers() {
+  const res = await fetch(`${url}/api/${encodeURIComponent(room)}/members`)
+  const body = await res.json()
+  members = new Map(body.members.map(member => [member.name, member]))
+}
+await refreshMembers()
+function markReady() {
+  const next = { ...JSON.parse(readFileSync(record, 'utf8')), ready_at: new Date().toISOString() }
+  const temp = `${record}.tmp`
+  writeFileSync(temp, JSON.stringify(next) + '\n')
+  renameSync(temp, record)
+}
 
 async function wake(seat, msgs) {
   const last = msgs[msgs.length - 1]
@@ -71,9 +86,11 @@ async function wake(seat, msgs) {
     ? `room に新着あり（${last.from} → ${audience}）。read_unread で読むこと。`
     : `room に新着 ${msgs.length} 件（最新: ${last.from} → ${audience}）。read_unread で読むこと。`
   try {
-    await run('tmux', ['-S', sock, 'send-keys', '-t', `peer-${seat}`, text])
+    const observation = resolveSeatObservation(members.get(seat), sock)
+    if (observation === null) throw new Error(`観測記述子も既定 socket も無い: ${seat}`)
+    await run('tmux', ['-S', observation.socket, 'send-keys', '-t', observation.target, text])
     await sleep(400)
-    await run('tmux', ['-S', sock, 'send-keys', '-t', `peer-${seat}`, 'Enter'])
+    await run('tmux', ['-S', observation.socket, 'send-keys', '-t', observation.target, 'Enter'])
     log(`起こした: ${seat} ← ${msgs.length} 件（最新 seq ${last.seq}）`)
   } catch (error) {
     // 席が畳まれていれば tmux が落ちる。黙って飲まず、毎回出す（何件落としたかも出す）
@@ -172,6 +189,7 @@ for (;;) {
       if (!res.ok) throw new Error(`events ${res.status}`)
       failures = 0
       log('SSE 接続')
+      markReady()
       await catchUp('再接続')
       let buf = ''
       for await (const chunk of res.body) {

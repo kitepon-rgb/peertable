@@ -60,17 +60,22 @@ fi
 
 # ---- 席（tmux）の終了。**`.team/` を消す前**に、この room の member だけを畳む ----
 # `peer-*` を全部畳むと、同じマシンの別の卓を巻き込む（bridge が members 起点にしているのと同じ理由）
-sock="${PEERTABLE_TMUX_SOCKET:-${TMPDIR}claude-tmux-sockets/claude.sock}"
-seats=$(python3 "$(dirname "$0")/archive-room-log.py" --members "$url" "$room" 2>/dev/null || true)
-if [ -z "$seats" ]; then
+sock=$(node "$(dirname "$0")/tmux-socket.mjs")
+members_json=$(python3 "$(dirname "$0")/archive-room-log.py" --members --json "$url" "$room" 2>/dev/null || true)
+seat_names=$(python3 "$(dirname "$0")/archive-room-log.py" --members "$url" "$room" 2>/dev/null || true)
+member_lines=$(python3 -c 'import json,sys; [print(json.dumps(x,separators=(",",":"))) for x in json.loads(sys.stdin.read())]' <<<"$members_json" 2>/dev/null || true)
+if [ -z "$members_json" ]; then
   miss "席の終了 — member 一覧が取れず、畳む相手を特定できない。手で確認: tmux -S \"$sock\" list-sessions | grep peer-"
 else
   closed=0
-  for name in $seats; do
-    if tmux -S "$sock" has-session -t "peer-$name" 2>/dev/null; then
-      tmux -S "$sock" kill-session -t "peer-$name" && closed=$((closed + 1))
+  while IFS= read -r member; do
+    name=$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["name"])' "$member")
+    target=$(python3 -c 'import json,sys; x=json.loads(sys.argv[1]); print((x.get("observe") or {}).get("tmux_target") or "peer-" + x["name"])' "$member")
+    member_sock=$(python3 -c 'import json,sys; x=json.loads(sys.argv[1]); print((x.get("observe") or {}).get("tmux_socket") or sys.argv[2])' "$member" "$sock")
+    if tmux -S "$member_sock" has-session -t "$target" 2>/dev/null; then
+      tmux -S "$member_sock" kill-session -t "$target" && closed=$((closed + 1))
     fi
-  done
+  done <<<"$member_lines"
   if [ "$closed" -gt 0 ]; then did "席の終了（${closed}席）"; else skip "席の終了（生きている席なし）"; fi
   left=$(tmux -S "$sock" list-sessions 2>/dev/null | grep -c '^peer-' || true)
   [ "${left:-0}" -eq 0 ] || echo "teardown: [注記] 他の卓の peer-* が ${left}件 残っている（この卓のものではないので畳まない）"
@@ -242,12 +247,12 @@ if [ "$mode" = archive ]; then
   if [ -z "${PEERTABLE_POST_TOKEN:-}" ]; then
     miss "メンバー登録の解除 — TOKEN_MISSING: \`~/.config/peertable.env\` の定義が \`export\` 付きでないと子 process へ渡らない"
     echo "teardown: [手当] 参加者は次で外せる: curl -X DELETE \"$url/api/$room/members/<名前>\" -H \"X-Peertable-Token: \$PEERTABLE_POST_TOKEN\"" >&2
-  elif [ -z "$seats" ]; then
+  elif [ -z "$seat_names" ]; then
     skip "メンバー登録の解除（一覧が取れていない）"
   else
     # 履歴に解散の区切りを残す。**部屋が続く以上、どこで卓が変わったかが読めないと
     # 過去ログが一続きの会話に見えてしまう**（次の campaign の発言と地続きになる）
-    body="解散。この卓はここまで。参加者: ${seats}。部屋と過去ログはこのまま残り、次の卓も同じ部屋で続く。"
+    body="解散。この卓はここまで。参加者: ${seat_names}。部屋と過去ログはこのまま残り、次の卓も同じ部屋で続く。"
     python3 -c "
 import json,sys,urllib.request
 req=urllib.request.Request('$url/api/$room/messages', method='POST',
@@ -256,10 +261,12 @@ req=urllib.request.Request('$url/api/$room/messages', method='POST',
 urllib.request.urlopen(req, timeout=10).read()
 " 2>/dev/null && did "解散の区切りを履歴へ" || skip "解散の区切り（投稿できず・撤去は続行）"
     n=0
-    for name in $seats; do
+    while IFS= read -r member; do
+      [ -n "$member" ] || continue
+      name=$(python3 -c 'import json,sys,urllib.parse; print(urllib.parse.quote(json.loads(sys.argv[1])["name"], safe=""))' "$member")
       c=$(curl -s -o /dev/null -w '%{http_code}' -X DELETE "$url/api/$room/members/$name" -H "X-Peertable-Token: $PEERTABLE_POST_TOKEN" || true)
       [ "$c" = 200 ] && n=$((n + 1))
-    done
+    done <<<"$member_lines"
     did "メンバー登録の解除（${n}名）— **部屋と過去ログは残す**（$url/$room）"
   fi
 # room 削除は --purge だけ。トークンを要する唯一の段で、ここだけが外部サービスへの依存境界
