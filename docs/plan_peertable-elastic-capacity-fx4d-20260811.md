@@ -19,6 +19,12 @@ Latticeのdispatch frontier、active／ready、independence、roomのlive member
 時は縮退判断を起こすが、対象席がidleで、本人と工程正本の双方からWIPなしを確認した後だけroom履歴を
 残して退役させる。
 
+新しく起こした席または次工程を探した席が、Latticeの競合判定から`wait`／`hold`／競合による待機指示を
+受けた場合は、待機席として保持しない。競合結果と未着手であることをroomへ一度記録し、未受理intake等の
+一時状態を解放して直ちに退席する。親はmember登録と外部PTYを畳み、再び作業面の総数が増えた時に新しく
+起こす。既存WIPがある席だけは成果を失わないhandoffを工程正本へ残してから畳む。競合解除を待つpollや
+「そのうち空くかもしれない」という理由での席保持は行わない。
+
 同じ状態を反復pollしても重複通知やturn浪費を起こさず、capacity差が変わった時だけ再通知する。Latticeを
 使わない単独卓では`.team/tasks.md`とroom claimを正本として同じ判断語彙を使う。負例は今回の「3 busy＋
 ready 4でも増員なし」「2 idle＋ready 4でも再claimなし」を固定し、修理後の実円卓でowner催促なしの
