@@ -183,11 +183,11 @@ try {
     }
   }
   console.log(mutation ? 'teardown room URL repro: unexpected green' : 'teardown room URL repro: green')
-  process.exit(mutation ? 1 : 0)
+  process.exitCode = mutation ? 1 : 0
 } catch (error) {
   console.error(mutation ? 'teardown room URL repro: mutant caught' : 'teardown room URL repro: RED')
   console.error(error.stack || error)
-  process.exit(mutation ? 1 : 1)
+  process.exitCode = 1
 } finally {
   if (mutationRoot) await rm(mutationRoot, { recursive: true, force: true })
 }
