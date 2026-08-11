@@ -1,0 +1,172 @@
+#!/usr/bin/env node
+import assert from 'node:assert/strict'
+import { spawn } from 'node:child_process'
+import { once } from 'node:events'
+import { existsSync, readFileSync } from 'node:fs'
+import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { createServer } from 'node:http'
+import { tmpdir } from 'node:os'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const repo = dirname(dirname(fileURLToPath(import.meta.url)))
+const bridgeScript = join(repo, 'skill/scripts/capacity-bridge.mjs')
+const root = await mkdtemp(join(tmpdir(), 'peertable-capacity-bridge-'))
+const project = join(root, 'project')
+const team = join(project, '.team')
+const latticeState = join(root, 'lattice-state.json')
+const latticeStub = join(root, 'lattice-stub.mjs')
+const token = 'capacity-bridge-fixture-token'
+const room = 'capacity-bridge-fixture'
+const posts = []
+let members = [
+  { name: 'bell', status: null },
+  { name: 'busy', status: 'busy' },
+  { name: 'idle', status: 'idle' },
+]
+
+const server = createServer((request, response) => {
+  const url = new URL(request.url, 'http://fixture.invalid')
+  response.setHeader('content-type', 'application/json')
+  if (request.method === 'GET' && url.pathname.endsWith('/members')) {
+    response.end(JSON.stringify({ members }))
+    return
+  }
+  if (request.method === 'GET' && url.pathname.endsWith('/messages')) {
+    response.end(JSON.stringify({ messages: posts.map((message, index) => ({ ...message, seq: index + 1 })) }))
+    return
+  }
+  if (request.method === 'POST' && url.pathname.endsWith('/messages')) {
+    if (request.headers['x-peertable-token'] !== token) {
+      response.writeHead(403).end(JSON.stringify({ error: 'forbidden' }))
+      return
+    }
+    let raw = ''
+    request.on('data', chunk => { raw += chunk })
+    request.on('end', () => {
+      posts.push(JSON.parse(raw))
+      response.end(JSON.stringify({ ...posts.at(-1), seq: posts.length }))
+    })
+    return
+  }
+  response.writeHead(404).end(JSON.stringify({ error: 'not found' }))
+})
+await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
+const serverUrl = `http://127.0.0.1:${server.address().port}`
+
+await mkdir(team, { recursive: true })
+await writeFile(join(team, 'setup-state.json'), `${JSON.stringify({
+  room, server_url: serverUrl, mode: 'lattice', lattice_cli: latticeStub,
+})}\n`)
+await writeFile(latticeStub, `#!/usr/bin/env node
+import { readFileSync } from 'node:fs'
+const state = JSON.parse(readFileSync(process.env.CAPACITY_FIXTURE_STATE, 'utf8'))
+const args = process.argv.slice(2)
+if (args[0] === 'todo' && args[1] === 'status') process.stdout.write(JSON.stringify(state.status))
+else if (args[0] === 'todo' && args[1] === 'independence') {
+  const plan = args[args.indexOf('--plan') + 1]
+  process.stdout.write(JSON.stringify(state.projections[plan]))
+} else process.exit(2)
+`)
+await chmod(latticeStub, 0o755)
+
+const env = { ...process.env, PEERTABLE_POST_TOKEN: token, CAPACITY_FIXTURE_STATE: latticeState }
+const runOnce = () => new Promise(resolve => {
+  const child = spawn(process.execPath, [bridgeScript, project, '--once'], {
+    env, stdio: ['ignore', 'pipe', 'pipe'],
+  })
+  let stdout = ''
+  let stderr = ''
+  child.stdout.on('data', chunk => { stdout += chunk })
+  child.stderr.on('data', chunk => { stderr += chunk })
+  child.once('close', status => resolve({ status, stdout, stderr }))
+})
+const checks = []
+const check = (label, fn) => {
+  try { fn(); checks.push(true); console.log(`ok: ${label}`) }
+  catch (error) { checks.push(false); console.error(`NG: ${label}: ${error.message}`) }
+}
+
+try {
+  await writeFile(latticeState, `${JSON.stringify({
+    status: {
+      active_set: ['a1', 'a2', 'a3'].map(task_id => ({ plan_key: 'plan', task_id })),
+      next_ready: ['r1', 'r2'].map(task_id => ({ plan_key: 'plan', task_id })),
+      parallel_candidates: [],
+    },
+    projections: {
+      plan: {
+        plan_key: 'plan', coverage: 'verified',
+        frontier: {
+          unknown: [], parallel_groups: [{ task_ids: ['r1', 'r2'] }],
+          serialize_pairs: [], conflicts_with_active: [],
+        },
+      },
+    },
+  })}\n`)
+
+  const first = await runOnce()
+  check('実process境界でcapacity増員DMを一通送る', () => {
+    assert.equal(first.status, 0, first.stderr)
+    assert.equal(posts.length, 1)
+    assert.deepEqual(posts[0].to, ['bell', 'idle'])
+    assert.match(posts[0].body, /action=scale_up_and_reclaim/u)
+    assert.match(posts[0].body, /launch=3/u)
+  })
+
+  const repeated = await runOnce()
+  check('同じ状態の再process・再pollはDMを重複しない', () => {
+    assert.equal(repeated.status, 0, repeated.stderr)
+    assert.equal(posts.length, 1)
+  })
+
+  await writeFile(latticeState, `${JSON.stringify({
+    status: {
+      active_set: [{ plan_key: 'plan', task_id: 'a1' }],
+      next_ready: [],
+      parallel_candidates: [],
+    },
+    projections: {},
+  })}\n`)
+  const shrink = await runOnce()
+  check('frontier収束はidleだけを候補にした縮退DMになる', () => {
+    assert.equal(shrink.status, 0, shrink.stderr)
+    assert.equal(posts.length, 2)
+    assert.deepEqual(posts[1].to, ['bell'])
+    assert.match(posts[1].body, /action=scale_down/u)
+    assert.match(posts[1].body, /retire=1/u)
+  })
+
+  const bridge = spawn(process.execPath, [bridgeScript, project], { env, stdio: ['ignore', 'pipe', 'pipe'] })
+  let bridgeOutput = ''
+  bridge.stdout.on('data', chunk => { bridgeOutput += chunk })
+  bridge.stderr.on('data', chunk => { bridgeOutput += chunk })
+  const recordPath = join(team, 'capacity-bridge.json')
+  const deadline = Date.now() + 5_000
+  while (Date.now() < deadline) {
+    if (existsSync(recordPath)) {
+      const record = JSON.parse(readFileSync(recordPath, 'utf8'))
+      if (record.ready_at) break
+    }
+    await new Promise(resolve => setTimeout(resolve, 50))
+  }
+  check('常駐は初回観測後だけready_atを立てる', () => {
+    assert.ok(existsSync(recordPath), bridgeOutput)
+    assert.ok(JSON.parse(readFileSync(recordPath, 'utf8')).ready_at, bridgeOutput)
+  })
+  const competing = await runOnce()
+  check('live常駐と競合するonce観測はstate競合を作らずtyped拒否する', () => {
+    assert.equal(competing.status, 1)
+    assert.match(competing.stderr, /CAPACITY_BRIDGE_ALREADY_RUNNING/u)
+  })
+  bridge.kill('SIGTERM')
+  await Promise.race([once(bridge, 'exit'), new Promise(resolve => setTimeout(resolve, 2_000))])
+  if (bridge.exitCode === null) bridge.kill('SIGKILL')
+  check('SIGTERMで常駐recordを撤去する', () => assert.equal(existsSync(recordPath), false))
+} finally {
+  await new Promise(resolve => server.close(resolve))
+  await rm(root, { recursive: true, force: true })
+}
+
+console.log(`elastic capacity bridge repro: ${checks.filter(Boolean).length}/${checks.length} green`)
+process.exit(checks.every(Boolean) ? 0 : 1)

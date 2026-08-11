@@ -3,7 +3,7 @@
 set -euo pipefail
 
 proj="$1"; name="$2"; shift 2
-case "$name" in seat-status) script="seat-status-bridge.mjs" ;; wakeup) script="wakeup-bridge.mjs" ;; run) script="run-bridge.mjs" ;; *) echo "usage: ensure-bridge.sh <project> <seat-status|wakeup|run> [args...]" >&2; exit 1 ;; esac
+case "$name" in seat-status) script="seat-status-bridge.mjs" ;; wakeup) script="wakeup-bridge.mjs" ;; capacity) script="capacity-bridge.mjs" ;; run) script="run-bridge.mjs" ;; *) echo "usage: ensure-bridge.sh <project> <seat-status|wakeup|capacity|run> [args...]" >&2; exit 1 ;; esac
 team="$proj/.team"; record="$team/$name-bridge.json"; log="$team/$name-bridge.log"
 force=false
 if [ "${1:-}" = "--force" ]; then force=true; shift; fi

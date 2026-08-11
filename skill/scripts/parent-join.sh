@@ -49,6 +49,15 @@ curl -sf -X POST "$url/api/$room/members" \
   -d "$member" > /dev/null
 echo "joined: ${name}（room=${room}）"
 
+# 親がroomへ登録された後にcapacity観測を起こす。setup時点では親memberも番犬も無く、
+# そこで初回DMを送るとstateだけ進んで親が永続的に見逃す。
+here="$(cd "$(dirname "$0")" && pwd)"
+if "$here/ensure-bridge.sh" "$proj" capacity; then
+  echo "capacity-bridge を親（${name}）登録後に起動した"
+else
+  echo "WARN: capacity-bridge の起動に失敗した。手動で ${here}/ensure-bridge.sh ${proj} capacity を実行すること" >&2
+fi
+
 # owner裁定[46]④: 子processのexportは親shellへ伝播しないため、Lattice mutation
 # （todo reopen 等）に要る actor 環境変数は親自身が source する持続ファイルとして配る。
 if [ "$mode" = "lattice" ]; then
@@ -70,7 +79,6 @@ fi
 # （実測: tsubaki, room[95]。owner候補[37]①と同系統）。
 if [ "$vendor" = "codex" ]; then
   if [ -n "$observe_target" ]; then
-    here="$(cd "$(dirname "$0")" && pwd)"
     if "$here/ensure-bridge.sh" "$proj" wakeup "$name"; then
       echo "wakeup-bridge を親（${name}）宛に起動した"
     else
