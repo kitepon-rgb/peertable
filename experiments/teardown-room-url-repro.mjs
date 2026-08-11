@@ -1,7 +1,8 @@
 #!/usr/bin/env node
-// teardown の room URL 表示が、room 名を shell 変数名へ誤吸収しないことを測る。
+// teardown の room URL 表示とUnicode room pathを測る。
 // 既定は現行 script の ASCII / 日本語 room smoke。--without-boundary は旧式
-// `$url/$room）` へ戻した変異を実行し、byte 完全な URL assertion が落ちることを確認する。
+// `$url/$room）` へ戻した変異、--without-unicode-path はAPI pathのencodeを外した変異を実行し、
+// それぞれ該当するassertionが落ちることを確認する。
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
 import { spawn } from 'node:child_process'
@@ -13,7 +14,9 @@ import { fileURLToPath } from 'node:url'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const TEARDOWN = path.join(ROOT, 'skill', 'scripts', 'teardown.sh')
-const mutation = process.argv.includes('--without-boundary')
+const boundaryMutation = process.argv.includes('--without-boundary')
+const unicodeMutation = process.argv.includes('--without-unicode-path')
+const mutation = boundaryMutation || unicodeMutation
 const rooms = process.argv.includes('--ascii-only') ? ['ascii-room'] : ['ascii-room', '卓-あ']
 
 function run(command, args, options) {
@@ -122,10 +125,29 @@ if (mutation) {
   const mutationScripts = path.join(mutationRoot, 'skill', 'scripts')
   await cp(path.join(ROOT, 'skill', 'scripts'), mutationScripts, { recursive: true })
   teardown = path.join(mutationScripts, 'teardown.sh')
-  const source = await readFile(teardown, 'utf8')
-  const mutant = source.replace('（${url}/${room}）', '（$url/$room）')
-  assert.notEqual(mutant, source, 'URL境界の変異を作れない')
-  await writeFile(teardown, mutant, { mode: 0o700 })
+  if (boundaryMutation) {
+    const source = await readFile(teardown, 'utf8')
+    const mutant = source.replace('（${url}/${room}）', '（$url/$room）')
+    assert.notEqual(mutant, source, 'URL境界の変異を作れない')
+    await writeFile(teardown, mutant, { mode: 0o700 })
+  }
+  if (unicodeMutation) {
+    const archiveHelper = path.join(mutationScripts, 'archive-room-log.py')
+    const source = await readFile(archiveHelper, 'utf8')
+    const mutant = source
+      .replace('from urllib.parse import quote\n', '')
+      .replace('    encoded_path = quote(path, safe="/")\n', '')
+      .replace('{url.rstrip(\'/\')}{encoded_path}', '{url.rstrip(\'/\')}{path}')
+    assert.notEqual(mutant, source, 'Unicode pathの変異を作れない')
+    await writeFile(archiveHelper, mutant, { mode: 0o700 })
+    const teardownSource = await readFile(teardown, 'utf8')
+    const teardownMutant = teardownSource.replace(
+      "import json,sys,urllib.parse,urllib.request\nroom_path=urllib.parse.quote('$room', safe='')\nreq=urllib.request.Request('$url/api/' + room_path + '/messages', method='POST',",
+      "import json,sys,urllib.request\nreq=urllib.request.Request('$url/api/$room/messages', method='POST',",
+    )
+    assert.notEqual(teardownMutant, teardownSource, 'teardownのUnicode path変異を作れない')
+    await writeFile(teardown, teardownMutant, { mode: 0o700 })
+  }
 }
 
 try {

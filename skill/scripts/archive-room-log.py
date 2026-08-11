@@ -12,10 +12,12 @@ usage:
 import json
 import sys
 import urllib.request
+from urllib.parse import quote
 
 
 def fetch(url, path):
-    with urllib.request.urlopen(f"{url.rstrip('/')}{path}", timeout=15) as r:
+    encoded_path = quote(path, safe="/")
+    with urllib.request.urlopen(f"{url.rstrip('/')}{encoded_path}", timeout=15) as r:
         return json.load(r)
 
 

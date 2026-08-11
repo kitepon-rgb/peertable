@@ -255,8 +255,9 @@ if [ "$mode" = archive ]; then
     # 過去ログが一続きの会話に見えてしまう**（次の campaign の発言と地続きになる）
     body="解散。この卓はここまで。参加者: ${seat_names}。部屋と過去ログはこのまま残り、次の卓も同じ部屋で続く。"
     python3 -c "
-import json,sys,urllib.request
-req=urllib.request.Request('$url/api/$room/messages', method='POST',
+import json,sys,urllib.parse,urllib.request
+room_path=urllib.parse.quote('$room', safe='')
+req=urllib.request.Request('$url/api/' + room_path + '/messages', method='POST',
   data=json.dumps({'from':'system','to':'system','body':'''$body'''}).encode(),
   headers={'Content-Type':'application/json','X-Peertable-Token':'$PEERTABLE_POST_TOKEN'})
 urllib.request.urlopen(req, timeout=10).read()
