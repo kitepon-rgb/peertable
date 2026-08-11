@@ -7,7 +7,8 @@
 // landing-only mode も accepted receipt しか数えないので、受理前で止まった intake には無言だった。
 //
 // 測るのは: 未accept なら done を打たない / accept 済みなら通す / 実行層に載っていない task は素通し /
-// 状態を読めない時は黙って通さない / landing-only mode が「未accept」を別軸で出す。
+// 状態を読めない時は黙って通さない / landing-only mode が「未accept」を別軸で出す /
+// 引数なし・--help が raw CLI の誤解釈にならない。
 import { strict as assert } from 'node:assert'
 import { spawnSync } from 'node:child_process'
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
@@ -41,11 +42,13 @@ mode=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["mode"])' 
 case "$1 $2" in
   "run list")
     [ "$mode" = "list_broken" ] && { echo "boom" >&2; exit 1; }
+    [ "$mode" = "list_invalid" ] && { echo '{"schema":"wrong"}'; exit 0; }
     [ "$mode" = "no_run" ] && { echo '{"schema":"lattice.run_list.v1","active_runs":[]}'; exit 0; }
     printf '{"schema":"lattice.run_list.v1","active_runs":[{"run_id":"r1","run_ref":".lattice/runs/r1","selection":"pull","plan_key":"${plan}"}]}\\n'
     exit 0 ;;
   "run observe")
     [ "$mode" = "observe_broken" ] && { echo "boom" >&2; exit 1; }
+    [ "$mode" = "observe_invalid" ] && { echo '{"schema":"wrong"}'; exit 0; }
     python3 -c '
 import json,sys
 mode=json.load(open(sys.argv[1]))["mode"]
@@ -57,6 +60,8 @@ print(json.dumps({"schema":"lattice.pull_run_observation.v1","intakes":intakes})
 ' "$STUB_STATE"
     exit 0 ;;
   "run landing")
+    [ "$mode" = "landing_broken" ] && { echo "boom" >&2; exit 1; }
+    [ "$mode" = "landing_invalid" ] && { echo '{"schema":"wrong"}'; exit 0; }
     printf '{"schema":"lattice.run_landing_report.v1","run_id":"r1","landed":true,"accepted_receipts":[]}\\n'
     exit 0 ;;
   "todo done")
@@ -77,9 +82,10 @@ const env = {
   STUB_STATE: state,
 }
 // template は配布時に実行権を付けて配られるので、正本そのものは bash で回す
-const run = (...args) => spawnSync('bash', [join(REPO, 'skill/templates/done.sh'), ...args], {
-  cwd: repo, env, encoding: 'utf8', timeout: 30_000,
+const runWith = (args, extraEnv = {}) => spawnSync('bash', [join(REPO, 'skill/templates/done.sh'), ...args], {
+  cwd: repo, env: { ...env, ...extraEnv }, encoding: 'utf8', timeout: 30_000,
 })
+const run = (...args) => runWith(args)
 const calls = async () => {
   if (!existsSync(latticeLog)) return []
   return (await readFile(latticeLog, 'utf8')).trim().split('\n').filter(Boolean)
@@ -90,10 +96,29 @@ let checks = 0
 const check = (label, fn) => { fn(); checks += 1; console.log(`  ok: ${label}`) }
 
 try {
-  // 1. 未accept の intake が在るなら done を打たない
+  // 1. 引数なし・--help は usage と正規の完了入口を案内し、lattice を呼ばない
+  await resetLog()
+  let result = run()
+  check('引数なしは usage を表示して raw CLI を呼ばない', () => {
+    assert.equal(result.status, 2)
+    assert.match(result.stderr, /usage: done\.sh/)
+    assert.match(result.stderr, /PEERTABLE_PLAN/)
+    assert.match(result.stderr, /evidence<|evidence\//)
+  })
+  assert.deepEqual(await calls(), [])
+  await resetLog()
+  result = run('--help')
+  check('--help は usage を表示して raw CLI を呼ばない', () => {
+    assert.equal(result.status, 0, result.stderr)
+    assert.match(result.stdout, /usage: done\.sh/)
+    assert.match(result.stdout, /lattice todo done/)
+  })
+  assert.deepEqual(await calls(), [])
+
+  // 2. 未accept の intake が在るなら done を打たない
   await setMode('pending')
   await resetLog()
-  let result = run('x1')
+  result = run('x1')
   check('未accept の receipt では done を打たない', () => {
     assert.notEqual(result.status, 0)
     assert.match(result.stderr, /receipt が未acceptのまま done は打てない: x1/)
@@ -101,7 +126,7 @@ try {
   })
   assert.deepEqual(await doneCalls(), [], '未accept で todo done が呼ばれていない')
 
-  // 2. accept 済みなら通す
+  // 3. accept 済みなら通す
   await setMode('accepted')
   await resetLog()
   result = run('x1')
@@ -110,7 +135,7 @@ try {
   })
   assert.equal((await doneCalls()).length, 1)
 
-  // 3. 実行層に載っていない task（intake が無い）は素通し
+  // 4. 実行層に載っていない task（intake が無い）は素通し
   await setMode('other_task')
   await resetLog()
   result = run('x1')
@@ -119,7 +144,7 @@ try {
   })
   assert.equal((await doneCalls()).length, 1)
 
-  // 4. pull run そのものが無い卓も素通し
+  // 5. pull run そのものが無い卓も素通し
   await setMode('no_run')
   await resetLog()
   result = run('x1')
@@ -128,8 +153,13 @@ try {
   })
   assert.equal((await doneCalls()).length, 1)
 
-  // 5. 状態を読めない時は黙って通さない（fallbackで成功にしない）
-  for (const [mode, label] of [['list_broken', 'run list'], ['observe_broken', 'run observe']]) {
+  // 6. 状態を読めない時は黙って通さない（fallbackで成功にしない）
+  for (const [mode, label] of [
+    ['list_broken', 'run list'],
+    ['list_invalid', 'run list のJSON不正'],
+    ['observe_broken', 'run observe'],
+    ['observe_invalid', 'run observe のJSON不正'],
+  ]) {
     await setMode(mode)
     await resetLog()
     result = run('x1')
@@ -140,7 +170,31 @@ try {
     assert.deepEqual(await doneCalls(), [], `${label} 失敗時に todo done が呼ばれていない`)
   }
 
-  // 6. landing-only mode が「未accept」を着地とは別軸で出す
+  // 7. landing-only mode の読取失敗は全て非0で落とす
+  for (const [mode, label] of [
+    ['landing_broken', 'run landing の失敗'],
+    ['landing_invalid', 'run landing のJSON不正'],
+    ['observe_broken', 'run observe の失敗'],
+    ['observe_invalid', 'run observe のJSON不正'],
+  ]) {
+    await setMode(mode)
+    await resetLog()
+    result = run('--landing-run', '.lattice/runs/r1')
+    check(`landing-only ${label} は成功へ倒さず落ちる`, () => {
+      assert.notEqual(result.status, 0)
+      assert.match(result.stderr, /状態を読めない|未accept本数を読めない/)
+    })
+  }
+  await resetLog()
+  result = runWith(['--landing-run', '.lattice/runs/r1'], {
+    LATTICE_CLI: join(root, 'missing-lattice'),
+  })
+  check('landing-only のCLI不在は成功へ倒さず落ちる', () => {
+    assert.notEqual(result.status, 0)
+    assert.match(result.stderr, /着地状態を読めない/)
+  })
+
+  // 8. landing-only mode が「未accept」を着地とは別軸で出す
   await setMode('pending')
   await resetLog()
   result = run('--landing-run', '.lattice/runs/r1')

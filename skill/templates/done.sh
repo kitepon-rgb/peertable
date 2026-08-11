@@ -20,6 +20,33 @@
 # evidence verifier は descriptor.path の working tree 実在を見ず、object DB の blob と digest、
 # 読み出し時の `rev-list --all` 到達性を見る（mio が実 repo で確認・room [1016]）。
 set -e
+
+show_usage() {
+  cat <<'USAGE'
+usage: done.sh <task_id> [--evidence-from <隔離worktreeの証跡の絶対path>]
+       done.sh --landing-run <run_ref>
+
+完了処理:
+  PEERTABLE_PLAN に plan key を設定し、
+  evidence/<plan>/<task>.md を commit 済みにして done.sh <task_id> を実行する。
+  wrapper が証跡から記述子を生成し、lattice todo done を canonical store へ記録する。
+  pull run の worktree で作業した場合だけ --evidence-from に同じrepoの絶対pathを渡す。
+  未accept の intake がある場合は、先に run intake accept を完了させる。
+USAGE
+}
+
+if [ "$#" = 0 ]; then
+  show_usage >&2
+  exit 2
+fi
+case "${1:-}" in
+  --help|-h)
+    [ "$#" = 1 ] || { echo "ERROR: helpには他の引数を付けないこと" >&2; exit 2; }
+    show_usage
+    exit 0
+    ;;
+esac
+
 # `todo done` と run receipt の accept は別の正本を持つ。landing-only mode は accept の直後に
 # 同じ run ref を受け取り、受理済み receipt の着地だけを表示する。accept 自体はここへ吸収しない。
 if [ "${1:-}" = "--landing-run" ]; then
@@ -32,14 +59,14 @@ if [ "${1:-}" = "--landing-run" ]; then
   lattice_cli="${LATTICE_CLI:-$(command -v lattice 2>/dev/null || true)}"
   if [ -z "$lattice_cli" ] || [ ! -x "$lattice_cli" ]; then
     echo "着地状態を読めない: LATTICE_CLIが実行可能fileを指さない（${lattice_cli:-未設定}）" >&2
-    exit 0
+    exit 1
   fi
   landing_report=""
   landing_rc=0
   landing_report=$("$lattice_cli" run landing --run "$run_ref" 2>&1) || landing_rc=$?
   if [ "$landing_rc" != 0 ]; then
     echo "着地状態を読めない: run landing が rc=${landing_rc} で失敗: ${landing_report}" >&2
-    exit 0
+    exit 1
   fi
   unlanded_count=""
   if ! unlanded_count=$(printf '%s' "$landing_report" | python3 -c '
@@ -63,7 +90,7 @@ for index, receipt in enumerate(receipts):
 print(sum(1 for receipt in receipts if not receipt["landed"]))
 ' 2>&1); then
     echo "着地状態を読めない: ${unlanded_count}" >&2
-    exit 0
+    exit 1
   fi
   if [ "$unlanded_count" != 0 ]; then
     echo "未着地 ${unlanded_count}本: run ${run_ref} の受理済み成果が canonical default branch へ着地していない" >&2
@@ -76,19 +103,41 @@ print(sum(1 for receipt in receipts if not receipt["landed"]))
   pending_report=$("$lattice_cli" run observe --run "$run_ref" 2>&1) || pending_rc=$?
   if [ "$pending_rc" != 0 ]; then
     echo "未accept本数を読めない: run observe が rc=${pending_rc} で失敗: ${pending_report}" >&2
-    exit 0
+    exit 1
   fi
   pending_count=""
   if ! pending_count=$(printf '%s' "$pending_report" | python3 -c '
 import json, sys
+raw = sys.stdin.read()
 try:
-    intakes = json.load(sys.stdin).get("intakes", [])
+    report = json.loads(raw)
 except Exception as error:
     sys.exit(f"run observe がJSONでない: {error}")
-print(",".join(sorted(x["task_id"] for x in intakes if not x.get("accepted_head_sha"))))
+if not isinstance(report, dict):
+    sys.exit(f"run observe がobjectでない: {type(report).__name__}")
+if report.get("schema") != "lattice.pull_run_observation.v1":
+    sys.exit(f"run observe の schema が違う: {report.get('schema')}")
+intakes = report.get("intakes")
+if not isinstance(intakes, list):
+    sys.exit("run observe に intakes 配列が無い")
+pending = []
+for index, intake in enumerate(intakes):
+    if not isinstance(intake, dict):
+        sys.exit(f"intakes[{index}] がobjectでない")
+    task_id = intake.get("task_id")
+    if not isinstance(task_id, str) or not task_id:
+        sys.exit(f"intakes[{index}] の task_id が空または文字列でない")
+    if "accepted_head_sha" not in intake:
+        sys.exit(f"intakes[{index}] に accepted_head_sha が無い")
+    accepted_head_sha = intake.get("accepted_head_sha")
+    if accepted_head_sha is not None and not isinstance(accepted_head_sha, str):
+        sys.exit(f"intakes[{index}] の accepted_head_sha が文字列またはnullでない")
+    if not accepted_head_sha:
+        pending.append(task_id)
+print(",".join(sorted(pending)))
 ' 2>&1); then
     echo "未accept本数を読めない: ${pending_count}" >&2
-    exit 0
+    exit 1
   fi
   if [ -n "$pending_count" ]; then
     echo "未accept: run ${run_ref} に受理されていない intake が在る（${pending_count}）。着地以前に受理が済んでいない" >&2
@@ -144,13 +193,26 @@ gate_runs=$("$done_gate_cli" run list --json 2>&1) || {
 gate_refs=$(printf '%s' "$gate_runs" | python3 -c '
 import json, sys
 plan = sys.argv[1]
+raw = sys.stdin.read()
 try:
-    runs = json.load(sys.stdin).get("active_runs", [])
+    report = json.loads(raw)
 except Exception as error:
     sys.exit(f"run list がJSONでない: {error}")
-for run in runs:
+if not isinstance(report, dict):
+    sys.exit(f"run list がobjectでない: {type(report).__name__}")
+if report.get("schema") != "lattice.run_list.v1":
+    sys.exit(f"run list の schema が違う: {report.get('schema')}")
+runs = report.get("active_runs")
+if not isinstance(runs, list):
+    sys.exit("run list に active_runs 配列が無い")
+for index, run in enumerate(runs):
+    if not isinstance(run, dict):
+        sys.exit(f"active_runs[{index}] がobjectでない")
     if run.get("plan_key") == plan and run.get("selection") == "pull":
-        print(run["run_ref"])
+        run_ref = run.get("run_ref")
+        if not isinstance(run_ref, str) or not run_ref:
+            sys.exit(f"active_runs[{index}] の run_ref が空または文字列でない")
+        print(run_ref)
 ' "$PEERTABLE_PLAN") || {
   echo "ERROR: receipt の状態を読めない: $gate_refs" >&2; exit 1;
 }
@@ -161,11 +223,32 @@ for gate_ref in $gate_refs; do
   gate_state=$(printf '%s' "$gate_obs" | python3 -c '
 import json, sys
 task = sys.argv[1]
+raw = sys.stdin.read()
 try:
-    intakes = json.load(sys.stdin).get("intakes", [])
+    report = json.loads(raw)
 except Exception as error:
     sys.exit(f"run observe がJSONでない: {error}")
-entry = next((x for x in intakes if x.get("task_id") == task), None)
+if not isinstance(report, dict):
+    sys.exit(f"run observe がobjectでない: {type(report).__name__}")
+if report.get("schema") != "lattice.pull_run_observation.v1":
+    sys.exit(f"run observe の schema が違う: {report.get('schema')}")
+intakes = report.get("intakes")
+if not isinstance(intakes, list):
+    sys.exit("run observe に intakes 配列が無い")
+entry = None
+for index, intake in enumerate(intakes):
+    if not isinstance(intake, dict):
+        sys.exit(f"intakes[{index}] がobjectでない")
+    task_id = intake.get("task_id")
+    if not isinstance(task_id, str) or not task_id:
+        sys.exit(f"intakes[{index}] の task_id が空または文字列でない")
+    if "accepted_head_sha" not in intake:
+        sys.exit(f"intakes[{index}] に accepted_head_sha が無い")
+    accepted_head_sha = intake.get("accepted_head_sha")
+    if accepted_head_sha is not None and not isinstance(accepted_head_sha, str):
+        sys.exit(f"intakes[{index}] の accepted_head_sha が文字列またはnullでない")
+    if task_id == task:
+        entry = intake
 print("absent" if entry is None else ("accepted" if entry.get("accepted_head_sha") else "pending"))
 ' "$t") || { echo "ERROR: receipt の状態を読めない: $gate_state" >&2; exit 1; }
   if [ "$gate_state" = pending ]; then
