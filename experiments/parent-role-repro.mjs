@@ -1,0 +1,119 @@
+#!/usr/bin/env node
+// t3: provider-neutral な親 role の配線を測る再現ハーネス。
+//
+// 確認すること:
+//   1. setup.sh が .team/roles/parent.md を生成する（vendor を問わず読める role 文書）
+//   2. parent-join.sh は mode=lattice の setup-state.json では .team/parent-env.sh を生成し、
+//      LATTICE_TODO_ACTOR_HOST/SESSION/AGENT を親名で export する
+//      （owner裁定[46]④: 子processのexportは親shellへ伝播しないため、親が自分でsourceする
+//      持続ファイルが要る）
+//   3. mode=standalone では parent-env.sh を生成しない（Lattice を持ち込まない卓を汚さない）
+//   4. vendor=codex を渡すと member 登録の vendor が codex になる
+import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import http from 'node:http';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const SETUP = path.join(ROOT, 'skill', 'scripts', 'setup.sh');
+const PARENT_JOIN = path.join(ROOT, 'skill', 'scripts', 'parent-join.sh');
+
+function run(command, args, options = {}) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, {
+      cwd: options.cwd, env: { ...process.env, ...options.env }, stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let stdout = ''; let stderr = '';
+    child.stdout.on('data', (c) => { stdout += c; });
+    child.stderr.on('data', (c) => { stderr += c; });
+    child.on('error', reject);
+    child.on('close', (code) => resolve({ code, stdout, stderr }));
+  });
+}
+
+async function fixtureServer() {
+  const registered = [];
+  const server = http.createServer((request, response) => {
+    response.setHeader('content-type', 'application/json');
+    if (request.method === 'POST' && request.url?.endsWith('/members')) {
+      let body = '';
+      request.on('data', (c) => { body += c; });
+      request.on('end', () => {
+        registered.push(JSON.parse(body));
+        response.end(JSON.stringify({ ok: true }));
+      });
+      return;
+    }
+    if (request.method === 'GET' && request.url?.endsWith('/members')) {
+      response.end(JSON.stringify({ members: registered.map((m) => ({ name: m.name })) }));
+      return;
+    }
+    response.statusCode = 404;
+    response.end(JSON.stringify({ error: 'not found' }));
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  return { server, url: `http://127.0.0.1:${address.port}`, registered };
+}
+
+let ok = true;
+const check = (name, pass, detail) => { console.log(`  ${pass ? 'pass' : 'FAIL'}  ${name}${detail ? ` — ${detail}` : ''}`); if (!pass) ok = false; };
+
+const work = await mktempWork();
+async function mktempWork() { return mkdtemp(path.join(tmpdir(), 'peertable-parent-role-')); }
+
+try {
+  // 1. setup.sh（単独円卓モード）が .team/roles/parent.md を生成すること
+  const proj = path.join(work, 'proj');
+  await mkdir(proj, { recursive: true });
+  await run('git', ['init', '-q'], { cwd: proj });
+  await run('git', ['config', 'user.email', 'fixture@example.com'], { cwd: proj });
+  await run('git', ['config', 'user.name', 'fixture'], { cwd: proj });
+  await writeFile(path.join(proj, 'README.md'), '# fixture\n');
+  await run('git', ['add', '-A'], { cwd: proj });
+  await run('git', ['commit', '-q', '-m', 'init'], { cwd: proj });
+  const tasksFile = path.join(work, 'tasks.txt');
+  await writeFile(tasksFile, '- ダミー: 何もしない\n');
+
+  const setupResult = await run('bash', [SETUP, proj, 'fixture-room', 'http://127.0.0.1:1', '-', ROOT, tasksFile]);
+  check('setup.sh（単独）が成功する', setupResult.code === 0, setupResult.stderr.trim().slice(-300));
+  const parentMd = await readFile(path.join(proj, '.team/roles/parent.md'), 'utf8').catch(() => null);
+  check('.team/roles/parent.md が生成される', parentMd !== null);
+  check('parent.md が親の行わないことを明記', parentMd?.includes('親が行わないこと') ?? false);
+  check('parent.md が vendor 分岐（Claude/Codex の新着検知）を明記', (parentMd?.includes('Claude') && parentMd?.includes('Codex')) ?? false);
+
+  // 2. parent-join.sh: mode=lattice の setup-state.json で parent-env.sh が生成される
+  const { server, url, registered } = await fixtureServer();
+  try {
+    const latticeProj = path.join(work, 'lattice-proj');
+    await mkdir(path.join(latticeProj, '.team'), { recursive: true });
+    await writeFile(path.join(latticeProj, '.team/setup-state.json'), JSON.stringify({ room: 'r', server_url: url, mode: 'lattice' }));
+    const childEnv = { PEERTABLE_POST_TOKEN: 'x' };
+    const joinResult = await run('bash', [PARENT_JOIN, latticeProj, 'nagi-test', '', '', 'codex'], { env: childEnv });
+    check('parent-join.sh（lattice）が成功する', joinResult.code === 0, joinResult.stderr.trim().slice(-300));
+    const envFile = await readFile(path.join(latticeProj, '.team/parent-env.sh'), 'utf8').catch(() => null);
+    check('mode=lattice で .team/parent-env.sh が生成される', envFile !== null);
+    check('parent-env.sh が LATTICE_TODO_ACTOR_* を親名でexportする',
+      (envFile?.includes('LATTICE_TODO_ACTOR_HOST=mac') && envFile?.includes('LATTICE_TODO_ACTOR_SESSION=nagi-test') && envFile?.includes('LATTICE_TODO_ACTOR_AGENT=nagi-test')) ?? false);
+    check('vendor=codex が member 登録へ反映される', registered.some((m) => m.vendor === 'codex'));
+
+    // 3. mode=standalone では parent-env.sh を作らない
+    const standaloneProj = path.join(work, 'standalone-proj');
+    await mkdir(path.join(standaloneProj, '.team'), { recursive: true });
+    await writeFile(path.join(standaloneProj, '.team/setup-state.json'), JSON.stringify({ room: 'r', server_url: url, mode: 'standalone' }));
+    const joinResult2 = await run('bash', [PARENT_JOIN, standaloneProj, 'bell'], { env: childEnv });
+    check('parent-join.sh（standalone）が成功する', joinResult2.code === 0, joinResult2.stderr.trim().slice(-300));
+    const envFile2 = await readFile(path.join(standaloneProj, '.team/parent-env.sh'), 'utf8').catch(() => null);
+    check('mode=standalone では .team/parent-env.sh を作らない', envFile2 === null);
+  } finally {
+    server.close();
+  }
+} finally {
+  await rm(work, { recursive: true, force: true });
+}
+
+console.log(ok ? 'parent role repro: green' : 'parent role repro: RED');
+process.exit(ok ? 0 : 1);

@@ -76,6 +76,7 @@ fi
 
 mkdir -p "$tdir/roles"
 cp "$tpl/charter.md" "$tdir/CLAUDE.md"
+cp "$tpl/parent.md" "$tdir/roles/parent.md"
 if [ "$mode" = "standalone" ]; then
   cp "$tpl/member-standalone.md" "$tdir/roles/member.md"
   cat "$tpl/tasks.md" "$tasks" > "$tdir/tasks.md"
