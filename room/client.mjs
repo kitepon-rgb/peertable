@@ -39,6 +39,7 @@ const api = p => `${URL_BASE}/api/${ROOM}/${p}`
 const headers = { 'Content-Type': 'application/json', ...(TOKEN ? { 'X-Peertable-Token': TOKEN } : {}) }
 // 新着通知は明示された宛先だけを処理する。旧 `to: 'all'` 行は read_log から読めるが、
 // channel/read_unread のpush面へは載せない。
+const isTypedEvent = m => m.type === 'task_event' || m.type === 'member_turn_completed'
 const relevant = m => m.from !== ME
   && (Array.isArray(m.to_names) ? m.to_names.includes(ME) : m.to === ME)
 
@@ -78,13 +79,30 @@ mcp.setRequestHandler(ListToolsRequestSchema, async () => ({
         required: ['to', 'message'],
       },
     },
+    {
+      name: 'task_event',
+      description: 'typedな工程started/completedまたは親だけへ送るmember_turn_completedを投稿する。本文と宛先はroomが生成する',
+      inputSchema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          kind: { type: 'string', enum: ['started', 'completed', 'member_turn_completed'] },
+          actor: { type: 'string', minLength: 1, description: '省略時はこのclientのmember名' },
+          plan_key: { type: 'string', minLength: 1 },
+          task_id: { type: 'string', minLength: 1 },
+          title: { type: 'string', minLength: 1 },
+          transition_id: { type: 'string', minLength: 1 },
+        },
+        required: ['kind', 'transition_id'],
+      },
+    },
     { name: 'read_unread', description: '自分が明示宛先に含まれる未読メッセージを読む。読んだ位置は記憶される', inputSchema: { type: 'object', properties: {} } },
     { name: 'read_log', description: 'room ログの直近 count 件を読む（既定 50。全宛先を含む）', inputSchema: { type: 'object', properties: { count: { type: 'number' } } } },
     { name: 'members', description: 'room に居るメンバーの一覧', inputSchema: { type: 'object', properties: {} } },
   ],
 }))
 
-const fmt = m => `[${m.seq}] ${m.from} → ${Array.isArray(m.to_names) ? m.to_names.join(', ') : m.to} (${m.ts}): ${m.body}`
+const fmt = m => `${isTypedEvent(m) ? `[${m.type}:${m.event_kind ?? m.kind}] ` : ''}[${m.seq}] ${m.from} → ${Array.isArray(m.to_names) ? m.to_names.join(', ') : m.to} (${m.ts}): ${m.body}`
 
 mcp.setRequestHandler(CallToolRequestSchema, async req => {
   const args = req.params.arguments ?? {}
@@ -96,6 +114,13 @@ mcp.setRequestHandler(CallToolRequestSchema, async req => {
       // cursor は触らない。自分の発言は relevant で除外されるので進める必要が無く、
       // ここで進めると post より前に届いた未読を読まないまま既読にしてしまう（0.2.1 で修正）
       return text(`sent [${msg.seq}]`)
+    }
+    case 'task_event': {
+      const payload = { ...args, actor: args.actor ?? ME }
+      const r = await fetch(api('task-events'), { method: 'POST', headers, body: JSON.stringify(payload) })
+      const event = await r.json()
+      if (!r.ok) return { isError: true, ...text(`送信失敗: ${JSON.stringify(event)}`) }
+      return text(`${event.idempotent ? 'already sent' : 'sent'} [${event.seq}] ${event.type}:${event.event_kind ?? event.kind}`)
     }
     case 'read_unread': {
       const { messages } = await (await fetch(api(`messages?since=${cursor}`))).json()
