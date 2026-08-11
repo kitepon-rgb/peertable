@@ -8,7 +8,8 @@ team="$proj/.team"; record="$team/$name-bridge.json"; log="$team/$name-bridge.lo
 force=false
 if [ "${1:-}" = "--force" ]; then force=true; shift; fi
 if [ $# -eq 0 ] && [ -f "$record" ]; then
-  mapfile -t saved < <(node -e 'const x=require(process.argv[1]); for (const a of x.args||[]) console.log(a)' "$record")
+  saved=()
+  while IFS= read -r arg; do saved+=("$arg"); done < <(node -e 'const x=require(process.argv[1]); for (const a of x.args||[]) console.log(a)' "$record")
   set -- "${saved[@]}"
 fi
 if [ -f "$record" ]; then
@@ -19,9 +20,13 @@ fi
 sock=$(node "$(dirname "$0")/tmux-socket.mjs")
 room=$(node -e 'process.stdout.write(require(process.argv[1]).room)' "$team/setup-state.json")
 session="peertable-${name}-${room}"
+: > "$log"
 tmux -S "$sock" has-session -t "$session" 2>/dev/null || tmux -S "$sock" new-session -d -s "$session" "node $(dirname "$0")/$script $(printf '%q ' "$proj" "$@") >> $(printf '%q' "$log") 2>&1"
 for _ in $(seq 1 30); do
-  [ -f "$record" ] && node -e 'process.exit(require(process.argv[1]).ready_at?0:1)' "$record" && exit 0
+  if [ -f "$record" ] && node -e 'process.exit(require(process.argv[1]).ready_at?0:1)' "$record"; then
+    node -e 'const fs=require("fs");const p=process.argv[1],a=process.argv.slice(2);fs.writeFileSync(p,JSON.stringify({...require(p),args:a})+"\\n")' "$record" "$@"
+    exit 0
+  fi
   sleep .5
 done
 echo "${name}-bridge: ready_at を待てなかった。ログ末尾:" >&2
