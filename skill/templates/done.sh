@@ -81,6 +81,8 @@ if not isinstance(report, dict):
 actual_schema = report.get("schema")
 if actual_schema != "lattice.run_landing_report.v1":
     sys.exit(f"run landing の schema が違う: {actual_schema}")
+if not isinstance(report.get("landed"), bool):
+    sys.exit("run landing の landed が真偽値でない")
 receipts = report.get("accepted_receipts")
 if not isinstance(receipts, list):
     sys.exit("run landing に accepted_receipts 配列が無い")
@@ -121,12 +123,16 @@ intakes = report.get("intakes")
 if not isinstance(intakes, list):
     sys.exit("run observe に intakes 配列が無い")
 pending = []
+seen = set()
 for index, intake in enumerate(intakes):
     if not isinstance(intake, dict):
         sys.exit(f"intakes[{index}] がobjectでない")
     task_id = intake.get("task_id")
     if not isinstance(task_id, str) or not task_id:
         sys.exit(f"intakes[{index}] の task_id が空または文字列でない")
+    if task_id in seen:
+        sys.exit(f"intakes[{index}] の task_id が重複している: {task_id}")
+    seen.add(task_id)
     if "accepted_head_sha" not in intake:
         sys.exit(f"intakes[{index}] に accepted_head_sha が無い")
     accepted_head_sha = intake.get("accepted_head_sha")
@@ -208,7 +214,15 @@ if not isinstance(runs, list):
 for index, run in enumerate(runs):
     if not isinstance(run, dict):
         sys.exit(f"active_runs[{index}] がobjectでない")
-    if run.get("plan_key") == plan and run.get("selection") == "pull":
+    plan_key = run.get("plan_key")
+    selection = run.get("selection")
+    if not isinstance(plan_key, str) or not plan_key:
+        sys.exit(f"active_runs[{index}] の plan_key が空または文字列でない")
+    if not isinstance(selection, str) or not selection:
+        sys.exit(f"active_runs[{index}] の selection が空または文字列でない")
+    if plan_key == plan:
+        if selection != "pull":
+            sys.exit(f"active_runs[{index}] の対象planの selection がpullでない: {selection}")
         run_ref = run.get("run_ref")
         if not isinstance(run_ref, str) or not run_ref:
             sys.exit(f"active_runs[{index}] の run_ref が空または文字列でない")
@@ -236,12 +250,16 @@ intakes = report.get("intakes")
 if not isinstance(intakes, list):
     sys.exit("run observe に intakes 配列が無い")
 entry = None
+seen = set()
 for index, intake in enumerate(intakes):
     if not isinstance(intake, dict):
         sys.exit(f"intakes[{index}] がobjectでない")
     task_id = intake.get("task_id")
     if not isinstance(task_id, str) or not task_id:
         sys.exit(f"intakes[{index}] の task_id が空または文字列でない")
+    if task_id in seen:
+        sys.exit(f"intakes[{index}] の task_id が重複している: {task_id}")
+    seen.add(task_id)
     if "accepted_head_sha" not in intake:
         sys.exit(f"intakes[{index}] に accepted_head_sha が無い")
     accepted_head_sha = intake.get("accepted_head_sha")

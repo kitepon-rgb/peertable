@@ -43,6 +43,8 @@ case "$1 $2" in
   "run list")
     [ "$mode" = "list_broken" ] && { echo "boom" >&2; exit 1; }
     [ "$mode" = "list_invalid" ] && { echo '{"schema":"wrong"}'; exit 0; }
+    [ "$mode" = "selection_missing" ] && { printf '{"schema":"lattice.run_list.v1","active_runs":[{"run_id":"r1","run_ref":".lattice/runs/r1","plan_key":"${plan}"}]}\\n'; exit 0; }
+    [ "$mode" = "selection_invalid" ] && { printf '{"schema":"lattice.run_list.v1","active_runs":[{"run_id":"r1","run_ref":".lattice/runs/r1","selection":"push","plan_key":"${plan}"}]}\\n'; exit 0; }
     [ "$mode" = "no_run" ] && { echo '{"schema":"lattice.run_list.v1","active_runs":[]}'; exit 0; }
     printf '{"schema":"lattice.run_list.v1","active_runs":[{"run_id":"r1","run_ref":".lattice/runs/r1","selection":"pull","plan_key":"${plan}"}]}\\n'
     exit 0 ;;
@@ -56,12 +58,15 @@ intakes=[]
 if mode=="pending": intakes=[{"task_id":"x1","accepted_head_sha":None}]
 if mode=="accepted": intakes=[{"task_id":"x1","accepted_head_sha":"a"*40}]
 if mode=="other_task": intakes=[{"task_id":"other","accepted_head_sha":None}]
+if mode=="duplicate": intakes=[{"task_id":"x1","accepted_head_sha":None},{"task_id":"x1","accepted_head_sha":"a"*40}]
 print(json.dumps({"schema":"lattice.pull_run_observation.v1","intakes":intakes}))
 ' "$STUB_STATE"
     exit 0 ;;
   "run landing")
     [ "$mode" = "landing_broken" ] && { echo "boom" >&2; exit 1; }
     [ "$mode" = "landing_invalid" ] && { echo '{"schema":"wrong"}'; exit 0; }
+    [ "$mode" = "landing_missing" ] && { echo '{"schema":"lattice.run_landing_report.v1","accepted_receipts":[]}'; exit 0; }
+    [ "$mode" = "landing_landed_invalid" ] && { echo '{"schema":"lattice.run_landing_report.v1","landed":"yes","accepted_receipts":[]}'; exit 0; }
     printf '{"schema":"lattice.run_landing_report.v1","run_id":"r1","landed":true,"accepted_receipts":[]}\\n'
     exit 0 ;;
   "todo done")
@@ -157,8 +162,11 @@ try {
   for (const [mode, label] of [
     ['list_broken', 'run list'],
     ['list_invalid', 'run list のJSON不正'],
+    ['selection_missing', '対象runのselection欠落'],
+    ['selection_invalid', '対象runのselection不正'],
     ['observe_broken', 'run observe'],
     ['observe_invalid', 'run observe のJSON不正'],
+    ['duplicate', 'run observeのintake重複'],
   ]) {
     await setMode(mode)
     await resetLog()
@@ -174,8 +182,11 @@ try {
   for (const [mode, label] of [
     ['landing_broken', 'run landing の失敗'],
     ['landing_invalid', 'run landing のJSON不正'],
+    ['landing_missing', 'run landingのlanded欠落'],
+    ['landing_landed_invalid', 'run landingのlanded不正'],
     ['observe_broken', 'run observe の失敗'],
     ['observe_invalid', 'run observe のJSON不正'],
+    ['duplicate', 'run observeのintake重複'],
   ]) {
     await setMode(mode)
     await resetLog()
