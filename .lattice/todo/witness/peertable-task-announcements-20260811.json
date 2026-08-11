@@ -1,0 +1,103 @@
+{
+  "capacity": { "executors": 3 },
+  "manual_witness": {
+    "a1": {
+      "affected_tests": ["experiments/task-event-transport-repro.mjs"],
+      "owns": [
+        { "kind": "path", "target": "room/server.mjs" },
+        { "kind": "path", "target": "room/client.mjs" },
+        { "creates": true, "kind": "path", "target": "experiments/task-event-transport-repro.mjs" },
+        { "creates": true, "kind": "path", "target": "evidence/peertable-task-announcements-20260811/a1.md" }
+      ],
+      "reads": ["docs/plan_peertable-task-announcements-20260811.md", "room/smoke-client.mjs"],
+      "resources": ["room-task-event-protocol"],
+      "sensor_provenance": { "queries": [] },
+      "state_effects": [],
+      "unknowns": [],
+      "writes": ["room/server.mjs", "room/client.mjs", "experiments/task-event-transport-repro.mjs", "evidence/peertable-task-announcements-20260811/a1.md"]
+    },
+    "a2": {
+      "affected_tests": ["experiments/task-start-announcement-repro.mjs"],
+      "owns": [
+        { "kind": "path", "target": "skill/scripts/setup.sh" },
+        { "creates": true, "kind": "path", "target": "skill/templates/start.sh" },
+        { "kind": "path", "target": "room/client.mjs" },
+        { "creates": true, "kind": "path", "target": "experiments/task-start-announcement-repro.mjs" },
+        { "creates": true, "kind": "path", "target": "evidence/peertable-task-announcements-20260811/a2.md" }
+      ],
+      "reads": ["room/server.mjs", "skill/templates/member.md", "docs/plan_peertable-task-announcements-20260811.md"],
+      "resources": ["room-task-event-protocol", "lattice-todo-start"],
+      "sensor_provenance": { "queries": [] },
+      "state_effects": [],
+      "unknowns": [],
+      "writes": ["skill/scripts/setup.sh", "skill/templates/start.sh", "room/client.mjs", "experiments/task-start-announcement-repro.mjs", "evidence/peertable-task-announcements-20260811/a2.md"]
+    },
+    "a3": {
+      "affected_tests": ["experiments/task-completion-announcement-repro.mjs"],
+      "owns": [
+        { "kind": "path", "target": "skill/templates/done.sh" },
+        { "creates": true, "kind": "path", "target": "experiments/task-completion-announcement-repro.mjs" },
+        { "creates": true, "kind": "path", "target": "evidence/peertable-task-announcements-20260811/a3.md" }
+      ],
+      "reads": ["room/server.mjs", "room/client.mjs", "docs/plan_peertable-task-announcements-20260811.md"],
+      "resources": ["room-task-event-protocol", "lattice-run-landing"],
+      "sensor_provenance": { "queries": [] },
+      "state_effects": [],
+      "unknowns": [],
+      "writes": ["skill/templates/done.sh", "experiments/task-completion-announcement-repro.mjs", "evidence/peertable-task-announcements-20260811/a3.md"]
+    },
+    "a4": {
+      "affected_tests": ["experiments/task-event-role-repro.mjs"],
+      "owns": [
+        { "kind": "path", "target": "skill/templates/member.md" },
+        { "kind": "path", "target": "skill/templates/member-standalone.md" },
+        { "kind": "path", "target": "skill/templates/parent.md" },
+        { "creates": true, "kind": "path", "target": "experiments/task-event-role-repro.mjs" },
+        { "creates": true, "kind": "path", "target": "evidence/peertable-task-announcements-20260811/a4.md" }
+      ],
+      "reads": ["skill/templates/charter.md", "room/client.mjs", "docs/plan_peertable-task-announcements-20260811.md"],
+      "resources": ["member-role-contract", "parent-role-contract", "room-task-event-protocol"],
+      "sensor_provenance": { "queries": [] },
+      "state_effects": [],
+      "unknowns": [],
+      "writes": ["skill/templates/member.md", "skill/templates/member-standalone.md", "skill/templates/parent.md", "experiments/task-event-role-repro.mjs", "evidence/peertable-task-announcements-20260811/a4.md"]
+    },
+    "a5": {
+      "affected_tests": [],
+      "owns": [
+        { "creates": true, "kind": "path", "target": "evidence/peertable-task-announcements-20260811/a5.md" }
+      ],
+      "reads": ["room/server.mjs", "room/client.mjs", "deploy/README.md", "docs/plan_peertable-task-announcements-20260811.md"],
+      "resources": ["ms-a2-production", "disposable-production-room"],
+      "sensor_provenance": { "queries": [] },
+      "state_effects": [
+        { "kind": "external_effect", "resource_id": "ms-a2-production" },
+        { "kind": "external_effect", "resource_id": "disposable-production-room" }
+      ],
+      "unknowns": [],
+      "writes": ["evidence/peertable-task-announcements-20260811/a5.md"]
+    },
+    "a6": {
+      "affected_tests": ["experiments/task-announcement-roundtable-repro.mjs"],
+      "owns": [
+        { "creates": true, "kind": "path", "target": "experiments/task-announcement-roundtable-repro.mjs" },
+        { "creates": true, "kind": "path", "target": "evidence/peertable-task-announcements-20260811/a6.md" }
+      ],
+      "reads": ["room/server.mjs", "room/client.mjs", "skill/scripts/setup.sh", "skill/templates/start.sh", "skill/templates/done.sh", "skill/templates/member.md", "skill/templates/member-standalone.md", "skill/templates/parent.md", "docs/plan_peertable-task-announcements-20260811.md"],
+      "resources": ["ms-a2-production", "disposable-production-room", "disposable-seat-sessions"],
+      "sensor_provenance": { "queries": [] },
+      "state_effects": [
+        { "kind": "external_effect", "resource_id": "ms-a2-production" },
+        { "kind": "external_effect", "resource_id": "disposable-production-room" },
+        { "kind": "external_effect", "resource_id": "disposable-seat-sessions" }
+      ],
+      "unknowns": [],
+      "writes": ["experiments/task-announcement-roundtable-repro.mjs", "evidence/peertable-task-announcements-20260811/a6.md"]
+    }
+  },
+  "plan_key": "peertable-task-announcements-20260811",
+  "project_id": "peertable",
+  "schema": "lattice.todo_witness_set.v4",
+  "sensor_query_set": { "queries": [{ "id": "witness-status", "operation": "status" }] },
+  "witness_set_digest": "37129f0404d2171fe645a9a7170c4ebbe677692f661205c4abaa8a3aa51b4433"
+}
