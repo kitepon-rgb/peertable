@@ -1,0 +1,49 @@
+{
+  "actor": {
+    "agent": "suzune",
+    "host": "mac",
+    "session": "suzune"
+  },
+  "hard_dependencies": [],
+  "joins": [],
+  "plan_key": "peertable-autonomy-runtime-fx3-20260811",
+  "plan_version": "v1",
+  "project_id": "peertable",
+  "recorded_at": "2026-08-11T08:23:20.005Z",
+  "schema": "lattice.todo_extraction.v3",
+  "tasks": [
+    {
+      "compile_binding": null,
+      "completion": null,
+      "design_memo": "所有: `skill/scripts/` 配下の新規入口（または既存 setup/skill 文書への手順追記）と、対応する\n`experiments/` の新規 harness、本 task の証跡。他 task の所有 file は触らない。\n\n**負例（すべて 2026-08-11 の実測）**:\n\n1. companion plan `peertable-autonomy-runtime-fx-20260811` は `coordination=conversation` で\n   witness を作っていないため、`lattice run intake` が\n   `intervention=hold / boundary_unverified / artifact_binding_mismatch`（`independence_result_digest=null`・\n   lease withheld）で通らなかった（tsubaki, room [47]）。実行層（隔離 worktree）を使えないので、\n   f2 は canonical 共有木で実装された。\n2. 一方 main plan 側で t1 の宣言境界を直すために `lattice todo independence compile` が必要になったが、\n   これは **repo 全体（未追跡ファイルを含む）が clean でないと `INDEPENDENCE_WORKTREE_DIRTY` で走らない**。\n   そのため私（suzune）が他2席へ作業中変更の WIP commit を依頼した（room [48][55][57]）。\n3. 結果、t1 の accept 済み成果を canonical main へ着地させて push した時、**未監査・未done の f2 WIP\n   commit（478de1b / 49fb249）が同じ push の祖先として origin/main へ出た**（bell, room [66]）。\n   誰の git 手順ミスでもなく、(1)(2)(3) の合成である。\n\n**受入条件**:\n\n- migrate 済みの companion plan に対して、witness 作成 → `independence compile` → `run intake` が\n  通ることを**実測で示す**（最低1 task）。通らないなら、その原因を実測で切り分けて記録する。\n- その手順が現場から**1本の入口**で辿れる（f4 のツールと同じ位置づけの script か、\n  `skill/SKILL.md` へ落とした command 列のどちらか。実測して安い方を採る）。\n- companion plan を `conversation` のままにするか `witness` へ移すかを、上の実測に基づいて決めて記録する。\n- 欠陥版（witness 無しの companion plan）で intake が hold になることを、harness か再現手順として固定する。\n- **task 単位で push できるかを実測して結論を書く**。できないなら「できない」と根拠付きで記録し、\n  運用側の回避（当該 branch 上の未監査 commit を先に監査へ通してから push する）を正典へ落とす。\n  推測で「できるはず」と書かない。",
+      "disposition": "register_pending",
+      "lane": "defect",
+      "migration_context": {
+        "carry_over_ref": null,
+        "condition": null,
+        "evidence_refs": [],
+        "external_canonical_ref": null,
+        "h_required": false,
+        "notes": []
+      },
+      "narrative_ref": "docs/plan_peertable-autonomy-runtime-fx3-20260811.md",
+      "source": {
+        "checkbox_state": "absent",
+        "heading_path": [
+          "Peertable 自律性改修 companion fix campaign 3（peertable-autonomy-runtime-fx3-20260811）— 計画正本",
+          "2. Lattice 工程",
+          "g1 companion plan でも実行層を使えるようにし、未監査WIPを公開枝へ運ばない"
+        ],
+        "markdown_depth": 3,
+        "origin_line": 15,
+        "origin_plan_ref": "docs/plan_peertable-autonomy-runtime-fx3-20260811.md",
+        "parent_task_id": null,
+        "source_commit": "978cfd2e45905a1d0eba8ef4bea620a09fe20300"
+      },
+      "start": null,
+      "task_id": "g1",
+      "title": "companion plan でも実行層を使えるようにし、未監査WIPを公開枝へ運ばない"
+    }
+  ],
+  "extraction_digest": "10bd77dbf9731233f069475fb8110f55d7610dccd902132d9fffb6b8ebde5d0a"
+}
