@@ -8,7 +8,11 @@ import { join } from 'node:path'
 const PORT = Number(process.env.PEERTABLE_PORT ?? 8790)
 const DATA = process.env.PEERTABLE_DATA ?? './peertable-data'
 const TOKEN = process.env.PEERTABLE_POST_TOKEN ?? null // 設定時のみ書込に要求（公開設置用）
+const PARENT_NAME = process.env.PEERTABLE_PARENT_NAME ?? 'bell'
 const HEARTBEAT_MS = 25000 // SSE 心拍。中間の proxy が落とす前・client の見張りが切る前の間隔
+
+const TASK_EVENT_KINDS = new Set(['started', 'completed', 'member_turn_completed'])
+const TASK_EVENT_FIELDS = new Set(['kind', 'actor', 'plan_key', 'task_id', 'title', 'transition_id'])
 
 mkdirSync(DATA, { recursive: true })
 
@@ -35,7 +39,17 @@ function loadRoom(name, create = false) {
   // members の値は `{ joined_at, …任意欄 }`。旧形式（値が ISO 文字列）もそのまま読める
   const stored = existsSync(membersPath) ? Object.entries(JSON.parse(readFileSync(membersPath, 'utf8'))) : []
   const members = new Map(stored.map(([n, v]) => [n, typeof v === 'string' ? { joined_at: v } : v]))
-  const room = { name, dir, logPath, membersPath, seq, last_ts: lastTs, members, streams: new Set() }
+  const taskEvents = new Map()
+  for (const line of lines) {
+    try {
+      const message = JSON.parse(line)
+      if ((message.type === 'task_event' || message.type === 'member_turn_completed')
+        && typeof message.transition_id === 'string') taskEvents.set(message.transition_id, message)
+    } catch {}
+  }
+  const room = {
+    name, dir, logPath, membersPath, seq, last_ts: lastTs, members, streams: new Set(), taskEvents,
+  }
   rooms.set(name, room)
   return room
 }
@@ -87,17 +101,94 @@ function emitMember(room, name, meta) {
   for (const res of room.streams) res.write(chunk)
 }
 
-function post(room, from, to, body, toNames = null) {
+function post(room, from, to, body, toNames = null, extra = null) {
   const msg = {
     seq: ++room.seq, ts: new Date().toISOString(), from, body,
     ...(to === null ? {} : { to }),
     ...(toNames ? { to_names: toNames } : {}),
+    ...(extra ?? {}),
   }
   appendFileSync(room.logPath, JSON.stringify(msg) + '\n')
   room.last_ts = msg.ts // 正本へ書けてから更新する
   const chunk = `data: ${JSON.stringify(msg)}\n\n`
   for (const res of room.streams) res.write(chunk)
   return msg
+}
+
+const taskEventError = (code, message) => ({ schema: 'peertable.error.v1', code, message })
+const taskEventText = value => typeof value === 'string' && value.length > 0
+
+function taskEvent(room, payload) {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload))
+    return { status: 400, body: taskEventError('TASK_EVENT_PAYLOAD_INVALID', 'task_event_payload_invalid') }
+
+  if ('body' in payload || 'message' in payload)
+    return { status: 400, body: taskEventError('TASK_EVENT_BODY_FORBIDDEN', 'task_event_body_is_generated') }
+  if ('to' in payload || 'to_names' in payload || 'recipients' in payload)
+    return { status: 400, body: taskEventError('TASK_EVENT_RECIPIENTS_FORBIDDEN', 'task_event_recipients_are_generated') }
+  const unknown = Object.keys(payload).filter(key => !TASK_EVENT_FIELDS.has(key))
+  if (unknown.length)
+    return { status: 400, body: taskEventError('TASK_EVENT_FIELDS_FORBIDDEN', `task_event_fields_not_allowed: ${unknown.join(',')}`) }
+
+  const {
+    kind,
+    actor,
+    plan_key: planKey = null,
+    task_id: taskId = null,
+    title = null,
+    transition_id: transitionId,
+  } = payload
+  if (!TASK_EVENT_KINDS.has(kind))
+    return { status: 400, body: taskEventError('TASK_EVENT_KIND_INVALID', 'task_event_kind_invalid') }
+  if (!taskEventText(actor) || !taskEventText(transitionId))
+    return { status: 400, body: taskEventError('TASK_EVENT_FIELDS_INVALID', 'task_event_actor_and_transition_id_required') }
+
+  const taskFields = [planKey, taskId, title]
+  if (kind !== 'member_turn_completed' && !taskFields.every(taskEventText))
+    return { status: 400, body: taskEventError('TASK_EVENT_FIELDS_INVALID', 'started_completed_require_plan_task_title') }
+  if (kind === 'member_turn_completed' && taskFields.some(value => value !== null)
+    && !taskFields.every(taskEventText))
+    return { status: 400, body: taskEventError('TASK_EVENT_FIELDS_INVALID', 'member_turn_completed_task_fields_must_be_complete') }
+
+  const type = kind === 'member_turn_completed' ? 'member_turn_completed' : 'task_event'
+  const existing = room.taskEvents.get(transitionId)
+  if (existing) {
+    const same = existing.type === type
+      && existing.event_kind === kind
+      && existing.actor === actor
+      && (existing.plan_key ?? null) === planKey
+      && (existing.task_id ?? null) === taskId
+      && (existing.title ?? null) === title
+    if (!same) return {
+      status: 409,
+      body: taskEventError('TASK_EVENT_TRANSITION_CONFLICT', 'transition_id_already_bound_to_another_event'),
+    }
+    return { status: 200, body: { ...existing, idempotent: true } }
+  }
+
+  const recipients = kind === 'member_turn_completed'
+    ? [PARENT_NAME]
+    : [...new Set([...room.members.keys(), PARENT_NAME])].filter(name => name !== actor)
+  const audience = normalizeAudience(recipients, null)
+  if (audience.error)
+    return { status: 500, body: taskEventError('TASK_EVENT_RECIPIENTS_INVALID', 'room_recipient_set_invalid') }
+  const body = kind === 'started'
+    ? `[工程着手] ${taskId} ${title} — ${actor}`
+    : kind === 'completed'
+      ? `[工程終了] ${taskId} ${title} — ${actor}`
+      : `[メンバーturn完了] ${actor}${taskId && title ? ` ${taskId} ${title}` : ''}`
+  const message = post(room, actor, audience.to, body, audience.to_names, {
+    type,
+    kind,
+    event_kind: kind,
+    actor,
+    plan_key: planKey,
+    task_id: taskId,
+    title,
+    transition_id: transitionId,
+  })
+  room.taskEvents.set(transitionId, message)
+  return { status: 200, body: { ...message, idempotent: false } }
 }
 
 // 読み取り系だけ越境許可（Lattice 工程表ページからの probe fetch 用）。書込系には付けず OPTIONS も持たないので、
@@ -154,6 +245,15 @@ http.createServer(async (req, res) => {
     const body = await readBody(req)
     if (TOKEN !== null && (req.headers['x-peertable-token'] ?? url.searchParams.get('token')) !== TOKEN)
       return json(res, 403, { error: 'token_required' })
+
+    if (req.method === 'POST' && rest === 'task-events') {
+      let payload
+      try { payload = JSON.parse(body) } catch {
+        return json(res, 400, taskEventError('TASK_EVENT_PAYLOAD_INVALID', 'task_event_json_invalid'))
+      }
+      const result = taskEvent(room, payload)
+      return json(res, result.status, result.body)
+    }
 
     if (req.method === 'POST' && rest === 'messages') {
       const { from, to, to_names: toNames, body: text } = JSON.parse(body)
@@ -287,6 +387,8 @@ const UI = room => `<!doctype html><html lang="ja"><head><meta charset="utf-8"><
 .msg.cont .bubble{border-radius:13px}
 .msg.dm .bubble{border-style:dashed;border-color:hsl(var(--h) var(--sat) var(--edge))}
 .msg.dm .to{color:hsl(var(--h) var(--sat) var(--name));font-weight:600}
+.msg.task .bubble{border-width:2px}
+.event-kind{color:var(--accent);font-weight:650}
 .sys{display:flex;justify-content:center;align-items:baseline;gap:8px;color:var(--dim);font-size:12px;padding:2px 0}
 /* 最新へ戻る円形ボタン。最下部に居る時は hidden で消える（表示条件は追従と同じ nearBottom） */
 .to-bottom{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:3;display:grid;place-items:center;width:40px;height:40px;padding:0;border:1px solid var(--line);border-radius:50%;background:var(--surface);color:var(--fg);font-size:17px;line-height:1;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,.18)}
@@ -375,11 +477,13 @@ function render(m){
   if(m.from==='system'){const d=el('div','sys');d.appendChild(el('span','body',m.body));d.appendChild(seq());d.appendChild(stamp(at));logEl.appendChild(d);last=null;return d}
   const aud=m=>Array.isArray(m.to_names)?m.to_names.join(', '):m.to
   const cont=last&&last.from===m.from&&aud(last)===aud(m)&&at-new Date(last.ts)<300000
-  const d=el('div','msg'+(aud(m)!=='all'?' dm':'')+(cont?' cont':''))
+  const typed=m.type==='task_event'||m.type==='member_turn_completed'
+  const d=el('div','msg'+(aud(m)!=='all'?' dm':'')+(typed?' task':'')+(cont?' cont':''))
   d.style.setProperty('--h',hue(m.from))
   d.appendChild(el('div','av',initial(m.from)))
   const body=el('div','body'),meta=el('div','meta')
   meta.appendChild(el('span','who',m.from))
+  if(typed)meta.appendChild(el('span','event-kind',m.type==='task_event'?'typed task event':'typed member turn'))
   if(aud(m)!=='all')meta.appendChild(el('span','to','→ '+aud(m)))
   meta.appendChild(stamp(at))
   const bub=el('div','bubble');bub.appendChild(md(m.body))
