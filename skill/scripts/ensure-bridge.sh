@@ -10,7 +10,11 @@ if [ "${1:-}" = "--force" ]; then force=true; shift; fi
 if [ $# -eq 0 ] && [ -f "$record" ]; then
   saved=()
   while IFS= read -r arg; do saved+=("$arg"); done < <(node -e 'const x=require(process.argv[1]); for (const a of x.args||[]) console.log(a)' "$record")
-  set -- "${saved[@]}"
+  # macOS 標準 bash 3.2 の set -u では、空配列の展開が unbound variable になる。
+  # args が空なら現在の「引数なし」を保ち、値がある時だけ復元する。
+  if [ "${#saved[@]}" -gt 0 ]; then
+    set -- "${saved[@]}"
+  fi
 fi
 if [ -f "$record" ]; then
   pid=$(node -e 'try{process.stdout.write(String(require(process.argv[1]).pid||""))}catch{}' "$record")

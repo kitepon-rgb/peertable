@@ -59,7 +59,7 @@ echo "(a) 起動して ready_at が出るまで待ってから成功を返す"
 [ -n "$(ready_at)" ] || die "(a) 成功したのに ready_at が無い＝生存確認になっていない"
 p1=$(bridge_pid); [ -n "$p1" ] && kill -0 "$p1" 2>/dev/null || die "(a) bridge が生きていない"
 tmux -S "$sock" has-session -t peertable-seat-status-x 2>/dev/null || die "(a) 専用 tmux session が無い"
-ok "ready_at を確認してから成功（pid $p1）"
+ok "ready_at を確認してから成功（pid ${p1}）"
 
 echo "(b) 冪等——生きているなら何もしない"
 "$ensure" "$proj" seat-status >/dev/null || die "(b) 2回目が非ゼロ"
@@ -78,12 +78,13 @@ kill "$p1" 2>/dev/null || true
 for _ in $(seq 1 20); do kill -0 "$p1" 2>/dev/null || break; sleep .25; done
 # 常駐は SIGTERM で記録を消すので、**前回の ready_at が残っている状況を明示的に作る**
 printf '{"pid":%s,"started_at":"2020-01-01T00:00:00.000Z","ready_at":"2020-01-01T00:00:00.000Z"}\n' "$p1" > "$record"
-"$ensure" "$proj" seat-status --interval 2 >/dev/null || die "(d) ensure が非ゼロ"
+# 引数なしの stale record を復元する経路。args=[] の展開で落ちないこともここで測る。
+"$ensure" "$proj" seat-status >/dev/null || die "(d) ensure が非ゼロ"
 p2=$(bridge_pid)
 [ "$p2" != "$p1" ] || die "(d) 死んだ pid のまま success を返した"
 [ "$(ready_at)" != "2020-01-01T00:00:00.000Z" ] || die "(d) 前回の ready_at を自分の生存確認に使った"
 kill -0 "$p2" 2>/dev/null || die "(d) 建て直した常駐が生きていない"
-ok "stale ready_at を無視して建て直した（pid $p1 → $p2）"
+ok "stale ready_at を無視して建て直した（pid ${p1} → ${p2}）"
 
 echo "(e) ready_at が出なければ非ゼロ＋ログ末尾"
 "$ensure" "$proj" seat-status --stop >/dev/null 2>&1 || true
