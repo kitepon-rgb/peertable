@@ -20,6 +20,46 @@ if [ "$vendor" = "claude" ]; then
   esac
 fi
 
+# **画面の文字列は「model が使えること」を意味しない。** 2026-08-11 実測: fable-5 の席は
+# Claude の channels バナーが出たので下の着席判定を通ったが、その後の入力は全て
+# model unavailable で 0 秒失敗し、席は一度も仕事をできなかった（room [11]）。
+# バナーは CLI が起動したことしか言わないので、**live に応答するかは非対話入口で先に測る**。
+# 席を畳む前に測るのが要点である——ここで落ちれば、動いている席を殺さずに済む。
+preflight_dir="${TMPDIR:-/tmp}"
+case "$vendor" in
+  claude) preflight_cmd=(claude --model "$model" -p "ping") ;;
+  codex)  preflight_cmd=(codex exec --model "$model" --skip-git-repo-check "ping") ;;
+  *) echo "unknown vendor: ${vendor}（claude / codex）" >&2; exit 1 ;;
+esac
+preflight_log=$(mktemp "${TMPDIR:-/tmp}/peertable-preflight.XXXXXX")
+( cd "$preflight_dir" && "${preflight_cmd[@]}" >"$preflight_log" 2>&1 </dev/null ) &
+preflight_pid=$!
+# 外部 CLI が黙って固まる場合に立卓ごと止めないための締切（外部境界なので上限を置く）。
+preflight_deadline=$((SECONDS + 120))
+preflight_rc=""
+while [ $SECONDS -lt $preflight_deadline ]; do
+  if ! kill -0 "$preflight_pid" 2>/dev/null; then
+    # `set -e` の下では、失敗した子を素の `wait` で待つとそこで script ごと死ぬ。
+    # 条件式として使い、rc を自分で受ける（＝失敗を握らず、メッセージを出して落とすため）
+    if wait "$preflight_pid"; then preflight_rc=0; else preflight_rc=$?; fi
+    break
+  fi
+  sleep 2
+done
+if [ -z "$preflight_rc" ]; then
+  kill "$preflight_pid" 2>/dev/null || true
+  echo "model preflight が 120 秒で返らない: ${vendor} / ${model}（席は立てない）" >&2
+  rm -f "$preflight_log"
+  exit 1
+fi
+if [ "$preflight_rc" != 0 ]; then
+  echo "model が live で使えない: ${vendor} / ${model}（preflight rc=${preflight_rc}・席は立てない）" >&2
+  tail -5 "$preflight_log" >&2
+  rm -f "$preflight_log"
+  exit 1
+fi
+rm -f "$preflight_log"
+
 sock=$(node "$(dirname "$0")/tmux-socket.mjs")
 sess="peer-$name"
 state="$proj/.team/setup-state.json"
