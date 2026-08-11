@@ -68,6 +68,31 @@ print(sum(1 for receipt in receipts if not receipt["landed"]))
   if [ "$unlanded_count" != 0 ]; then
     echo "未着地 ${unlanded_count}本: run ${run_ref} の受理済み成果が canonical default branch へ着地していない" >&2
   fi
+  # **「受理済みだが未着地」と「そもそも受理されていない」は別の完了軸である。**
+  # landing report は accepted receipt しか持たないので、accept 前で止まっている intake は
+  # ここでは 0 本＝無言になる（2026-08-11 実測）。observe を併せて読み、別の軸として出す。
+  pending_report=""
+  pending_rc=0
+  pending_report=$("$lattice_cli" run observe --run "$run_ref" 2>&1) || pending_rc=$?
+  if [ "$pending_rc" != 0 ]; then
+    echo "未accept本数を読めない: run observe が rc=${pending_rc} で失敗: ${pending_report}" >&2
+    exit 0
+  fi
+  pending_count=""
+  if ! pending_count=$(printf '%s' "$pending_report" | python3 -c '
+import json, sys
+try:
+    intakes = json.load(sys.stdin).get("intakes", [])
+except Exception as error:
+    sys.exit(f"run observe がJSONでない: {error}")
+print(",".join(sorted(x["task_id"] for x in intakes if not x.get("accepted_head_sha"))))
+' 2>&1); then
+    echo "未accept本数を読めない: ${pending_count}" >&2
+    exit 0
+  fi
+  if [ -n "$pending_count" ]; then
+    echo "未accept: run ${run_ref} に受理されていない intake が在る（${pending_count}）。着地以前に受理が済んでいない" >&2
+  fi
   exit 0
 fi
 # **引数の形を exact に要求する。** 緩く受けると、`--evidnce-from` のような typo が
@@ -105,6 +130,51 @@ if [ "$#" = 3 ]; then
     exit 1
   }
 fi
+
+# **receipt が未 accept のまま done を打たせない。** 実行層に載せた task の成果の正本は
+# Lattice が撮った observed diff（accepted receipt）であって、ToDo の done ではない。
+# 2026-08-11 実測: accept が `RUNTIME_CONFLICT_HOLD` で止まっているのに done は通り、
+# 「ToDo は完了・成果はどこにも着地していない」状態が親の事後照合まで誰にも見えなかった
+# （そして landing-only mode は receipt が無ければ 0 本＝無言になる）。
+# **実行層に載っていない task は素通しする**——pull run の利用は任意で、載っていない卓を止めない。
+done_gate_cli="${LATTICE_CLI:-lattice}"
+gate_runs=$("$done_gate_cli" run list --json 2>&1) || {
+  echo "ERROR: receipt の状態を読めない（run list が失敗）: $gate_runs" >&2; exit 1;
+}
+gate_refs=$(printf '%s' "$gate_runs" | python3 -c '
+import json, sys
+plan = sys.argv[1]
+try:
+    runs = json.load(sys.stdin).get("active_runs", [])
+except Exception as error:
+    sys.exit(f"run list がJSONでない: {error}")
+for run in runs:
+    if run.get("plan_key") == plan and run.get("selection") == "pull":
+        print(run["run_ref"])
+' "$PEERTABLE_PLAN") || {
+  echo "ERROR: receipt の状態を読めない: $gate_refs" >&2; exit 1;
+}
+for gate_ref in $gate_refs; do
+  gate_obs=$("$done_gate_cli" run observe --run "$gate_ref" 2>&1) || {
+    echo "ERROR: receipt の状態を読めない（run observe が失敗）: $gate_ref: $gate_obs" >&2; exit 1;
+  }
+  gate_state=$(printf '%s' "$gate_obs" | python3 -c '
+import json, sys
+task = sys.argv[1]
+try:
+    intakes = json.load(sys.stdin).get("intakes", [])
+except Exception as error:
+    sys.exit(f"run observe がJSONでない: {error}")
+entry = next((x for x in intakes if x.get("task_id") == task), None)
+print("absent" if entry is None else ("accepted" if entry.get("accepted_head_sha") else "pending"))
+' "$t") || { echo "ERROR: receipt の状態を読めない: $gate_state" >&2; exit 1; }
+  if [ "$gate_state" = pending ]; then
+    echo "ERROR: receipt が未acceptのまま done は打てない: ${t} @ ${gate_ref}" >&2
+    echo "  先に受理させる: ${done_gate_cli} run intake accept --run ${gate_ref} --task ${t}" >&2
+    echo "  （accept が hold で止まる場合、その理由の解消が完了条件であって、done は迂回路ではない）" >&2
+    exit 1
+  fi
+done
 
 # descriptor の path は repo 内の相対（repo 外の絶対 path は --evidence が INVALID_ARGUMENTS で弾く）。
 # worktree でも canonical でも同じ相対 path に置く規約なので、この値は両者で一致する。
