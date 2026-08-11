@@ -124,6 +124,18 @@ check('2 idle＋ready 4は既存席の再claimと2席増員を同時に起動す
   assert.equal(idleReclaim.event?.launch_count, 2)
 })
 
+const changedReclaimSeat = capacityProjection({
+  todoStatus: status({ ready: ['r1', 'r2', 'r3'] }),
+  members: [member('bell', null), member('idle-a', 'busy'), member('busy-a', 'idle')],
+  previous: capacityProjection({
+    todoStatus: status({ ready: ['r1', 'r2', 'r3'] }),
+    members: [member('bell', null), member('idle-a', 'idle'), member('busy-a', 'busy')],
+  }).state,
+})
+check('同じ件数でもreclaim対象席が変われば新しい席へ再通知する', () => {
+  assert.deepEqual(changedReclaimSeat.event?.reclaim_workers, ['busy-a'])
+})
+
 const ownerlessActive = capacityProjection({
   todoStatus: status({ active: ['a1', 'a2', 'a3'] }),
   members: [member('bell', null), member('busy-a', 'busy'), member('idle-a', 'idle')],
@@ -142,6 +154,18 @@ check('縮退はdeadを数えずidleだけをWIP確認待ち候補にする', ()
   assert.equal(shrink.event?.action, 'scale_down')
   assert.equal(shrink.event?.retire_count, 2)
   assert.deepEqual(shrink.event?.retire_candidates, ['idle-a', 'idle-b'])
+})
+
+const changedRetireSeat = capacityProjection({
+  todoStatus: status({ active: ['a1'] }),
+  members: [member('bell', null), member('idle-a', 'busy'), member('busy', 'idle')],
+  previous: capacityProjection({
+    todoStatus: status({ active: ['a1'] }),
+    members: [member('bell', null), member('idle-a', 'idle'), member('busy', 'busy')],
+  }).state,
+})
+check('同じ件数でも縮退候補席が変われば親へ再通知する', () => {
+  assert.deepEqual(changedRetireSeat.event?.retire_candidates, ['busy'])
 })
 
 const blockedShrink = capacityProjection({

@@ -80,6 +80,9 @@ export function verifiedReadyTasks(todoStatus) {
 const liveWorker = (member, parentName) => member?.name && member.name !== parentName
   && member.status !== 'dead'
 
+const sameNames = (left = [], right = []) => left.length === right.length
+  && left.every((name, index) => name === right[index])
+
 const stateChanged = (previous, next) => previous === null
   ? next.launch_count > 0 || next.retire_count > 0 || next.reclaim_count > 0
   : previous.target !== next.target
@@ -87,6 +90,8 @@ const stateChanged = (previous, next) => previous === null
     || previous.reclaim_count !== next.reclaim_count
     || previous.launch_count !== next.launch_count
     || previous.retire_count !== next.retire_count
+    || !sameNames(previous.reclaim_workers, next.reclaim_workers)
+    || !sameNames(previous.retire_candidates, next.retire_candidates)
 
 function actionFor(state) {
   if (state.launch_count > 0 && state.reclaim_count > 0) return 'scale_up_and_reclaim'
@@ -114,13 +119,14 @@ export function capacityProjection({ todoStatus, members, parentName = 'bell', p
   const active = [...new Map((todoStatus?.active_set ?? []).map(task => [ref(task), task])).values()]
   const ready = verifiedReadyTasks(todoStatus)
   const workers = (members ?? []).filter(member => liveWorker(member, parentName))
-  const idle = workers.filter(member => member.status === 'idle').map(member => member.name)
+  const idle = workers.filter(member => member.status === 'idle').map(member => member.name).sort()
   const engagedCount = workers.length - idle.length
   const target = active.length + ready.accepted.length
   const delta = target - workers.length
   const launchCount = Math.max(0, delta)
   const retireCount = Math.max(0, -delta)
   const reclaimCount = Math.min(idle.length, Math.max(0, target - engagedCount))
+  const reclaimWorkers = idle.slice(0, reclaimCount)
   const state = {
     target,
     delta,
@@ -130,6 +136,7 @@ export function capacityProjection({ todoStatus, members, parentName = 'bell', p
     engaged_worker_count: engagedCount,
     idle_workers: idle,
     reclaim_count: reclaimCount,
+    reclaim_workers: reclaimWorkers,
     launch_count: launchCount,
     retire_count: retireCount,
     retire_candidates: idle.slice(0, retireCount),
@@ -152,7 +159,7 @@ export function capacityProjection({ todoStatus, members, parentName = 'bell', p
     active_count: state.active_count,
     verified_ready_count: state.verified_ready_count,
     worker_count: state.worker_count,
-    reclaim_workers: idle.slice(0, reclaimCount),
+    reclaim_workers: reclaimWorkers,
     launch_count: launchCount,
     retire_count: retireCount,
     retire_candidates: state.retire_candidates,
