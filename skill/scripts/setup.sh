@@ -74,14 +74,13 @@ if [ "$mode" = "lattice" ]; then
   }
 fi
 
-mkdir -p "$tdir/roles"
+mkdir -p "$tdir/roles" "$tdir/scripts"
 cp "$tpl/charter.md" "$tdir/CLAUDE.md"
 cp "$tpl/parent.md" "$tdir/roles/parent.md"
 if [ "$mode" = "standalone" ]; then
   cp "$tpl/member-standalone.md" "$tdir/roles/member.md"
   cat "$tpl/tasks.md" "$tasks" > "$tdir/tasks.md"
 else
-  mkdir -p "$tdir/scripts"
   # claim 範囲は席へ渡す文書に焼き込む。範囲の出典を「誰かの記憶」でなく role 文書にする
   if [ ${#phases[@]} -eq 0 ]; then
     scope="この卓の claim 範囲は plan 全体（phase 指定なしで立っている）。"
@@ -91,6 +90,8 @@ else
   sed -e "s|{{PLAN_KEY}}|$plan|g" -e "s|{{CLAIM_SCOPE}}|$scope|g" "$tpl/member.md" > "$tdir/roles/member.md"
   cp "$tpl/done.sh" "$tdir/scripts/done.sh" && chmod +x "$tdir/scripts/done.sh"
 fi
+cp "$tpl/start.sh" "$tdir/scripts/start.sh" && chmod +x "$tdir/scripts/start.sh"
+cp "$tpl/start-event.mjs" "$tdir/scripts/start-event.mjs" && chmod +x "$tdir/scripts/start-event.mjs"
 
 # room MCP 定義は project root の .mcp.json が正（channels は --mcp-config を解決しない。決定44）
 added_root_mcp=false
