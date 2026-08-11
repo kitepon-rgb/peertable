@@ -11,12 +11,13 @@ idleかつready 4件だった。それでも親はオーナーから「未着手
 逆にWIPを持つ席を早く畳む危険がある。
 
 Latticeのdispatch frontier、active／ready、independence、roomのlive member状態（busy／idle／dead）を
-同じ容量面へ投影する。**着手可能なready工程数が前回観測値から変わった瞬間**を容量見直しの主triggerとし、
-親へready件数の旧値→新値、稼働席数、推奨する増減数、次の正規操作をtypedに通知する。同じready件数の
-反復pollでは通知しない。増員が必要なら安全な`launch-seat.sh`入口と必要席数を提示し、オーナーの催促を
-待たず親が実行する。増員は工程の配車を意味せず、新席はrole・room・工程正本から自分でclaimする。
-ready件数が減った時は縮退判断を起こすが、対象席がidleで、本人と工程正本の双方からWIPなしを確認した
-後だけroom履歴を残して退役させる。
+同じ容量面へ投影する。**作業面の総数（着手可能なready工程数＋着手済みのactive工程数）が前回観測値から
+変わった瞬間**を容量見直しの主triggerとし、親へ合計の旧値→新値、ready／activeの内訳、稼働席数、
+推奨する増減数、次の正規操作をtypedに通知する。同じ合計の反復pollやready→activeへの単純遷移では
+通知しない。増員が必要なら安全な`launch-seat.sh`入口と必要席数を提示し、オーナーの催促を待たず親が
+実行する。増員は工程の配車を意味せず、新席はrole・room・工程正本から自分でclaimする。合計が減った
+時は縮退判断を起こすが、対象席がidleで、本人と工程正本の双方からWIPなしを確認した後だけroom履歴を
+残して退役させる。
 
 同じ状態を反復pollしても重複通知やturn浪費を起こさず、capacity差が変わった時だけ再通知する。Latticeを
 使わない単独卓では`.team/tasks.md`とroom claimを正本として同じ判断語彙を使う。負例は今回の「3 busy＋
