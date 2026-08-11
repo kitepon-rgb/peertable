@@ -179,10 +179,15 @@ try {
     assert.equal(competing.status, 1)
     assert.match(competing.stderr, /CAPACITY_BRIDGE_ALREADY_RUNNING/u)
   })
-  bridge.kill('SIGTERM')
+  const stopped = await runProcess(process.execPath, [bridgeScript, project, '--stop'])
   await Promise.race([once(bridge, 'exit'), new Promise(resolve => setTimeout(resolve, 2_000))])
   if (bridge.exitCode === null) bridge.kill('SIGKILL')
-  check('SIGTERMで常駐recordを撤去する', () => assert.equal(existsSync(recordPath), false))
+  check('stop入口は常駐停止・record/lock撤去を同じ境界で完了する', () => {
+    assert.equal(stopped.status, 0, stopped.stderr)
+    assert.notEqual(bridge.exitCode, null)
+    assert.equal(existsSync(recordPath), false)
+    assert.equal(existsSync(`${recordPath}.lock`), false)
+  })
 
   await writeFile(latticeState, `${JSON.stringify({
     status: {
