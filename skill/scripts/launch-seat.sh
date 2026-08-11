@@ -38,6 +38,8 @@ brief_max_bytes=65536
 brief_completed=false
 seat_created=false
 rollback_done=false
+turn_hook_file=""
+turn_hook_helper="$peertable_repo/skill/scripts/member-turn-completed.mjs"
 # ready を観測できないだけの不確実性は、投入後の真失敗と分ける。これは
 # Aiterm から手動 dispatch できる空席として残し、席数へ成功着任とは数えない。
 brief_not_ready=false
@@ -48,6 +50,10 @@ room=""
 seat_file="$proj/.team/seats/$name.json"
 cleanup_brief() {
   if [ -n "$brief_file" ]; then rm -f "$brief_file"; fi
+  return 0
+}
+cleanup_turn_hook() {
+  if [ -n "$turn_hook_file" ]; then rm -f "$turn_hook_file"; fi
   return 0
 }
 
@@ -123,6 +129,7 @@ on_exit() {
   local rollback_rc
   trap - EXIT
   cleanup_brief
+  cleanup_turn_hook
   if [ "$seat_created" = true ] && [ "$brief_completed" != true ] && [ "$brief_not_ready" != true ] && [ "$rollback_done" != true ]; then
     rollback_done=true
     if rollback_brief "$exit_rc"; then
@@ -224,6 +231,32 @@ if ! credential_file=$(env -u PEERTABLE_POST_TOKEN node "$credential_helper" pre
   exit 1
 fi
 
+# 同名の古いroom memberが残っていると、Codexの新しいroom clientが一度も登録していなくても
+# 下のready確認を通ってしまう。古いmemberを別席のまま黙って消すのは危険なので、起動前に同名を
+# conflictとして拒否し、明示的な退席後に再実行させる。一覧を読めない時も着席前に止める。
+stale_members=$(curl -sf "$url/api/$room/members" || true)
+stale_member_rc=0
+python3 - "$name" "$stale_members" <<'PY' || stale_member_rc=$?
+import json
+import sys
+try:
+    members = json.loads(sys.argv[2])['members']
+except Exception:
+    raise SystemExit(2)
+raise SystemExit(0 if any(member.get('name') == sys.argv[1] for member in members) else 1)
+PY
+case "$stale_member_rc" in
+  1) : ;; # 同名memberなし。DELETEを発行せず、そのまま新席を起こす
+  0)
+    echo "SEAT_ROOM_MEMBER_CONFLICT: 同名room memberが残っているため着席前に停止（明示的に退席してから再実行）" >&2
+    exit 1
+    ;;
+  *)
+    echo "SEAT_ROOM_MEMBER_STATE_UNREADABLE: room member一覧を読み取れない（席は立てない）" >&2
+    exit 1
+    ;;
+esac
+
 # 前の卓の残骸を回収してから立てる（同名セッションが残ると起動が黙って古い席に化ける）
 tmux -S "$sock" kill-session -t "$sess" 2>/dev/null || true
 
@@ -242,7 +275,8 @@ seat_tmux_pane=$(tmux -S "$sock" display-message -p -t "$sess" '#{pane_id}')
 
 # 素性は席の env にも入れる。client が**登録のたびに**載せるので、member の状態が失われても戻る
 credential_shell=$(printf '%q' "$credential_file")
-env_line="export PEERTABLE_URL=$url PEERTABLE_ROOM=$room PEERTABLE_MEMBER=$name PEERTABLE_CREDENTIAL_FILE=$credential_shell"
+turn_hook_helper_shell=$(printf '%q' "$turn_hook_helper")
+env_line="export PEERTABLE_URL=$url PEERTABLE_ROOM=$room PEERTABLE_MEMBER=$name PEERTABLE_CREDENTIAL_FILE=$credential_shell PEERTABLE_MEMBER_TURN_HELPER=$turn_hook_helper_shell"
 env_line="$env_line PEERTABLE_VENDOR=$vendor PEERTABLE_MODEL=$model"
 [ -n "$effort" ] && env_line="$env_line PEERTABLE_EFFORT=$effort"
 if [ "$mode" = "lattice" ]; then
@@ -254,16 +288,59 @@ sleep 1
 
 case "$vendor" in
   claude)
+    if ! turn_hook_file=$(mktemp "${TMPDIR:-/tmp}/peertable-turn-hook.XXXXXX"); then
+      echo "TURN_HOOK_PREPARE_FAILED: Stop hook設定fileを作れない（席は着席済み）" >&2
+      exit 1
+    fi
+    if ! python3 - "$turn_hook_file" "$turn_hook_helper" <<'PY'
+import json
+import shlex
+import sys
+
+out, helper = sys.argv[1:]
+body = {
+    'hooks': {
+        'Stop': [{
+            'hooks': [{
+                'type': 'command',
+                'command': f'node {shlex.quote(helper)}',
+                'timeout': 10,
+            }],
+        }],
+    },
+}
+with open(out, 'w', encoding='utf-8') as handle:
+    json.dump(body, handle, ensure_ascii=False, separators=(',', ':'))
+PY
+    then
+      echo "TURN_HOOK_PREPARE_FAILED: Claude Stop hook設定を作れない（席は着席済み）" >&2
+      exit 1
+    fi
     cmd="claude --model $model"
     [ -n "$effort" ] && cmd="$cmd --effort $effort"
-    cmd="$cmd --dangerously-skip-permissions --dangerously-load-development-channels server:room"
+    cmd="$cmd --dangerously-skip-permissions --dangerously-load-development-channels server:room --settings $(printf '%q' "$turn_hook_file")"
     ;;
   codex)
     # Codex には channels が無いので room は stdio MCP として差す。
     # `[mcp_servers.X.env]` は closed mode（親 env を継がない）ので全変数を明示列挙する
     # （caveat `codex-cli-v0-130-0-mcp-servers-x-env-block-is-closed-mode-parent-env-not-inherited`）。
-    envtbl="PATH=\\\"$PATH\\\",PEERTABLE_URL=\\\"$url\\\",PEERTABLE_ROOM=\\\"$room\\\",PEERTABLE_MEMBER=\\\"$name\\\",PEERTABLE_CREDENTIAL_FILE=\\\"$credential_file\\\",TMUX=\\\"$seat_tmux\\\",TMUX_PANE=\\\"$seat_tmux_pane\\\""
-    cmd="codex --model $model -C $proj --dangerously-bypass-approvals-and-sandbox"
+    envtbl="PATH=\\\"$PATH\\\",PEERTABLE_URL=\\\"$url\\\",PEERTABLE_ROOM=\\\"$room\\\",PEERTABLE_MEMBER=\\\"$name\\\",PEERTABLE_CREDENTIAL_FILE=\\\"$credential_file\\\",PEERTABLE_MEMBER_TURN_HELPER=\\\"$turn_hook_helper\\\",TMUX=\\\"$seat_tmux\\\",TMUX_PANE=\\\"$seat_tmux_pane\\\""
+    # Codex 0.147 は `hooks` をJSON file pathではなくinline TOML tableとして読む。
+    # session層へStopだけを追加すれば、user/project hooksはCodex自身のmerge規則で残る。
+    hook_command_toml=$(python3 - "$turn_hook_helper" <<'PY'
+import json
+import shlex
+import sys
+
+print(json.dumps(f'node {shlex.quote(sys.argv[1])}', ensure_ascii=False))
+PY
+    )
+    if [ -z "$hook_command_toml" ]; then
+      echo "TURN_HOOK_PREPARE_FAILED: Codex Stop hook commandを作れない（席は着席済み）" >&2
+      exit 1
+    fi
+    hook_config=$(printf '%q' "hooks.Stop=[{hooks=[{type=\"command\",command=$hook_command_toml,timeout=10}]}]")
+    cmd="codex --model $model -C $proj --dangerously-bypass-approvals-and-sandbox --dangerously-bypass-hook-trust -c $hook_config"
     # Codexのeffortは環境変数だけでは適用されない。member metadataへ表示する値と、
     # 実際の推論設定を同じ引数から渡して食い違わせない。
     [ -n "$effort" ] && cmd="$cmd -c 'model_reasoning_effort=\"$effort\"'"
@@ -313,6 +390,25 @@ if [ "$seated" != "true" ]; then
 fi
 
 echo "seated: ${sess}（${vendor} / ${model}${effort:+ / $effort} / room=${room} / mode=${mode}）"
+
+# CodexのヘッダはCLIが起動した証拠であって、必須room MCPが初期化された証拠ではない。
+# 無関係MCPのwarningが画面へ出ても、room clientがmember登録まで到達した席だけを着席として扱う。
+# 登録が無ければ「着席済み」と丸めず、on_exitのrollbackへ渡す。
+room_ready_deadline=$((SECONDS + 30))
+room_ready=false
+while [ $SECONDS -lt "$room_ready_deadline" ]; do
+  room_members=$(curl -sf "$url/api/$room/members" 2>/dev/null || true)
+  if printf '%s' "$room_members" | python3 -c 'import json,sys; name=sys.argv[1]; members=json.load(sys.stdin).get("members",[]); raise SystemExit(0 if any(m.get("name") == name for m in members) else 1)' "$name"; then
+    room_ready=true
+    break
+  fi
+  sleep 1
+done
+if [ "$room_ready" != true ]; then
+  echo "SEAT_ROOM_MCP_NOT_READY: room member登録を観測できない（無関係MCP warningとroom不成立を分離。席をrollbackする）" >&2
+  exit 1
+fi
+echo "room ready: ${room}/${name}"
 
 if [ -n "$brief" ]; then
   # Codex はヘッダを描いた後も MCP 初期化を続ける。Aiterm の ready 契約に合わせ、
