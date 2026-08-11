@@ -4,9 +4,9 @@
 
 ## Peertableの正規席と委譲入口
 
-このprojectの円卓メンバーは、`skill/scripts/launch-seat.sh`で着席させた既存のaiterm外部PTYである。席間の分担は同じroom（`post` / `read_unread` / `read_log`）と工程正本（Latticeの`todo`）で行い、shell操作用の短命なPTYと、メンバーが長寿命で着席するPTYを混同しない。既存席を読む・起こす入口はaitermの`pty_read` / `pty_send` / `pty_key`であり、native agent launcherを使わない。
+このprojectの円卓メンバーは、親が`skill/scripts/launch-seat.sh`で着席させたAiterm長寿命外部PTYである。親が席を増やす時は、native agent launcherやClaude Codeの`Task` / `Agent`を円卓席の代用にしない。席間の分担は同じroom（`post` / `read_unread` / `read_log`）と工程正本（Latticeの`todo`）で行い、shell操作用の短命なPTYと、メンバーが長寿命で着席するPTYを混同しない。既存席を読む・起こす入口はaitermの`pty_read` / `pty_send` / `pty_key`である。
 
-Peertableでは、`mcp__aiterm__codex_agent` / `mcp__aiterm__claude_agent`、Claude Codeの`Task` / `Agent`、その他のnative sub-agentを円卓メンバーの代用として起動しない。global規約にnative sub-agentの既定があっても、このprojectの外部PTY席・room・工程正本の規約を優先する。Codexの`ultra`はmax推論に加えてproactiveなnative multi-agentを有効にするため、この席では拒否し、必要なら`max`以下のeffortへ明示的に切り替える。曖昧なまま席を立てない。
+正式着席したメンバーは、工程遂行に必要なnative sub-agent、Aiterm外部agent、相談agent、自己実装を自由に選べる。親は二次委譲の手段を禁止・指定しない。メンバーが呼んだ子は自動的に円卓メンバーにはならず、工程所有・統合・room報告はこの着席メンバーが保持する。
 
 ## 作業ループ
 

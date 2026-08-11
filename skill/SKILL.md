@@ -32,11 +32,13 @@ Peertableのメンバー席は、aiterm-mcpの外部PTYに長寿命で着席さ�
 `mcp__aiterm__pty_read` / `mcp__aiterm__pty_send` / `mcp__aiterm__pty_key`、roomの`read_unread` / `post`、
 Latticeの`todo`で行う。通常shellのために開いた短命PTYと、メンバーが着席する長寿命PTYは別物である。
 
-このprojectでは、`mcp__aiterm__codex_agent` / `mcp__aiterm__claude_agent`、Claude Codeの`Task` / `Agent`、
-その他のnative sub-agentを円卓メンバーの代用にしない。global規約のnative sub-agent既定より、このprojectの
-外部PTY席・room・工程正本を優先する。Codexの`ultra`はmax推論に加えてproactiveなnative multi-agentを有効に
-するため、PeertableのCodex席では受理せず、必要なら`max`以下へ明示的に誘導する。入口を迷った場合は
-native spawnではなく、既存席へのaiterm操作かroom上のjoinを選ぶ。
+親が円卓メンバーを増やす時の入口は、Peertable正式手順（`scripts/launch-seat.sh`）で作るAiterm長寿命席だけである。
+親は`mcp__aiterm__codex_agent` / `mcp__aiterm__claude_agent`、Claude Codeの`Task` / `Agent`、その他のnative
+sub-agentを円卓メンバーの代用にしない。通常shell用の短命PTYと、room・工程正本へ着席する長寿命PTYを混同しない。
+
+正式着席したメンバーは、工程遂行の方法としてnative sub-agent、Aiterm外部agent、相談agent、自己実装を自由に
+選べる。親は二次委譲の手段を禁止・指定しない。メンバーが呼んだ子は自動的に円卓メンバーにはならず、工程所有・
+統合・room報告は着席メンバーが保持する。
 
 ## setup
 
