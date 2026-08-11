@@ -67,9 +67,18 @@ process.on('SIGINT', cleanup)
 const pending = new Map(seats.map(s => [s, []]))
 let members = new Map()
 async function refreshMembers() {
-  const res = await fetch(`${url}/api/${encodeURIComponent(room)}/members`)
-  const body = await res.json()
-  members = new Map(body.members.map(member => [member.name, member]))
+  try {
+    const res = await fetch(`${url}/api/${encodeURIComponent(room)}/members`)
+    if (!res.ok) throw new Error(`members ${res.status}`)
+    const body = await res.json()
+    members = new Map(body.members.map(member => [member.name, member]))
+    return true
+  } catch (error) {
+    // 記述子の更新が読めないことは起床停止の理由にしない。直前の map を保ち、
+    // 未登録席は wake() の legacy target へ戻す。縮退を必ずログに残す。
+    log(`member 記述子を更新できないので直前の観測先で続ける: ${error.message}`)
+    return false
+  }
 }
 await refreshMembers()
 function markReady() {
