@@ -5,6 +5,7 @@ import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js'
 import { existsSync, readFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -121,10 +122,38 @@ await mcp.connect(new StdioServerTransport())
 // 素性（vendor/model/effort）は launch-seat.sh が env へ入れる。**登録のたびに載せる**——
 // 登録は client の起動ごとに繰り返し起きるので、1回きりの経路に置くと
 // member の状態が失われた時に二度と戻らない（server 側は渡された欄だけ更新する upsert）
+function observeSelf() {
+  if (!process.env.TMUX) {
+    process.stderr.write('peertable-client: observe unavailable: TMUX 不在\n')
+    return null
+  }
+  if (!process.env.TMUX_PANE) {
+    process.stderr.write('peertable-client: observe unavailable: TMUX_PANE 不在\n')
+    return null
+  }
+  const socket = process.env.TMUX.split(',')[0]
+  if (!socket) {
+    process.stderr.write('peertable-client: observe unavailable: TMUX の socket が空\n')
+    return null
+  }
+  try {
+    const target = execFileSync('tmux', ['-S', socket, 'display-message', '-p', '-t', process.env.TMUX_PANE, '#S'], {
+      encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim()
+    if (!target) throw new Error('session 名が空')
+    return { tmux_socket: socket, tmux_target: target }
+  } catch (error) {
+    process.stderr.write(`peertable-client: observe unavailable: ${error.message}\n`)
+    return null
+  }
+}
+
+const observe = observeSelf()
 const IDENTITY = Object.fromEntries(Object.entries({
   vendor: process.env.PEERTABLE_VENDOR,
   model: process.env.PEERTABLE_MODEL,
   effort: process.env.PEERTABLE_EFFORT,
+  observe,
 }).filter(([, v]) => v))
 await fetch(api('members'), { method: 'POST', headers, body: JSON.stringify({ name: ME, ...IDENTITY }) })
 {

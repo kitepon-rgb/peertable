@@ -21,10 +21,10 @@
 // 変わっていないのかを server が区別できない**（決定58 の liveness と cursor の分離と同じ形）。
 // server 側は最終受信からの経過で `unknown` へ落とす——古い状態を出し続けるのが最悪だから。
 import { execFileSync } from 'node:child_process'
-import { existsSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs'
+import { existsSync, readFileSync, renameSync, writeFileSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
 
-import { classifyPaneTail, decideBridgeContinuation, deriveMissingSession, parsePaneTokenHint, resolvePostToken, resolveTmuxSocket, supportsMemberObservation } from './seat-usage.mjs'
+import { classifyPaneTail, decideBridgeContinuation, deriveMissingSession, parsePaneTokenHint, resolvePostToken, resolveSeatObservation, resolveTmuxSocket, supportsMemberObservation } from './seat-usage.mjs'
 
 const args = process.argv.slice(2)
 const proj = args[0]
@@ -76,28 +76,36 @@ const room = setup.room
 const token = resolvePostToken(process.env)
 writeFileSync(pidPath, JSON.stringify({ pid: process.pid, started_at: new Date().toISOString() }) + '\n')
 
-// launch-seat.sh:14 が席を作るソケットと同じ解決規則（既定ソケットへ黙って fallback しない——
-// 見えないなら「見えない」と言う。同じルールを二重に書かない）
-const socket = resolveTmuxSocket(process.env)
-const tmux = (...a) => { try { return execFileSync('tmux', ['-S', socket, ...a], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }) } catch { return null } }
+// 記述子がある席は既定 socket を要らない。曖昧な既定 socket のせいで観測可能な席まで止めないよう、
+// legacy 席を読む時だけ解決する。
+let defaultSocketResolution = null
+let resolutionLogged = false
+let readyRecorded = false
+const defaultSocket = () => {
+  if (defaultSocketResolution === null) defaultSocketResolution = resolveTmuxSocket(process.env)
+  return defaultSocketResolution.socket
+}
+const tmux = (socket, ...a) => { try { return execFileSync('tmux', ['-S', socket, ...a], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }) } catch { return null } }
 
 // 監視するのは room の members に居る席だけ。tmux の `peer-*` を全部拾うと、同じマシンで走る別の卓を晒す
 async function seats() {
   const res = await fetch(`${url}/api/${encodeURIComponent(room)}/members`)
   const { members } = await res.json()
-  return members.map(m => m.name)
+  return members
 }
 
-function readSeat(name, previous, observedAt) {
-  const target = `peer-${name}`
-  const dead = tmux('list-panes', '-t', target, '-F', '#{pane_dead}')
+function readSeat(member, previous, observedAt) {
+  // まず記述子だけで解決する。socket が無い記述子／記述子なしの場合だけ既定を調べる。
+  const target = resolveSeatObservation(member, null) ?? resolveSeatObservation(member, defaultSocket())
+  if (target === null) return deriveMissingSession(previous)
+  const dead = tmux(target.socket, 'list-panes', '-t', target.target, '-F', '#{pane_dead}')
   // セッションが見つからない。tmux 席を持たない member（親など）は一度も観測できないので送らない
   // （`previous` が無い＝一度も観測できていない）。過去に観測できていた席が消えたなら実際に落ちた
   if (dead === null) return deriveMissingSession(previous)
   if (dead.trim().split('\n')[0] === '1') {
     return { status: 'dead', busySince: null, paneTokenHint: null }
   }
-  const pane = tmux('capture-pane', '-t', target, '-p')
+  const pane = tmux(target.socket, 'capture-pane', '-t', target.target, '-p')
   if (pane === null) return { status: 'dead', busySince: null, paneTokenHint: null }
   const tail = pane.split('\n').slice(-14).join('\n')
   const status = classifyPaneTail(tail)
@@ -138,9 +146,40 @@ const tokenBucket = value => value === null ? null : Math.floor(value / 1_000)
 // 数えないと、失敗を1行ずつ吐きながら永久に常駐する（2026-08-10 に4時間そうなった）
 const NOTHING_ATTEMPTED = { attempted: 0, failed: 0 }
 
+function hasDescriptor(member) {
+  return member?.observe && typeof member.observe === 'object'
+    && typeof member.observe.tmux_target === 'string' && member.observe.tmux_target.length > 0
+}
+
+function logResolution(members) {
+  if (resolutionLogged) return
+  resolutionLogged = true
+  const descriptors = members.filter(hasDescriptor).length
+  const legacy = members.length - descriptors
+  if (legacy === 0) {
+    console.error(`seat-status-bridge: 観測記述子 ${descriptors} 席、legacy 0 席、既定 socket は未使用`)
+    return
+  }
+  const resolved = defaultSocketResolution ?? resolveTmuxSocket(process.env)
+  defaultSocketResolution = resolved
+  const detail = resolved.error
+    ? `${resolved.source} (${resolved.error.code}: ${resolved.candidates.join(', ')})`
+    : `${resolved.source} (${resolved.socket})`
+  console.error(`seat-status-bridge: 観測記述子 ${descriptors} 席、legacy ${legacy} 席、既定 socket=${detail}`)
+}
+
+function recordReady() {
+  if (readyRecorded) return
+  readyRecorded = true
+  const record = JSON.parse(readFileSync(pidPath, 'utf8'))
+  const temporary = `${pidPath}.${process.pid}.tmp`
+  writeFileSync(temporary, JSON.stringify({ ...record, ready_at: new Date().toISOString() }) + '\n')
+  renameSync(temporary, pidPath)
+}
+
 async function tick() {
-  let names
-  try { names = await seats() } catch (e) { console.error(`seat-status-bridge: members を読めない: ${e.message}`); return NOTHING_ATTEMPTED }
+  let members
+  try { members = await seats() } catch (e) { console.error(`seat-status-bridge: members を読めない: ${e.message}`); return NOTHING_ATTEMPTED }
   // **送る前に、server が status を持つ版かを確かめる。**
   // 現行の `POST /members` は、既存メンバーでも `<名前> が参加した` を必ず room へ流す（`post()` が
   // `if (!members.has(name))` の外にある）。status を保持しない版へ投げると、**保存されないうえに
@@ -148,17 +187,20 @@ async function tick() {
   // 保持する版かどうかは GET で分かるので、**分かるまで投げない**。
   if (supported === null) {
     try { supported = await serverKeepsStatus() } catch { return NOTHING_ATTEMPTED }   // 判定できない間は送らない
+    recordReady()
     if (!supported) console.error('seat-status-bridge: この room サーバーは稼働状態を保持しない版（GET /members に status が無い）。送信すると保存されないうえに system 発言を撒くので、送信しない')
   }
-  if (!supported) { console.error(`seat-status-bridge: ${names.length} 席を見たが、server が未対応なので送っていない`); return NOTHING_ATTEMPTED }
+  logResolution(members)
+  if (!supported) { console.error(`seat-status-bridge: ${members.length} 席を見たが、server が未対応なので送っていない`); return NOTHING_ATTEMPTED }
   const now = Date.now()
   const observedAt = new Date(now).toISOString()
   let sent = 0
   let skipped = 0
   let failed = 0
-  for (const name of names) {
+  for (const member of members) {
+    const { name } = member
     const prev = last.get(name)
-    const observation = readSeat(name, prev, observedAt)
+    const observation = readSeat(member, prev, observedAt)
     // tmux 席を持たない member（親など）は一度も観測できないので送らない（deriveMissingSession が null を返す）
     if (observation === null) { skipped++; continue }
     const changed = !prev || prev.status !== observation.status
@@ -178,7 +220,7 @@ async function tick() {
     }
   }
   // 0件でも0件と言う（条件付きログにしない。沈黙する失敗を作らない・決定58）
-  console.error(`seat-status-bridge: ${names.length} 席を見て ${sent} 件送った（tmux席を持たず観測対象外: ${skipped}）`)
+  console.error(`seat-status-bridge: ${members.length} 席を見て ${sent} 件送った（tmux席を持たず観測対象外: ${skipped}）`)
   return { attempted: sent + failed, failed }
 }
 
