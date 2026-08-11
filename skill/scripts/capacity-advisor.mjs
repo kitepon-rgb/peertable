@@ -166,15 +166,32 @@ export function capacityProjection({ todoStatus, members, parentName = 'bell', p
   const launchAlreadyNotified = launchCount > 0 && carriedLaunchTarget === target
   const launchTriggered = launchCount > 0 && !launchAlreadyNotified
   state.launch_notified_target = launchTriggered ? target : carriedLaunchTarget
+
+  // 縮退候補への確認DMでも、その席だけ一時的にbusyになって別のidle席が候補へ
+  // 繰り上がる。同じtarget・同じworker総数では退役要求を一度だけ発火し、
+  // 親が最新のmember状態を再読して必要なidle席だけ畳む。reclaimと同時のpollではまだ
+  // 退役要求を出さず、次のpollで安全候補が残る時に初めて通知済みにする。
+  const retireAlreadyNotified = retireCount > 0
+    && previous?.retire_notified_target === target
+    && previous?.retire_notified_worker_count === workers.length
+  const retireTriggered = retireCount > 0
+    && state.retire_candidates.length > 0
+    && newReclaimWorkers.length === 0
+    && !retireAlreadyNotified
+  state.retire_notified_target = retireTriggered || retireAlreadyNotified ? target : null
+  state.retire_notified_worker_count = retireTriggered || retireAlreadyNotified ? workers.length : null
   state.action = actionFor(state)
   state.next_operation = nextOperation(state)
 
   const targetChanged = previous !== null && previous.target !== target
-  const retireChanged = previous === null
-    ? retireCount > 0
-    : previous.retire_count !== retireCount
-      || !sameNames(previous.retire_candidates, state.retire_candidates)
-  const changed = launchTriggered || newReclaimWorkers.length > 0 || retireChanged || targetChanged
+  const retireBlockedChanged = retireCount > 0
+    && state.retire_candidates.length === 0
+    && !retireAlreadyNotified
+    && (previous === null
+      || previous.retire_count !== retireCount
+      || (previous.retire_candidates?.length ?? 0) > 0)
+  const changed = launchTriggered || newReclaimWorkers.length > 0
+    || retireTriggered || retireBlockedChanged || targetChanged
   const oldTarget = previous?.target ?? workers.length
   const oldDelta = previous?.delta ?? 0
   const eventState = {
@@ -182,6 +199,8 @@ export function capacityProjection({ todoStatus, members, parentName = 'bell', p
     reclaim_count: newReclaimWorkers.length,
     reclaim_workers: newReclaimWorkers,
     launch_count: launchTriggered ? launchCount : 0,
+    retire_count: retireTriggered || retireBlockedChanged ? retireCount : 0,
+    retire_candidates: retireTriggered ? state.retire_candidates : [],
   }
   eventState.action = actionFor(eventState)
   eventState.next_operation = nextOperation(eventState)
@@ -196,8 +215,8 @@ export function capacityProjection({ todoStatus, members, parentName = 'bell', p
     worker_count: state.worker_count,
     reclaim_workers: newReclaimWorkers,
     launch_count: eventState.launch_count,
-    retire_count: retireCount,
-    retire_candidates: state.retire_candidates,
+    retire_count: eventState.retire_count,
+    retire_candidates: eventState.retire_candidates,
     action: eventState.action,
     next_operation: eventState.next_operation,
   } : null

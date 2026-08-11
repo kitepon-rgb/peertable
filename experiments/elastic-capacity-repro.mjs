@@ -257,8 +257,46 @@ const changedRetireSeat = capacityProjection({
     members: [member('bell', null), member('idle-a', 'idle'), member('busy', 'busy')],
   }).state,
 })
-check('同じ件数でも縮退候補席が変われば親へ再通知する', () => {
-  assert.deepEqual(changedRetireSeat.event?.retire_candidates, ['busy'])
+check('同じtarget・worker数の縮退候補交代では退役要求を重複通知しない', () => {
+  assert.equal(changedRetireSeat.event, null)
+})
+
+const reclaimBeforeShrink = capacityProjection({
+  todoStatus: status({ active: ['a1', 'a2'] }),
+  members: [member('bell', null), member('busy', 'busy'), member('idle-a', 'idle'), member('idle-b', 'idle')],
+})
+const shrinkAfterReclaim = capacityProjection({
+  todoStatus: status({ active: ['a1', 'a2'] }),
+  members: [member('bell', null), member('busy', 'busy'), member('idle-a', 'busy'), member('idle-b', 'idle')],
+  previous: reclaimBeforeShrink.state,
+})
+const repeatedShrinkWave = capacityProjection({
+  todoStatus: status({ active: ['a1', 'a2'] }),
+  members: [member('bell', null), member('busy', 'busy'), member('idle-a', 'idle'), member('idle-b', 'busy')],
+  previous: shrinkAfterReclaim.state,
+})
+check('reclaimと縮退が重なる時はreclaim後に退役要求を1回だけ発火する', () => {
+  assert.equal(reclaimBeforeShrink.event?.action, 'reclaim_idle')
+  assert.equal(reclaimBeforeShrink.event?.retire_count, 0)
+  assert.equal(shrinkAfterReclaim.event?.action, 'scale_down')
+  assert.equal(shrinkAfterReclaim.event?.retire_count, 1)
+  assert.equal(repeatedShrinkWave.event, null)
+})
+
+const convergedAfterShrink = capacityProjection({
+  todoStatus: status({ active: ['a1', 'a2'] }),
+  members: [member('bell', null), member('busy', 'busy'), member('idle-a', 'idle')],
+  previous: shrinkAfterReclaim.state,
+})
+const newShrinkWave = capacityProjection({
+  todoStatus: status({ active: ['a1', 'a2'] }),
+  members: [member('bell', null), member('busy', 'busy'), member('idle-a', 'idle'), member('idle-c', 'idle')],
+  previous: convergedAfterShrink.state,
+})
+check('worker総数が変わった後の新しい余剰は次の縮退waveとして通知する', () => {
+  assert.equal(convergedAfterShrink.event, null)
+  assert.equal(newShrinkWave.event?.action, 'scale_down')
+  assert.equal(newShrinkWave.event?.retire_count, 1)
 })
 
 const blockedShrink = capacityProjection({
@@ -268,6 +306,16 @@ const blockedShrink = capacityProjection({
 check('余剰がbusy/blocked席だけなら縮退を強行しない', () => {
   assert.equal(blockedShrink.event?.action, 'shrink_blocked')
   assert.deepEqual(blockedShrink.event?.retire_candidates, [])
+})
+
+const unblockedShrink = capacityProjection({
+  todoStatus: status({ active: ['a1'] }),
+  members: [member('bell', null), member('busy-a', 'busy'), member('busy-b', 'idle')],
+  previous: blockedShrink.state,
+})
+check('縮退blocked後にidle候補が生まれれば同じworker数でも退役要求を発火する', () => {
+  assert.equal(unblockedShrink.event?.action, 'scale_down')
+  assert.deepEqual(unblockedShrink.event?.retire_candidates, ['busy-b'])
 })
 
 const partialShrink = capacityProjection({
