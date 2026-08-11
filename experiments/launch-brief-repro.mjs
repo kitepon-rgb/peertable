@@ -263,6 +263,9 @@ try {
     assert.equal(notReadySession.status, 0)
     assert.equal(existsSync(memberState), true)
     assert.equal(existsSync(briefEnterCount), false)
+    assert.equal(existsSync(join(project, '.team/seats/fixture-seat.json')), true,
+      'NOT_READYでも手動dispatch可能なseat identityを残す')
+    assert.match(notReadyResult.stdout, /metadata: codex \/ gpt-5.6-luna/)
   })
 
   // 4. brief投入後にturnが始まらない実席を再現する。失敗時に半端な tmux / member / seat を残さない。

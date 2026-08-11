@@ -297,11 +297,10 @@ if [ -n "$brief" ]; then
   if [ "$brief_ready" != true ]; then
     brief_not_ready=true
     echo "LAUNCH_BRIEF_NOT_READY: brief を受け付ける入力 prompt を観測できない（brief未投入・空席を保持。Aiterm手動dispatch対象）" >&2
-    exit 1
-  fi
-  # prompt の描画とキー入力受理の境界を分ける。Codex のTUIが入力欄を
-  # mountした直後に paste と Enter を同一tickで受けると、Enterだけ落ちる。
-  sleep 1
+  else
+    # prompt の描画とキー入力受理の境界を分ける。Codex のTUIが入力欄を
+    # mountした直後に paste と Enter を同一tickで受けると、Enterだけ落ちる。
+    sleep 1
 
   brief_before=$(tmux -S "$sock" capture-pane -S -1000 -t "$sess" -p 2>/dev/null || true)
   brief_buffer="peertable-brief-${name}-$$"
@@ -340,6 +339,7 @@ if [ -n "$brief" ]; then
   fi
   brief_completed=true
   echo "briefed: $sess"
+fi
 fi
 
 # 席の素性を `.team/seats/<name>.json` へ置く。**席が自分の pid を知るための唯一の経路**である
@@ -456,4 +456,10 @@ if "$(dirname "$0")/ensure-bridge.sh" "$proj" seat-status; then
   echo "seat-status-bridge: 起動確認済み"
 else
   echo "seat-status-bridge の起動確認に失敗した（席は着席済み）" >&2
+fi
+
+if [ "$brief_not_ready" = true ]; then
+  # 空席の後段セットアップ（identity / metadata / bridge）まで済ませたうえで、
+  # 呼び出し側にはready未確認を非0で返す。席はAiterm手動dispatchへ引き継ぐ。
+  exit 1
 fi
