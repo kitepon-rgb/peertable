@@ -1,0 +1,176 @@
+{
+  "actor": {
+    "agent": "bell",
+    "host": "mac",
+    "session": "peertable-task-announcements-setup"
+  },
+  "extraction_digest": "8819dcfd2d2b767847d69f85a288f0cb0f688f416fad59c044fabeccc02bb2bd",
+  "hard_dependencies": [
+    {
+      "from": { "plan_key": "peertable-task-announcements-20260811", "project_id": "peertable", "task_id": "a1" },
+      "to": { "plan_key": "peertable-task-announcements-20260811", "project_id": "peertable", "task_id": "a2" }
+    },
+    {
+      "from": { "plan_key": "peertable-task-announcements-20260811", "project_id": "peertable", "task_id": "a1" },
+      "to": { "plan_key": "peertable-task-announcements-20260811", "project_id": "peertable", "task_id": "a3" }
+    },
+    {
+      "from": { "plan_key": "peertable-task-announcements-20260811", "project_id": "peertable", "task_id": "a1" },
+      "to": { "plan_key": "peertable-task-announcements-20260811", "project_id": "peertable", "task_id": "a4" }
+    },
+    {
+      "from": { "plan_key": "peertable-task-announcements-20260811", "project_id": "peertable", "task_id": "a1" },
+      "to": { "plan_key": "peertable-task-announcements-20260811", "project_id": "peertable", "task_id": "a5" }
+    },
+    {
+      "from": { "plan_key": "peertable-task-announcements-20260811", "project_id": "peertable", "task_id": "a2" },
+      "to": { "plan_key": "peertable-task-announcements-20260811", "project_id": "peertable", "task_id": "a6" }
+    },
+    {
+      "from": { "plan_key": "peertable-task-announcements-20260811", "project_id": "peertable", "task_id": "a3" },
+      "to": { "plan_key": "peertable-task-announcements-20260811", "project_id": "peertable", "task_id": "a6" }
+    },
+    {
+      "from": { "plan_key": "peertable-task-announcements-20260811", "project_id": "peertable", "task_id": "a4" },
+      "to": { "plan_key": "peertable-task-announcements-20260811", "project_id": "peertable", "task_id": "a6" }
+    },
+    {
+      "from": { "plan_key": "peertable-task-announcements-20260811", "project_id": "peertable", "task_id": "a5" },
+      "to": { "plan_key": "peertable-task-announcements-20260811", "project_id": "peertable", "task_id": "a6" }
+    }
+  ],
+  "joins": [],
+  "plan_key": "peertable-task-announcements-20260811",
+  "plan_version": "v1",
+  "project_id": "peertable",
+  "recorded_at": "2026-08-11T08:11:10.000Z",
+  "schema": "lattice.todo_extraction.v3",
+  "tasks": [
+    {
+      "compile_binding": null,
+      "completion": null,
+      "design_memo": "所有は room/server.mjs、room/client.mjs と task event transport の focused harness。通常 message の宛先契約と role / setup script は触らない。started / completed の二値だけを受ける typed API と MCP tool を作り、room が自由本文を受けず定型本文と recipient set を生成する。送信者以外の現在の全席と親へ一行注入し、同一 transition id は保存・注入とも一度だけにする。未知 kind、自由本文、通常 message の broadcast は typed reject する。room log / Web UI で通常発言と区別できる field を保ち、正負の focused harness で測る。",
+      "disposition": "register_pending",
+      "lane": "transport",
+      "migration_context": { "carry_over_ref": null, "condition": null, "evidence_refs": [], "external_canonical_ref": null, "h_required": false, "notes": [] },
+      "narrative_ref": "docs/plan_peertable-task-announcements-20260811.md#L55",
+      "source": {
+        "checkbox_state": "absent",
+        "heading_path": ["Peertable 工程着手・終了アナウンス campaign（peertable-task-announcements-20260811）— 計画正本", "3. Lattice 工程", "a1 typed task event の room transport を作る"],
+        "markdown_depth": 3,
+        "origin_line": 55,
+        "origin_plan_ref": "docs/plan_peertable-task-announcements-20260811.md",
+        "parent_task_id": null,
+        "source_commit": "5c74c8fdbc38d4dc8daecb10c8c177ccbd66823e"
+      },
+      "start": null,
+      "task_id": "a1",
+      "title": "typed task event の room transport を作る"
+    },
+    {
+      "compile_binding": null,
+      "completion": null,
+      "design_memo": "依存は a1 と main campaign t3。所有は skill/scripts/setup.sh、着手用 template / generated script と focused harness。終了 script と role 本文は触らない。Lattice / standalone の正規着手入口を作り、着手成功後だけ started を一度送る。Lattice の正規引数を失わず、失敗・既着手・競合では虚偽通知を出さない。setup が入口を自動生成し diagnostics が配布漏れを検出する。announce を別の二手目、全員の名前列挙、自由文組立てとしてAIへ要求しない。",
+      "disposition": "register_pending",
+      "lane": "adapter",
+      "migration_context": { "carry_over_ref": null, "condition": null, "evidence_refs": [], "external_canonical_ref": null, "h_required": false, "notes": [] },
+      "narrative_ref": "docs/plan_peertable-task-announcements-20260811.md#L65",
+      "source": {
+        "checkbox_state": "absent",
+        "heading_path": ["Peertable 工程着手・終了アナウンス campaign（peertable-task-announcements-20260811）— 計画正本", "3. Lattice 工程", "a2 着手操作へ自動アナウンスを組み込む"],
+        "markdown_depth": 3,
+        "origin_line": 65,
+        "origin_plan_ref": "docs/plan_peertable-task-announcements-20260811.md",
+        "parent_task_id": null,
+        "source_commit": "5c74c8fdbc38d4dc8daecb10c8c177ccbd66823e"
+      },
+      "start": null,
+      "task_id": "a2",
+      "title": "着手操作へ自動アナウンスを組み込む"
+    },
+    {
+      "compile_binding": null,
+      "completion": null,
+      "design_memo": "依存は a1 と companion fix campaign 2 f6。所有は skill/templates/done.sh と生成物、task event 連携の focused harness。着手 script と role 本文は触らない。f6 の未acceptをdone/landing成功に見せない契約の後段へ completed を接続する。peer audit / evidence / done、実行層利用時の accepted receipt / canonical landing の不足では通知せず、本当の完了後だけ一度送る。再試行は重複せず、reopen後の新しい完了は別 transition として一度送れることを測る。",
+      "disposition": "register_pending",
+      "lane": "adapter",
+      "migration_context": { "carry_over_ref": null, "condition": null, "evidence_refs": [], "external_canonical_ref": null, "h_required": false, "notes": [] },
+      "narrative_ref": "docs/plan_peertable-task-announcements-20260811.md#L74",
+      "source": {
+        "checkbox_state": "absent",
+        "heading_path": ["Peertable 工程着手・終了アナウンス campaign（peertable-task-announcements-20260811）— 計画正本", "3. Lattice 工程", "a3 本当の終了へ自動アナウンスを組み込む"],
+        "markdown_depth": 3,
+        "origin_line": 74,
+        "origin_plan_ref": "docs/plan_peertable-task-announcements-20260811.md",
+        "parent_task_id": null,
+        "source_commit": "5c74c8fdbc38d4dc8daecb10c8c177ccbd66823e"
+      },
+      "start": null,
+      "task_id": "a3",
+      "title": "本当の終了へ自動アナウンスを組み込む"
+    },
+    {
+      "compile_binding": null,
+      "completion": null,
+      "design_memo": "依存は a1 と main campaign t3。所有は skill/templates/member.md、member-standalone.md、parent.md と role harness。transport / script は触らない。started受信時はclaim競合を避けてactive / ready / audit / waitを読み直し、completed受信時は新しく開いたreadyと監査候補を探す。通知への了解・追認返信は禁止する。親はstartedで工程管理へ降りず、completedでだけ黙った工程完了後照合へ入る。生成された三roleをfixtureで突合する。",
+      "disposition": "register_pending",
+      "lane": "role",
+      "migration_context": { "carry_over_ref": null, "condition": null, "evidence_refs": [], "external_canonical_ref": null, "h_required": false, "notes": [] },
+      "narrative_ref": "docs/plan_peertable-task-announcements-20260811.md#L83",
+      "source": {
+        "checkbox_state": "absent",
+        "heading_path": ["Peertable 工程着手・終了アナウンス campaign（peertable-task-announcements-20260811）— 計画正本", "3. Lattice 工程", "a4 受信後に返信せず自律ループへ戻る role を生成する"],
+        "markdown_depth": 3,
+        "origin_line": 83,
+        "origin_plan_ref": "docs/plan_peertable-task-announcements-20260811.md",
+        "parent_task_id": null,
+        "source_commit": "5c74c8fdbc38d4dc8daecb10c8c177ccbd66823e"
+      },
+      "start": null,
+      "task_id": "a4",
+      "title": "受信後に返信せず自律ループへ戻る role を生成する"
+    },
+    {
+      "compile_binding": null,
+      "completion": null,
+      "design_memo": "依存は a1 と既存 companion fix campaign f2 / f3。所有は本taskのevidenceと、実動で見つけた欠陥を工程化する新規companion planだけ。未監査WIPを含まないorigin/main祖先commitだけをMS-A2へdeployする。使い捨てroomでstarted / completedの保存、全席注入、送信者除外、冪等性、自由broadcast rejectを実測する。欠陥は即時修理ToDo化してa6前提へ接続する。npm publishは行わない。",
+      "disposition": "register_pending",
+      "lane": "deploy",
+      "migration_context": { "carry_over_ref": null, "condition": null, "evidence_refs": [], "external_canonical_ref": null, "h_required": false, "notes": [] },
+      "narrative_ref": "docs/plan_peertable-task-announcements-20260811.md#L93",
+      "source": {
+        "checkbox_state": "absent",
+        "heading_path": ["Peertable 工程着手・終了アナウンス campaign（peertable-task-announcements-20260811）— 計画正本", "3. Lattice 工程", "a5 Wave 1 を MS-A2 へ deploy し transport を実動確認する"],
+        "markdown_depth": 3,
+        "origin_line": 93,
+        "origin_plan_ref": "docs/plan_peertable-task-announcements-20260811.md",
+        "parent_task_id": null,
+        "source_commit": "5c74c8fdbc38d4dc8daecb10c8c177ccbd66823e"
+      },
+      "start": null,
+      "task_id": "a5",
+      "title": "Wave 1 を MS-A2 へ deploy し transport を実動確認する"
+    },
+    {
+      "compile_binding": null,
+      "completion": null,
+      "design_memo": "依存は a2 / a3 / a4 / a5。所有は本task用experiments、evidence、deploy smoke記録。使い捨てLattice planと複数実席で、着手成功による一回の全体注入、他席の自律的な別ready claim、peer audit前に終了通知が出ないこと、accepted / landed後の一回の終了注入、新しく開いた工程への自律着手、受信者が了解を返さないこと、親がstartedで工程を奪わずcompleted後だけ黙って照合することを測る。成立commitをMS-A2へ再deployして公開roomで再smokeし、欠陥は即時工程化する。",
+      "disposition": "register_pending",
+      "lane": "integration",
+      "migration_context": { "carry_over_ref": null, "condition": null, "evidence_refs": [], "external_canonical_ref": null, "h_required": false, "notes": [] },
+      "narrative_ref": "docs/plan_peertable-task-announcements-20260811.md#L102",
+      "source": {
+        "checkbox_state": "absent",
+        "heading_path": ["Peertable 工程着手・終了アナウンス campaign（peertable-task-announcements-20260811）— 計画正本", "3. Lattice 工程", "a6 実円卓の着手・終了ループを統合し Wave 2 を deploy する"],
+        "markdown_depth": 3,
+        "origin_line": 102,
+        "origin_plan_ref": "docs/plan_peertable-task-announcements-20260811.md",
+        "parent_task_id": null,
+        "source_commit": "5c74c8fdbc38d4dc8daecb10c8c177ccbd66823e"
+      },
+      "start": null,
+      "task_id": "a6",
+      "title": "実円卓の着手・終了ループを統合し Wave 2 を deploy する"
+    }
+  ]
+}
