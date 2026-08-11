@@ -927,6 +927,13 @@ consumer contract 4面の明文化（→ §12 と Lattice `docs/00_product-contr
 **消化済み（2026-08-11・決定74）**: **観測先を表示名と固定 socket から推測していた**穴（→ `observe: {tmux_socket, tmux_target}` を起動者と client が登録し、bridge / wakeup / teardown は記述子を最優先。記述子が無い既存 member のみ `peer-<name>` へ後方互換）。**常駐を起こしたことを pid だけで成功としていた**穴（→ `ensure-bridge.sh` が初回実成功の `ready_at` を待ち、専用 tmux session で保持。失敗はログ末尾つき非ゼロ）。受入で record の JSON 破壊・死んだ記録の stale `ready_at`・tmux server へ env が渡らない3件を再現し、原子的な record 更新・新世代 `ready_at` の待機・env 明示引渡しへ修正した。
 
 **未着手（次以降の campaign へ）**
+- **ensure-bridge が作る supervisor session を teardown が確認していない。** `teardown.sh` は 3 bridge を
+  `--stop` で止めるが、`peertable-<bridge>-<room>` の残存ゼロを検証する段が無い。実害を 2026-08-11 に実測:
+  `experiments/setup-runtime-exclude-repro.mjs` が使い捨て project へ `setup.sh` を走らせると、その ensure が
+  **本番 socket 上へ** `peertable-seat-status-runtime-added` を作り、誰も畳まずに残った。塞ぎ方は2つあり
+  どちらも要る: ①teardown が `peertable-*-<room>` の残存を確認して報告する ②setup を呼ぶ試験は
+  `PEERTABLE_TMUX_SOCKET` を使い捨てへ向けて本番 socket を汚さない。**決定74 の campaign では気づかず、
+  受入後の撤収で発見した**（受入 G が本番 socket を汚していたのに、その事実自体は受入項目に無かった）。
 - **room 不達で bridge が「黙って無になる」。** members GET が失敗すると `attempted===0` が `verdict:'idle'` になり、常駐は届かなかったことを検出しない。オーナーは「検出したら粘る」と裁定済みだが、検出機能自体は決定74 campaign の範囲外だった。
 - **fetch に deadline が無く、`setInterval` が前 tick を待たない。** WSL の半開き TCP では tick が並走しうる。
 - **`$TMUX` が無い環境の ppid 鎖 fallback。** `$TMUX` だけで足りるかはまだ実測していない。
