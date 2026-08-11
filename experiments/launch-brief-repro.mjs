@@ -27,6 +27,7 @@ const submitMarker = join(root, 'brief-submitted')
 const codexReady = join(root, 'codex-ready')
 const codexUpdateCount = join(root, 'codex-update-count')
 const memberState = join(root, 'member-state')
+const memberDelete = join(root, 'member-delete')
 const credentialHelper = join(root, 'seat-credential.mjs')
 const credentialSentinel = 'K2_LAUNCH_FIXTURE_SENTINEL_5d915c'
 const fixtureCredential = join(project, '.team', 'credentials', 'fixture.token')
@@ -61,7 +62,10 @@ else if (action === 'remove') rmSync(args[1], { force: true })
 else if (action === 'request') {
   const method = args[1], url = args[2]
   if (url.includes('/members')) {
-    if (method === 'DELETE') rmSync(process.env.MEMBER_STATE, { force: true })
+    if (method === 'DELETE') {
+      writeFileSync(process.env.MEMBER_DELETE, '')
+      rmSync(process.env.MEMBER_STATE, { force: true })
+    }
     if (method === 'POST') writeFileSync(process.env.MEMBER_STATE, '')
   }
   process.stdout.write('{}')
@@ -107,6 +111,12 @@ if [ "$has_enter" = true ] && [ -f "$BRIEF_PASTED" ]; then
   if [ "\${NO_TURN:-0}" != 1 ]; then : > "$SUBMIT_MARKER"; fi
 fi
 printf '%s\\n' "$*" >> "\$TMUX_LOG"
+if [ "$has_enter" = true ] && [ "\${TMUX_ROLLBACK_UNLINK:-0}" = 1 ]; then
+  "\$real_tmux" "$@"
+  send_rc=$?
+  unlink "$2"
+  exit "$send_rc"
+fi
 exec "\$real_tmux" "$@"
 `)
 
@@ -211,6 +221,7 @@ const env = {
   CODEX_READY: codexReady,
   CODEX_UPDATE_COUNT: codexUpdateCount,
   MEMBER_STATE: memberState,
+  MEMBER_DELETE: memberDelete,
   VENDOR: 'codex',
   TMPDIR: root,
   NODE_DISABLE_COMPILE_CACHE: '1',
@@ -246,6 +257,7 @@ try {
   await rm(codexUpdateCount, { force: true })
   await rm(submitMarker, { force: true })
   await rm(memberState, { force: true })
+  await rm(memberDelete, { force: true })
 
   // 2. 修正版は Codex の ready 前 paste を拒否する fake に対しても、空 prompt を待ち、
   // 同じ長文を file buffer で送り、turn marker まで観測して完了する。
@@ -288,6 +300,7 @@ try {
   await rm(codexUpdateCount, { force: true })
   await rm(submitMarker, { force: true })
   await rm(memberState, { force: true })
+  await rm(memberDelete, { force: true })
   await rm(join(project, '.team/seats/fixture-seat.json'), { force: true })
   const notReadyResult = run(notReadyLaunch, longBrief, 'codex', { NO_PROMPT: '1' })
   const notReadySession = spawnSync(realTmux, ['-S', tmuxSocket, 'has-session', '-t', 'peer-fixture-seat'], { stdio: 'ignore' })
@@ -314,6 +327,7 @@ try {
   await rm(codexUpdateCount, { force: true })
   await rm(submitMarker, { force: true })
   await rm(memberState, { force: true })
+  await rm(memberDelete, { force: true })
   await rm(join(project, '.team/seats/fixture-seat.json'), { force: true })
   const rollbackResult = run(rollbackLaunch, longBrief, 'codex', { NO_TURN: '1' })
   const rollbackCalls = await log()
@@ -327,6 +341,7 @@ try {
     assert.notEqual(rollbackSession.status, 0)
     assert.ok(rollbackCalls.some((line) => line.includes('kill-session')))
     assert.equal(existsSync(memberState), false)
+    assert.equal(existsSync(memberDelete), true, 'rollbackがroom member DELETEを呼んだ')
     assert.equal(existsSync(join(project, '.team/seats/fixture-seat.json')), false)
     assert.equal(existsSync(fixtureCredential), false,
       '起動rollbackで対象席credentialを残さない')
@@ -339,21 +354,31 @@ try {
   await rm(briefEnterCount, { force: true })
   await rm(submitMarker, { force: true })
   await rm(memberState, { force: true })
+  await rm(memberDelete, { force: true })
   const unreadableRollback = run(rollbackLaunch, longBrief, 'codex', {
-    NO_TURN: '1', TMUX_ROLLBACK_UNREADABLE: '1',
+    NO_TURN: '1', TMUX_ROLLBACK_UNLINK: '1',
   })
-  const liveAfterRefusal = spawnSync(realTmux,
-    ['-S', tmuxSocket, 'has-session', '-t', 'peer-fixture-seat'], { stdio: 'ignore' })
+  const unlinkedServerLine = spawnSync('/bin/ps', ['-Ao', 'pid=,command='], { encoding: 'utf8' }).stdout
+    .split('\n')
+    .find((line) => line.includes(tmuxSocket) && /\btmux\b/u.test(line))
+  assert.ok(unlinkedServerLine, 'unlink後も生存するtmux serverを観測できていない')
+  const unlinkedServerPid = Number.parseInt(unlinkedServerLine.trimStart(), 10)
   check('rollbackでsession観測不能なら後段を消さずtyped failureにする', () => {
     assert.notEqual(unreadableRollback.status, 0)
     assert.match(unreadableRollback.stderr, /LAUNCH_BRIEF_ROLLBACK_FAILED: tmux session を観測できない/)
     assert.doesNotMatch(unreadableRollback.stderr, /LAUNCH_BRIEF_ROLLED_BACK/)
-    assert.equal(liveAfterRefusal.status, 0, '観測不能を再現したlive sessionが消えている')
-    assert.equal(existsSync(memberState), true, 'session未停止なのにmemberを先に消した')
+    assert.equal(existsSync(tmuxSocket), false, 'tmux socket inodeのunlinkを再現できていない')
+    assert.equal(existsSync(memberDelete), false, 'session未停止なのにmember DELETEを先に呼んだ')
     assert.equal(existsSync(fixtureCredential), true, 'session未停止なのにcredentialを先に消した')
   })
-  spawnSync(realTmux, ['-S', tmuxSocket, 'kill-session', '-t', 'peer-fixture-seat'], { stdio: 'ignore' })
+  try { process.kill(unlinkedServerPid, 'SIGTERM') } catch {}
+  await new Promise((resolve) => setTimeout(resolve, 250))
+  try {
+    process.kill(unlinkedServerPid, 0)
+    process.kill(unlinkedServerPid, 'SIGKILL')
+  } catch {}
   await rm(memberState, { force: true })
+  await rm(memberDelete, { force: true })
   await rm(fixtureCredential, { force: true })
 
   // 5. 上限超過は着席前に typed reject し、副作用をゼロにする。

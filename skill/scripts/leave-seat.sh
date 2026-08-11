@@ -40,7 +40,10 @@ PY
 EOF
 
 failed=0
-if [ -n "$member_socket" ] && tmux -S "$member_socket" has-session -t "$target" 2>/dev/null; then
+if [ -z "$member_socket" ]; then
+  echo "SEAT_LEAVE_SESSION_UNREADABLE: tmux socketを解決できない" >&2
+  failed=1
+elif tmux -S "$member_socket" has-session -t "$target" 2>/dev/null; then
   if ! tmux -S "$member_socket" kill-session -t "$target"; then
     echo "SEAT_LEAVE_SESSION_FAILED: $target" >&2
     failed=1
@@ -48,9 +51,9 @@ if [ -n "$member_socket" ] && tmux -S "$member_socket" has-session -t "$target" 
     echo "SEAT_LEAVE_SESSION_FAILED: $target が撤去後も残っている" >&2
     failed=1
   fi
-elif [ -n "$member_socket" ] && tmux -S "$member_socket" list-sessions >/dev/null 2>&1; then
+elif tmux -S "$member_socket" list-sessions >/dev/null 2>&1; then
   : # serverへ到達でき、対象sessionが無い
-elif [ -n "$member_socket" ] && [ -S "$member_socket" ]; then
+else
   echo "SEAT_LEAVE_SESSION_UNREADABLE: $member_socket" >&2
   failed=1
 fi

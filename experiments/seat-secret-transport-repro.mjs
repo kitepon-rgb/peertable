@@ -216,16 +216,12 @@ exit 1
   const stuckIdentity = join(project, '.team', 'seats', 'stuck.json')
   writeFileSync(stuckIdentity, '{}\n', { mode: 0o600 })
   const unreadableSocket = join(root, 'unreadable.sock')
-  const socketHolder = createServer()
-  await new Promise(resolve => socketHolder.listen(unreadableSocket, resolve))
   const refusedLeave = await run('/bin/bash', [LEAVE, project, 'stuck'], {
     ...cleanEnv,
     PATH: `${fakeBin}:${process.env.PATH}`,
     PEERTABLE_TMUX_SOCKET: unreadableSocket,
     TMUX_MODE: 'unreadable',
   })
-  socketHolder.close()
-  await once(socketHolder, 'close')
   assert.notEqual(refusedLeave.code, 0, 'session観測不能を退席成功に丸めた')
   assert.match(refusedLeave.stderr, /SEAT_LEAVE_SESSION_UNREADABLE/)
   assert.equal(statSync(stuckCredential).mode & 0o777, 0o600, 'session未停止なのにcredentialを先に消した')

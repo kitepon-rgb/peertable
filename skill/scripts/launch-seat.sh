@@ -70,7 +70,7 @@ rollback_brief() {
       fi
     elif tmux -S "$sock" list-sessions >/dev/null 2>&1; then
       : # serverへ到達でき、対象sessionが無い
-    elif [ -S "$sock" ]; then
+    else
       rollback_failed=1
       echo "LAUNCH_BRIEF_ROLLBACK_FAILED: tmux session を観測できない: ${sess}" >&2
     fi
