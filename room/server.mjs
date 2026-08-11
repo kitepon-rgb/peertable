@@ -325,7 +325,7 @@ a{color:var(--accent)}
 .brand{display:flex;align-items:center;gap:8px;font-size:15px;font-weight:650;letter-spacing:.01em}
 .brand .mark{color:var(--accent);flex:none}
 .brand small{color:var(--dim);font-weight:400}
-.av{flex:none;display:grid;place-items:center;width:30px;height:30px;border-radius:50%;background:hsl(var(--h) var(--sat) var(--lum));color:#fff;font-size:13px;font-weight:700;line-height:1}
+.av{flex:none;display:grid;place-items:center;width:30px;height:30px;border-radius:50%;background:var(--av-bg,hsl(var(--h) var(--sat) var(--lum)));color:var(--av-fg,#fff);font-size:13px;font-weight:700;line-height:1}
 .empty{color:var(--dim)}`
 
 const UI = room => `<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -456,7 +456,48 @@ function md(src){
   }
   return frag
 }
-const hue=n=>{let h=5381;for(let i=0;i<n.length;i++)h=(h*33+n.charCodeAt(i))|0;return Math.abs(h)%360}
+// 名前hashをそのままhueへ写像すると、同時表示席の近似色が連続する。
+// 固定paletteを使い、表示中の色から最も離れた色を順に割り当てる。
+const AVATAR_PALETTE=Object.freeze([
+  {h:0,bg:'#a92b25',fg:'#fff'},
+  {h:45,bg:'#795200',fg:'#fff'},
+  {h:90,bg:'#4d6b18',fg:'#fff'},
+  {h:135,bg:'#287a4a',fg:'#fff'},
+  {h:180,bg:'#006b73',fg:'#fff'},
+  {h:225,bg:'#2f5f9f',fg:'#fff'},
+  {h:270,bg:'#5e4a9e',fg:'#fff'},
+  {h:315,bg:'#9a3f73',fg:'#fff'},
+])
+const avatarHash=n=>{let h=5381;for(let i=0;i<n.length;i++)h=(h*33+n.charCodeAt(i))|0;return h>>>0}
+const hueDistance=(a,b)=>{const d=Math.abs(a-b)%360;return Math.min(d,360-d)}
+const avatarAssignments=new Map()
+const chooseAvatarIndex=(name,used)=>{
+  const indexes=AVATAR_PALETTE.map((_,i)=>i)
+  const free=indexes.filter(i=>!used.has(i))
+  const candidates=free.length?free:indexes
+  let best=candidates[0],bestDistance=-1,bestTie=Infinity
+  for(const index of candidates){
+    const distance=used.size?Math.min(...[...used].map(other=>hueDistance(AVATAR_PALETTE[index].h,AVATAR_PALETTE[other].h))):360
+    const tie=avatarHash(name+':'+index)
+    if(distance>bestDistance||(distance===bestDistance&&tie<bestTie)){best=index;bestDistance=distance;bestTie=tie}
+  }
+  return best
+}
+const syncAvatarAssignments=names=>{
+  const active=new Set(names.filter(Boolean).map(String))
+  for(const name of avatarAssignments.keys())if(!active.has(name))avatarAssignments.delete(name)
+  const ordered=[...active].sort(),used=new Set()
+  for(const name of ordered){const index=avatarAssignments.get(name);if(Number.isInteger(index))used.add(index)}
+  for(const name of ordered){
+    if(avatarAssignments.has(name))continue
+    const index=chooseAvatarIndex(name,used);avatarAssignments.set(name,index);used.add(index)
+  }
+}
+const avatarColor=name=>{
+  const key=String(name)
+  if(!avatarAssignments.has(key))avatarAssignments.set(key,chooseAvatarIndex(key,new Set(avatarAssignments.values())))
+  return AVATAR_PALETTE[avatarAssignments.get(key)]
+}
 const initial=n=>{const c=[...String(n)][0];return c?c.toUpperCase():'?'}
 const stamp=at=>{const t=el('time','ts',at.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}));t.dateTime=at.toISOString();t.title=at.toLocaleString();return t}
 const compactCount=n=>n>=1000000?(Math.round(n/100000)/10)+'M':n>=1000?(Math.round(n/100)/10)+'k':String(n)
@@ -479,7 +520,8 @@ function render(m){
   const cont=last&&last.from===m.from&&aud(last)===aud(m)&&at-new Date(last.ts)<300000
   const typed=m.type==='task_event'||m.type==='member_turn_completed'
   const d=el('div','msg'+(aud(m)!=='all'?' dm':'')+(typed?' task':'')+(cont?' cont':''))
-  d.style.setProperty('--h',hue(m.from))
+  const color=avatarColor(m.from)
+  d.style.setProperty('--h',color.h);d.style.setProperty('--av-bg',color.bg);d.style.setProperty('--av-fg',color.fg)
   d.appendChild(el('div','av',initial(m.from)))
   const body=el('div','body'),meta=el('div','meta')
   meta.appendChild(el('span','who',m.from))
@@ -492,11 +534,13 @@ function render(m){
 }
 async function refreshMembers(){
   const r=await(await fetch(api('members'))).json()
+  syncAvatarAssignments(r.members.map(m=>m.name))
   membersEl.textContent=''
   if(!r.members.length){membersEl.appendChild(el('span','empty','（まだ誰も居ない）'));return}
   for(const m of r.members){
     const c=el('span','chip'+(m.name===recent?' recent':''))
-    c.style.setProperty('--h',hue(m.name));c.dataset.name=m.name
+    const color=avatarColor(m.name)
+    c.style.setProperty('--h',color.h);c.style.setProperty('--av-bg',color.bg);c.style.setProperty('--av-fg',color.fg);c.dataset.name=m.name
     // 素性は任意欄。名乗っていない席は行ごと出ない（空欄を「不明」として見せない）。
     // vendor/model/effort を1行へ畳む（launch-seat.sh:108 の着席ログと読み口を揃える。effort の語は出さない）
     const idParts=[m.vendor,m.model,m.effort].filter(Boolean)
@@ -586,10 +630,10 @@ async function catchUp(force){
   try{
     const stick=force||nearBottom()
     const r=await(await fetch(api('messages')+'?since='+lastSeq)).json()
+    await refreshMembers()
     let added=0
     for(const m of r.messages)if(apply(m,false))added++
     if(!lastSeq&&!emptyEl){emptyEl=el('div','empty','（まだ発言がない）');logEl.appendChild(emptyEl)}
-    await refreshMembers()
     if(added&&stick)window.scrollTo(0,document.body.scrollHeight)
     // 発言が増えると body が伸びる＝scroll イベントなしで「最下部か」が変わる。ここで取り直す
     if(added)syncToBottom()
