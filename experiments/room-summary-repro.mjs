@@ -68,9 +68,19 @@ try {
   const port = await freePort()
   server = spawnServer(port)
   const base = `http://127.0.0.1:${port}/api/${ROOM}`
+  const apiBase = `http://127.0.0.1:${port}/api`
   const corruptBase = `http://127.0.0.1:${port}/api/${CORRUPT_ROOM}`
   const jsonHeaders = { 'Content-Type': 'application/json', 'X-Peertable-Token': TOKEN }
   await waitReady(base)
+
+  // room一覧: DATA直下の実在ディレクトリだけを、動的発見用の軽量APIで返す
+  const roomsRes = await fetch(`${apiBase}/rooms`)
+  const roomList = await roomsRes.json()
+  check('room一覧はtoken無しでも200', roomsRes.status === 200)
+  check('room一覧schemaがpeertable.rooms.v1', roomList.schema === 'peertable.rooms.v1')
+  check('room一覧は実在ディレクトリを昇順で返す',
+    JSON.stringify(roomList.rooms) === JSON.stringify([CORRUPT_ROOM]), JSON.stringify(roomList.rooms))
+  check('room一覧にCORSヘッダ', roomsRes.headers.get('access-control-allow-origin') === '*')
 
   // 未取得room: 200・ゼロ値・ディレクトリを作らない（GET は create=false）
   const freshRes = await fetch(`${base}/summary`)
@@ -110,6 +120,9 @@ try {
 
   // member登録・削除でmember_countだけが動く（seq/last_tsは不変）
   await fetch(`${base}/members`, { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ name: 'hinata' }) })
+  const roomsAfterCreate = await (await fetch(`${apiBase}/rooms`)).json()
+  check('書込で生まれたroomが一覧へ自動反映される',
+    roomsAfterCreate.rooms.includes(ROOM), JSON.stringify(roomsAfterCreate.rooms))
   const afterJoinSummary = await (await fetch(`${base}/summary`)).json()
   check('member登録でmember_countが1へ', afterJoinSummary.member_count === 1)
   check('member登録はsystem発言を伴うのでseqが進む', afterJoinSummary.seq === 3)

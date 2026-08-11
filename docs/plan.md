@@ -784,6 +784,16 @@ Peertable が Lattice のどの面をどう消費するか（consumer contract �
   `PEERTABLE_TMUX_SOCKET` を継がず別 socket を読むことをそれぞれ再現し、record の原子的更新・新世代を待つ
   起動確認・tmux session への環境明示引渡しで解消した。
 
+- **決定75（2026-08-11・オーナー裁定）: `GET /api/rooms`で公開room名を動的に発見できるようにする**
+
+  kitepon.devのライブ窓が固定room名を持った結果、campaignごとに生まれる現在のアクティブroomを
+  取りこぼした。room名はPeertableが既に一覧UIで公開しているため、同じ`DATA`直下のディレクトリ名を
+  `{ schema: "peertable.rooms.v1", rooms: string[] }`として返す読み取り専用APIを追加する。
+
+  このAPIはroom名だけを返し、ログ・member・summaryを集約しない。決定72で避けた全room全文読込や
+  サイドカー索引は作らず、消費者は既存`GET /api/<room>/summary`を必要なroomへ使う。CORSとtoken不要は
+  既存の読み取り系と同じ契約とする。
+
 ---
 
 ## 9. スキル化 — 完了（2026-08-08）
