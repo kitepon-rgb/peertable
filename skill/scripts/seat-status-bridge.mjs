@@ -14,7 +14,9 @@
 //             確認ダイアログで停止した席が busy と `esc to interrupt` 不在から idle 側に誤判定され、
 //             動けない席へ卓が代走を申し出るところまで進んだ。判定順は busy → blocked → idle
 //             （承認プロンプト表示中は `esc to interrupt` が消えるので、この順で正しい）
-//   dead    = tmux セッションが無い／`pane_dead=1`
+//   dead    = tmux セッションが無い／`pane_dead=1`／画面は idle 風だが中の CLI プロセスが停止
+//             （`ps` stat 先頭 `T`。Lattice pull run の accept hold が attach 済み worker へ
+//             SIGSTOP を送る局面等。2026-08-11 実測）
 //   idle    = 生きていて busy でも blocked でもない
 //
 // 送信は「変化した時」＋「変化が無くても心拍」の2本立て。変化時だけだと、**bridge が死んだのか状態が
@@ -24,7 +26,7 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, renameSync, writeFileSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
 
-import { classifyPaneTail, decideBridgeContinuation, deriveMissingSession, parsePaneTokenHint, resolvePostToken, resolveSeatObservation, resolveTmuxSocket, supportsMemberObservation } from './seat-usage.mjs'
+import { classifyPaneTail, decideBridgeContinuation, deriveMissingSession, isPaneProcessStopped, parsePaneTokenHint, resolvePostToken, resolveSeatObservation, resolveTmuxSocket, supportsMemberObservation, tmuxPanePid } from './seat-usage.mjs'
 
 const args = process.argv.slice(2)
 const proj = args[0]
@@ -108,7 +110,12 @@ function readSeat(member, previous, observedAt) {
   const pane = tmux(target.socket, 'capture-pane', '-t', target.target, '-p')
   if (pane === null) return { status: 'dead', busySince: null, paneTokenHint: null }
   const tail = pane.split('\n').slice(-14).join('\n')
-  const status = classifyPaneTail(tail)
+  const tentativeStatus = classifyPaneTail(tail)
+  // pane 自体は生きたまま中の CLI プロセスだけが停止する局面（Lattice pull run の accept hold 等）を
+  // 拾う。画面の残像だけでは idle に誤判定するため、idle と読めた時だけ実プロセスの stat を見る。
+  const status = tentativeStatus === 'idle' && isPaneProcessStopped(tmuxPanePid(target.socket, target.target))
+    ? 'dead'
+    : tentativeStatus
   const busySince = status === 'busy' || status === 'blocked'
     ? ((previous?.status === 'busy' || previous?.status === 'blocked') && previous.busySince ? previous.busySince : observedAt)
     : null

@@ -154,6 +154,43 @@ export function classifyPaneTail(tail) {
 }
 
 /**
+ * pane 内で実行中の CLI プロセスの pid（`#{pane_pid}`）を読む。tmux pane 自体は生きたまま
+ * （`pane_dead=0`）、中の CLI プロセスだけが停止する局面があるため、pane の生死とは別に
+ * このプロセス自身の状態を見る必要がある。
+ */
+export function tmuxPanePid(socket, target, exec = execFileSync) {
+  try {
+    const out = exec('tmux', ['-S', socket, 'list-panes', '-t', target, '-F', '#{pane_pid}'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
+    const pid = out.trim().split('\n')[0]
+    return pid && /^[0-9]+$/.test(pid) ? pid : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * pane プロセス（またはその直接の子）が stopped（`ps` stat の先頭が `T`）かどうかを見る。
+ * 実測（2026-08-11, bell/suzune）: Lattice pull run の accept hold は attach 済み worker
+ * （pane の子で pid===pgid のもの）へ SIGSTOP を送る。tmux pane は shell も含めて生きたまま
+ * （`pane_dead=0`）で、末尾の画面は停止直前のまま残るため、`classifyPaneTail` だけでは
+ * `idle` と誤判定する。
+ */
+export function isPaneProcessStopped(panePid, exec = execFileSync) {
+  if (!panePid) return false
+  try {
+    const out = exec('ps', ['-o', 'pid=,ppid=,stat=', '-A'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
+    return out.split('\n').some((line) => {
+      const match = /^\s*(\d+)\s+(\d+)\s+(\S+)/u.exec(line)
+      if (!match) return false
+      const [, pid, ppid, stat] = match
+      return (pid === String(panePid) || ppid === String(panePid)) && stat.startsWith('T')
+    })
+  } catch {
+    return false
+  }
+}
+
+/**
  * paneのstatus行が公開しているtoken値だけを読む。
  * vendor固有のログや課金単価は推測せず、表示が無い席はnullのままにする。
  */
