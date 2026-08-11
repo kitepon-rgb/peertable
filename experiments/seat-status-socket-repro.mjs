@@ -9,11 +9,11 @@ import { deriveMissingSession, resolveTmuxSocket } from '../skill/scripts/seat-u
 
 // (a) socket 解決が launch-seat.sh:14 と同じ規則になっている
 assert.equal(
-  resolveTmuxSocket({ PEERTABLE_TMUX_SOCKET: '/custom/claude.sock', TMPDIR: '/tmp/' }),
+  resolveTmuxSocket({ PEERTABLE_TMUX_SOCKET: '/custom/claude.sock', TMPDIR: '/tmp/' }).socket,
   '/custom/claude.sock',
 )
 assert.equal(
-  resolveTmuxSocket({ TMPDIR: '/tmp/' }),
+  resolveTmuxSocket({ TMPDIR: '/tmp/' }, { serverAlive: () => false, listAitermSockets: () => [] }).socket,
   '/tmp/claude-tmux-sockets/claude.sock',
 )
 

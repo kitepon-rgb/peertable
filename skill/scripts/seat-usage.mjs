@@ -1,4 +1,5 @@
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
@@ -16,12 +17,68 @@ export function supportsMemberObservation(payload) {
   return payload?.capabilities?.member_observation_v1 === true
 }
 
+/** aiterm-mcp の POSIX 既定ソケット規則。 */
+export function defaultTmuxSocket(env) {
+  return join(env.TMPDIR || '/tmp', 'claude-tmux-sockets', 'claude.sock')
+}
+
+const defaultTmuxProbe = {
+  serverAlive(socket) {
+    try {
+      execFileSync('tmux', ['-S', socket, 'ls'], { stdio: 'ignore' })
+      return true
+    } catch {
+      return false
+    }
+  },
+  listAitermSockets() {
+    try {
+      return readdirSync('/tmp')
+        .filter(name => /^aiterm-.*\.sock$/u.test(name))
+        .map(name => join('/tmp', name))
+    } catch {
+      return []
+    }
+  },
+}
+
 /**
- * launch-seat.sh:14 と同じ解決規則で aiterm-mcp の tmux ソケットを決める。
- * 規則を二重に書かない——片方だけ直すと同じ穴がもう一度開く。
+ * 明示設定、既定、検証済み発見の順で tmux socket を決める。
+ * 見つからない既定値は launch-seat.sh が新しい server を作るために必要なので返す。
  */
-export function resolveTmuxSocket(env) {
-  return env.PEERTABLE_TMUX_SOCKET || `${env.TMPDIR}claude-tmux-sockets/claude.sock`
+export function resolveTmuxSocket(env, probe = defaultTmuxProbe) {
+  if (env.PEERTABLE_TMUX_SOCKET) {
+    return { socket: env.PEERTABLE_TMUX_SOCKET, source: 'explicit', candidates: [], error: null }
+  }
+  const fallback = defaultTmuxSocket(env)
+  if (probe.serverAlive(fallback)) {
+    return { socket: fallback, source: 'default', candidates: [], error: null }
+  }
+  const candidates = probe.listAitermSockets().filter(socket => probe.serverAlive(socket))
+  if (candidates.length === 1) {
+    return { socket: candidates[0], source: 'discovered', candidates, error: null }
+  }
+  if (candidates.length > 1) {
+    return {
+      socket: null,
+      source: 'none',
+      candidates,
+      error: { code: 'PEERTABLE_TMUX_SOCKET_AMBIGUOUS', message: '検証済み aiterm socket が複数あります' },
+    }
+  }
+  return { socket: fallback, source: 'default', candidates: [], error: null }
+}
+
+/** member の自己申告を優先し、無い既存 member だけ旧 session 名へ互換フォールバックする。 */
+export function resolveSeatObservation(member, defaultSocket) {
+  const observe = member?.observe
+  if (observe && typeof observe === 'object' && typeof observe.tmux_target === 'string' && observe.tmux_target) {
+    const socket = observe.tmux_socket || defaultSocket
+    return socket ? { socket, target: observe.tmux_target, source: 'descriptor' } : null
+  }
+  return defaultSocket && member?.name
+    ? { socket: defaultSocket, target: `peer-${member.name}`, source: 'legacy' }
+    : null
 }
 
 /**
