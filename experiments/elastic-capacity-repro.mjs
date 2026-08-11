@@ -114,6 +114,27 @@ check('直列化されたready 2件は同時2席でなく現在着手可能な1�
   assert.equal(serializedReady.state.verified_ready_count, 1)
 })
 
+const crossPlanReady = capacityProjection({
+  todoStatus: {
+    active_set: [],
+    next_ready: [task('p1', 'r1'), task('p2', 'r2')],
+    parallel_candidates: [],
+    independence_projections: ['p1', 'p2'].map((plan_key, index) => ({
+      plan_key, coverage: 'verified',
+      frontier: {
+        unknown: [], parallel_groups: [{ task_ids: [`r${index + 1}`] }],
+        serialize_pairs: [], conflicts_with_active: [],
+      },
+    })),
+  },
+  members: [member('bell', null)],
+})
+check('plan別verifiedをcross-plan非競合の証拠にせず一群だけ数える', () => {
+  assert.equal(crossPlanReady.state.verified_ready_count, 1)
+  assert.deepEqual(crossPlanReady.state.verified_ready_refs, ['p1/r1'])
+  assert.deepEqual(crossPlanReady.state.excluded_ready, [{ ref: 'p2/r2', reason: 'cross_plan_unverified' }])
+})
+
 const idleReclaim = capacityProjection({
   todoStatus: status({ ready: ['r1', 'r2', 'r3', 'r4'] }),
   members: [member('bell', null), member('idle-a', 'idle'), member('idle-b', 'idle')],

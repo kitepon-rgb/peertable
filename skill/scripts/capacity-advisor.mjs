@@ -38,7 +38,7 @@ export function verifiedReadyTasks(todoStatus) {
   }))
   const candidates = new Map([...(todoStatus?.parallel_candidates ?? []), ...projected]
     .map(candidate => [candidate.plan_key, candidate]))
-  const accepted = []
+  const verifiedPlanGroups = []
   const excluded = []
 
   for (const [planKey, tasks] of readyByPlan) {
@@ -57,7 +57,7 @@ export function verifiedReadyTasks(todoStatus) {
       .sort((a, b) => b.length - a.length)
 
     if (groups.length > 0) {
-      accepted.push(...groups[0])
+      verifiedPlanGroups.push(groups[0])
       const selected = new Set(groups[0].map(task => task.task_id))
       excluded.push(...eligible.filter(task => !selected.has(task.task_id))
         .map(task => ({ task, reason: 'serialized_frontier' })))
@@ -65,9 +65,18 @@ export function verifiedReadyTasks(todoStatus) {
     }
 
     if (eligible.length > 0) {
-      accepted.push(eligible[0])
+      verifiedPlanGroups.push([eligible[0]])
       excluded.push(...eligible.slice(1).map(task => ({ task, reason: 'serialized_frontier' })))
     }
+  }
+
+  // independence は plan 単位の証拠であり、別planのready同士が非競合だとは証明しない。
+  // automation側で未検証のcross-plan並列を作らず、最大の検証済み群だけを同時着手可能とする。
+  verifiedPlanGroups.sort((left, right) => right.length - left.length
+    || left.map(ref).join(',').localeCompare(right.map(ref).join(',')))
+  const accepted = verifiedPlanGroups[0] ?? []
+  for (const group of verifiedPlanGroups.slice(1)) {
+    excluded.push(...group.map(task => ({ task, reason: 'cross_plan_unverified' })))
   }
 
   return {
