@@ -82,8 +82,8 @@ const request = async (base, path, init = {}) => {
 
 const messagesAt = async base => (await request(base, 'messages')).data.messages
 
-function startClient(port) {
-  const child = spawn(process.execPath, [join(REPO, 'room/client.mjs')], {
+function startClient(port, clientPath = join(REPO, 'room/client.mjs')) {
+  const child = spawn(process.execPath, [clientPath], {
     env: {
       ...process.env,
       PEERTABLE_URL: `http://127.0.0.1:${port}`,
@@ -97,6 +97,13 @@ function startClient(port) {
   let nextId = 1
   const pending = new Map()
   let stderr = ''
+  let clientFailure = null
+  const rejectPending = error => {
+    if (clientFailure) return
+    clientFailure = error
+    for (const waiter of pending.values()) waiter.reject(error)
+    pending.clear()
+  }
   child.stderr.on('data', chunk => { stderr += chunk })
   child.stdout.on('data', chunk => {
     buffer += chunk.toString('utf8')
@@ -118,8 +125,12 @@ function startClient(port) {
       }
     }
   })
+  child.once('error', error => rejectPending(error))
+  child.once('exit', (code, signal) =>
+    rejectPending(new Error(`room client exited${signal ? ` by ${signal}` : ` with code ${code}`}`)))
   const call = (method, params = {}) => {
     const id = nextId++
+    if (clientFailure) return Promise.reject(clientFailure)
     const response = new Promise((resolve, reject) => pending.set(id, { resolve, reject }))
     child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id, method, params })}\n`)
     return response
@@ -130,6 +141,7 @@ function startClient(port) {
 
 let server = null
 let client = null
+let brokenClient = null
 try {
   const port = await freePort()
   server = await startRoom(port)
@@ -195,6 +207,23 @@ try {
   const logged = (await messagesAt(base)).find(message => message.transition_id === 'start-1')
   check('room logのtyped fieldが通常発言と区別できる', logged?.type === 'task_event' && logged.event_kind === 'started')
 
+  brokenClient = startClient(port, join(root, 'missing-room-client.mjs'))
+  const failureStartedAt = Date.now()
+  let failure = null
+  try {
+    await Promise.race([
+      brokenClient.call('initialize', { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'broken-fixture', version: '1' } }),
+      wait(2000).then(() => { throw new Error('client failure probe timeout') }),
+    ])
+  } catch (error) {
+    failure = error
+  }
+  check('client起動失敗でpending RPCをbounded reject', failure !== null
+    && Date.now() - failureStartedAt < 2000
+    && /room client exited|spawn .*ENOENT/u.test(failure.message), failure?.message)
+  await stop(brokenClient.child)
+  brokenClient = null
+
   client = startClient(port)
   const initialized = await client.call('initialize', {
     protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'focused-harness', version: '1' },
@@ -236,9 +265,11 @@ try {
   console.error(`HARNESS ERROR: ${error.message}`)
   if (server) console.error(server.output())
   if (client) console.error(client.stderr())
+  if (brokenClient) console.error(brokenClient.stderr())
   checks.push(false)
 } finally {
   await stop(client?.child)
+  await stop(brokenClient?.child)
   await stop(server?.child)
   rmSync(root, { recursive: true, force: true })
 }
