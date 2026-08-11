@@ -1,0 +1,49 @@
+{
+  "actor": {
+    "agent": "bell",
+    "host": "mac",
+    "session": "peertable-autonomy-runtime-20260811"
+  },
+  "hard_dependencies": [],
+  "joins": [],
+  "plan_key": "peertable-codex-lattice-env-fx5-20260811",
+  "plan_version": "v1",
+  "project_id": "peertable",
+  "recorded_at": "2026-08-11T08:39:37.353Z",
+  "schema": "lattice.todo_extraction.v3",
+  "tasks": [
+    {
+      "compile_binding": null,
+      "completion": null,
+      "design_memo": "`launch-seat.sh`はtmux shellで`PEERTABLE_MEMBER`・`PEERTABLE_PLAN`・`LATTICE_CLI`・\n`LATTICE_TODO_ACTOR_*`をexportしてからCodexを起動するが、着任後のCodex tool shellでは\nこれらが全て未設定だった。room MCPだけはclosed envへ明示列挙しているため会話できる一方、\n役割文書が要求するLattice `todo start`を正規CLI/actorで実行できず、全席がreadyのまま止まった。\n\nCodexの実tool shellへ、秘密を複製せずにmember identity、plan、source-tree `LATTICE_CLI`、\nactor 3点を確実に渡す。着席判定はUIヘッダだけでなく、席自身のshellから各値と\n`$LATTICE_CLI todo status --json`を実測できることまで含める。Claude席、room MCPのclosed env、\nseat identityのraw argv非保存を壊さない。旧版の負のcontrol、修正版の実Codex席claim、担当外peer audit、\nPeertable配備後smokeまでを本taskの受入とする。",
+      "disposition": "register_pending",
+      "lane": "defect",
+      "migration_context": {
+        "carry_over_ref": null,
+        "condition": null,
+        "evidence_refs": [],
+        "external_canonical_ref": null,
+        "h_required": false,
+        "notes": []
+      },
+      "narrative_ref": "docs/plan_peertable-codex-lattice-env-fx5-20260811.md",
+      "source": {
+        "checkbox_state": "absent",
+        "heading_path": [
+          "Peertable Codex席のLattice環境配達 — companion fix 5",
+          "工程",
+          "j1 Codex席のshellへLattice actorとCLIを確実に配達する"
+        ],
+        "markdown_depth": 3,
+        "origin_line": 5,
+        "origin_plan_ref": "docs/plan_peertable-codex-lattice-env-fx5-20260811.md",
+        "parent_task_id": null,
+        "source_commit": "fda885fb2ad51219124a8a80634493e516c14dfc"
+      },
+      "start": null,
+      "task_id": "j1",
+      "title": "Codex席のshellへLattice actorとCLIを確実に配達する"
+    }
+  ],
+  "extraction_digest": "5b0a5fc19569c3ed759448eb014e4b05db78cb6ab11578d6a09661c97a67cdff"
+}
