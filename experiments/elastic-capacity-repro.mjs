@@ -174,6 +174,24 @@ check('reclaim DMによるbusy→idle往復は同じlaunch/reclaimを再通知�
   assert.equal(reclaimWakeIdleAgain.event, null)
 })
 
+const sameFrontierReordered = capacityProjection({
+  todoStatus: {
+    ...status({ active: ['a2', 'a1'] }),
+    active_set: [task('p', 'a2'), task('p', 'a1')],
+  },
+  members: [member('bell', null), member('idle-a', 'idle')],
+  previous: capacityProjection({
+    todoStatus: {
+      ...status({ active: ['a1', 'a2'] }),
+      active_set: [task('p', 'a1'), task('p', 'a2')],
+    },
+    members: [member('bell', null), member('idle-a', 'idle')],
+  }).state,
+})
+check('同じfrontier集合の応答順だけ変わってもreclaimを再通知しない', () => {
+  assert.equal(sameFrontierReordered.event, null)
+})
+
 const firstLaunchedWorker = capacityProjection({
   todoStatus: status({ ready: ['r1', 'r2', 'r3', 'r4'] }),
   members: [member('bell', null), member('idle-a', 'busy'), member('idle-b', 'busy'), member('new-a', 'busy')],

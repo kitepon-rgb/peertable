@@ -139,8 +139,8 @@ export function capacityProjection({ todoStatus, members, parentName = 'bell', p
     launch_count: launchCount,
     retire_count: retireCount,
     retire_candidates: idle.slice(0, retireCount),
-    active_refs: active.map(ref),
-    verified_ready_refs: ready.accepted_refs,
+    active_refs: active.map(ref).sort(),
+    verified_ready_refs: [...ready.accepted_refs].sort(),
     excluded_ready: ready.excluded,
   }
 
