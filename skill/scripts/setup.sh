@@ -51,6 +51,34 @@ else
   mode=lattice
 fi
 
+# `.team/` は setup が所有する使い捨ての生成領域だが、既存 project の資産を
+# その名前だけで所有物だと決めてはいけない。追跡済み file は project の意図した資産、
+# 未追跡の残りは前卓の残骸か利用者の資産かを setup だけでは判定できない。
+# どちらも write 前に typed conflict として止め、退避・削除・上書きはしない。
+team_dir="$proj/.team"
+team_existing=""
+if [ -L "$team_dir" ] || { [ -e "$team_dir" ] && [ ! -d "$team_dir" ]; }; then
+  team_existing="$team_dir"
+elif [ -d "$team_dir" ]; then
+  team_existing=$(find "$team_dir" -mindepth 1 -print | sort)
+fi
+team_tracked=""
+if git -C "$proj" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  team_tracked=$(git -C "$proj" ls-files --cached -- .team)
+fi
+if [ -n "$team_existing" ] || [ -n "$team_tracked" ]; then
+  echo "PEERTABLE_SETUP_TEAM_CONFLICT: .team/ に既存資産があるため、setup は書き込まない" >&2
+  if [ -n "$team_tracked" ]; then
+    echo "  tracked（project所有として扱い、上書きしない）:" >&2
+    printf '    %s\n' "$team_tracked" >&2
+  fi
+  if [ -n "$team_existing" ]; then
+    echo "  existing（前卓の残骸か利用者資産かを推測せず、触らない）:" >&2
+    printf '    %s\n' "$team_existing" >&2
+  fi
+  exit 1
+fi
+
 # Lattice 併用モードは、公開CLIをprojectへ何か置く前に確定する。通常はglobal installされた
 # lattice を使い、release前のsource treeを実測する時だけ `LATTICE_CLI` で同じtreeのbinを明示する。
 # **work-order adapter binary はもう要らない**（配車を撤去したので登録しない）。ここで見るのは
