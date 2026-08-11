@@ -20,8 +20,41 @@ if (!project || extra.length > 0 || (option && !['--once', '--stop'].includes(op
 }
 
 const recordPath = join(project, '.team', 'capacity-bridge.json')
+const lockPath = `${recordPath}.lock`
 const log = message => console.log(`[${new Date().toISOString()}] ${message}`)
 const alive = pid => { try { process.kill(pid, 0); return true } catch { return false } }
+let lockHeld = false
+
+const releaseLock = () => {
+  if (!lockHeld) return
+  try { if (existsSync(lockPath)) unlinkSync(lockPath) } catch {}
+  lockHeld = false
+}
+process.on('exit', releaseLock)
+
+async function acquireLock() {
+  const deadline = Date.now() + 10_000
+  for (;;) {
+    try {
+      writeFileSync(lockPath, `${process.pid}\n`, { flag: 'wx', mode: 0o600 })
+      lockHeld = true
+      return
+    } catch (error) {
+      if (error.code !== 'EEXIST') throw error
+      let owner = null
+      try { owner = Number(readFileSync(lockPath, 'utf8').trim()) } catch {}
+      if (Number.isInteger(owner) && !alive(owner)) {
+        try { unlinkSync(lockPath) } catch {}
+        continue
+      }
+      if (Date.now() >= deadline) {
+        console.error(`CAPACITY_BRIDGE_START_LOCKED: 起動処理中のbridge（pid ${owner ?? '不明'}）がlockを保持している`)
+        process.exit(1)
+      }
+      await sleep(100)
+    }
+  }
+}
 
 async function processFacts(pid) {
   let stdout
@@ -57,8 +90,10 @@ async function stopRecorded() {
   if (existsSync(recordPath)) unlinkSync(recordPath)
 }
 
+await acquireLock()
 if (option === '--stop') {
   await stopRecorded()
+  releaseLock()
   process.exit(0)
 }
 
@@ -122,6 +157,7 @@ const tick = async () => {
 
 if (option === '--once') {
   const result = await tick()
+  releaseLock()
   console.log(JSON.stringify({ state: result.state, event: result.event }))
   process.exit(0)
 }
@@ -136,7 +172,8 @@ writeFileSync(recordPath, `${JSON.stringify({
   start_identity: selfFacts.startIdentity,
   room: setup.room,
   started_at: new Date().toISOString(),
-})}\n`, { mode: 0o600 })
+})}\n`, { flag: 'wx', mode: 0o600 })
+releaseLock()
 
 let ownsRecord = true
 const cleanup = () => {

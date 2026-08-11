@@ -184,6 +184,22 @@ try {
   if (bridge.exitCode === null) bridge.kill('SIGKILL')
   check('SIGTERMで常駐recordを撤去する', () => assert.equal(existsSync(recordPath), false))
 
+  await writeFile(latticeState, `${JSON.stringify({
+    status: {
+      active_set: ['a1', 'a2'].map(task_id => ({ plan_key: 'plan', task_id })),
+      next_ready: [],
+      parallel_candidates: [],
+    },
+    projections: {},
+  })}\n`)
+  const beforeConcurrent = posts.length
+  const concurrent = await Promise.all([runOnce(), runOnce()])
+  check('同時once観測も差分計算からstate固定まで直列化して一通だけ送る', () => {
+    assert.ok(concurrent.every(result => result.status === 0), JSON.stringify(concurrent))
+    assert.equal(posts.length, beforeConcurrent + 1)
+    assert.equal(existsSync(`${recordPath}.lock`), false)
+  })
+
   const parentProject = join(root, 'parent-project')
   const parentScripts = join(root, 'parent-scripts')
   const fakeBin = join(root, 'fake-bin')
