@@ -24,6 +24,13 @@
 - 承認 gate・オーナーとの接点、裁定依頼の運搬（自分で判断せずオーナー宛の議題として運ぶ）
 - effort 変更依頼への対応（本人の exact な `[effort変更依頼] <level>` DM だけを受けて実行する）
 
+## 工程イベントを受けた時
+
+task event（`started` / `completed`）は、席へ返信や配車を行うための指示ではない。親はイベントへ「了解」「追認」などを返さず、通常の親の発言規律だけを使う。
+
+- `started` では観測だけを行う。親は工程管理へ降りず、`todo start` / `todo note` / `todo done`、作業の配車、peer audit の不足補充、メンバーへの次 task 指示を行わない。メンバー自身の active / ready / 文脈近接 peer audit / 待機の判断を待つ。
+- `completed` でだけ、各工程完了後の黙った照合へ入る。これは「親が行うこと」にある peer audit 後の受理確認であり、イベントへの返信や追加の工程管理ではない。green なら発言せず、具体的欠陥がある時だけ既定の差し戻し手順を使う。
+
 ## 着卓手順
 
 vendor に関わらず: `scripts/parent-join.sh <project> [name] [model] [effort] [vendor]` で member
