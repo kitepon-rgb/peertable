@@ -2,7 +2,7 @@
 //
 // 測るのは change-seat.sh の契約:
 //   自然文依頼でも完全一致DMを要求しない / model-only・effort-only・同時変更 / 同値no-op /
-//   busy保護 / vendor変更の拒否 / live catalogでの検証（hardcodeへ落ちない）/ 再起動 /
+//   busy保護 / vendor変更 / live catalogでの検証（hardcodeへ落ちない）/ 再起動 /
 //   metadataの読み返し / room履歴 / 失敗時に旧設定へ1回だけの明示rollback。
 //
 // 罠: 旧 change-effort.sh は本人→親の単独DMが `[effort変更依頼] <level>` と**完全一致**することを
@@ -188,21 +188,73 @@ try {
   assert.equal((await launchLines()).length, beforeNoop)
   await writeFile(screen, 'idle\n')
 
-  // 6. vendor 変更は対象外（席を触らずに拒否する）
-  result = run(['--vendor', 'codex'])
-  check('vendor 変更は拒否される', () => {
+  // 6. 未知vendorは席を触らずにtyped拒否する
+  result = run(['--vendor', 'warp', '--model', 'gpt-5.6-luna', '--effort', 'max'])
+  check('未知vendorは拒否される', () => {
     assert.equal(result.status, 2)
     assert.match(result.stderr, /SEAT_CHANGE_VENDOR_UNSUPPORTED/)
   })
   assert.equal((await launchLines()).length, beforeNoop)
 
-  // 7. 引数不足（--model も --effort も無い）は席を触らない
+  // 7. busy席はvendor交代でも停止しない
+  await writeFile(screen, 'Working… esc to interrupt\n')
+  const beforeVendorBusy = (await launchLines()).length
+  result = run(['--vendor', 'codex', '--model', 'gpt-5.6-luna', '--effort', 'max'])
+  check('busy席はvendor交代でも停止しない', () => {
+    assert.notEqual(result.status, 0)
+    assert.match(result.stderr, /SEAT_CHANGE_SEAT_BUSY/)
+  })
+  assert.equal((await launchLines()).length, beforeVendorBusy)
+  await writeFile(screen, 'idle\n')
+
+  // 8. Claude→Codexの交代はtarget metadata・起動履歴・room履歴を一回で揃える
+  const beforeVendorChange = (await launchLines()).length
+  result = run(['--vendor', 'codex', '--model', 'gpt-5.6-luna', '--effort', 'max', '--reason', 'Codex工程へ移管'])
+  check('ClaudeからCodexへvendor交代できる', () => {
+    assert.equal(result.status, 0, result.stderr)
+    assert.match(result.stdout, /vendor claude → codex \/ model opus → gpt-5\.6-luna \/ effort high → max/)
+  })
+  lines = await launchLines()
+  assert.equal(lines.length, beforeVendorChange + 1)
+  assert.match(lines.at(-1), /\|koharu\|gpt-5\.6-luna\|codex\|max\|/)
+  assert.equal((await seat()).vendor, 'codex')
+  assert.equal((await seat()).model, 'gpt-5.6-luna')
+  assert.equal((await seat()).effort, 'max')
+  const vendorHistory = JSON.parse(spawnSync('curl', ['-sf', `${base}/api/fixture/messages`], { encoding: 'utf8' }).stdout).messages
+    .filter(x => x.from === 'bell' && x.to === 'koharu' && x.body.startsWith('[席設定変更]'))
+    .filter(x => x.body.includes('vendor claude → codex'))
+  check('vendor交代履歴は一回だけ残る', () => {
+    assert.equal(vendorHistory.length, 1)
+    assert.match(vendorHistory[0].body, /理由: Codex工程へ移管/)
+  })
+
+  // 9. 新vendorの起動失敗は旧vendorへ一回だけ明示rollbackする
+  await writeFile(failModel, 'fable')
+  const beforeVendorRollback = (await launchLines()).length
+  result = run(['--vendor', 'claude', '--model', 'fable', '--effort', 'high'])
+  check('vendor交代の起動失敗は旧vendorへrollbackする', () => {
+    assert.notEqual(result.status, 0)
+    assert.match(result.stderr, /SEAT_CHANGE_RESTART_FAILED/)
+    assert.match(result.stderr, /SEAT_CHANGE_ROLLED_BACK/)
+  })
+  lines = await launchLines()
+  assert.equal(lines.length, beforeVendorRollback + 2, 'vendor交代失敗1回 + 旧vendor rollback1回')
+  assert.match(lines.at(-2), /\|koharu\|fable\|claude\|high\|/)
+  assert.match(lines.at(-1), /\|koharu\|gpt-5\.6-luna\|codex\|max\|/)
+  assert.equal((await seat()).vendor, 'codex', 'rollback後は旧vendor')
+  assert.equal((await seat()).model, 'gpt-5.6-luna')
+  assert.equal((await seat()).effort, 'max')
+  await rm(failModel, { force: true })
+  await member({ vendor: 'claude', model: 'opus', effort: 'high' })
+
+  // 10. 引数不足（--model も --effort も無い）は席を触らない
+  const beforePostVendorChecks = (await launchLines()).length
   result = run([])
   check('--model / --effort が無ければ席を触らずに落ちる', () => {
     assert.equal(result.status, 2)
     assert.match(result.stderr, /SEAT_CHANGE_ARGS_INVALID/)
   })
-  assert.equal((await launchLines()).length, beforeNoop)
+  assert.equal((await launchLines()).length, beforePostVendorChecks)
 
   // 8. claude の effort は live な --help から取る（hardcodeへ落ちない）
   result = run(['--effort', 'ultra'])
@@ -216,7 +268,7 @@ try {
     assert.notEqual(result.status, 0)
     assert.match(result.stderr, /SEAT_CHANGE_EFFORT_CATALOG_UNAVAILABLE/)
   })
-  assert.equal((await launchLines()).length, beforeNoop, 'catalog不明で席を再起動しない')
+  assert.equal((await launchLines()).length, beforePostVendorChecks, 'catalog不明で席を再起動しない')
 
   // 9. live で起動しない model は、起動失敗→旧設定へ1回だけ rollback（fable-5 と同じ形）
   await writeFile(failModel, 'fable')

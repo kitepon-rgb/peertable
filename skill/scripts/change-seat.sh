@@ -1,6 +1,6 @@
 #!/bin/bash
-# 席の model / effort を変更する（同じ vendor の中で）。
-# usage: change-seat.sh <project_dir> <member> [--model <model>] [--effort <effort>] [--parent <name>] [--reason <text>]
+# 席の vendor / model / effort を変更する。
+# usage: change-seat.sh <project_dir> <member> [--vendor <vendor>] [--model <model>] [--effort <effort>] [--parent <name>] [--reason <text>]
 #
 # **自然文の依頼を再解釈しない。** 依頼の意味・本人の意図・変更してよい局面を判断するのは親である AI で、
 # この script が受け取るのは親が確定した target だけである（旧 change-effort.sh の
@@ -11,7 +11,6 @@
 #   metadata の読み返し / room 履歴 / 失敗時の旧設定への1回だけの明示rollback。
 #
 # 会話contextは引き継がない。作業状態はroomログ・工程正本・gitから再着任で回収する。
-# vendor 変更は対象外（vendor を跨ぐと席の入口・MCP配線ごと別物になる）。
 set -eu
 
 # token値はこの制御processや再起動する席へ継承しない。launch後のroom記録も席別file経由で行う。
@@ -20,20 +19,19 @@ credential_helper="${PEERTABLE_CREDENTIAL_HELPER:-$(dirname "$0")/seat-credentia
 
 proj="${1:-}"; name="${2:-}"
 shift 2 2>/dev/null || true
-opt_model=""; opt_effort=""; parent="bell"; reason=""
+opt_vendor=""; opt_model=""; opt_effort=""; parent="bell"; reason=""
 while [ $# -gt 0 ]; do
   case "$1" in
+    --vendor) opt_vendor="${2:-}"; shift 2 || true ;;
     --model)  opt_model="${2:-}";  shift 2 || true ;;
     --effort) opt_effort="${2:-}"; shift 2 || true ;;
     --parent) parent="${2:-}";     shift 2 || true ;;
     --reason) reason="${2:-}";     shift 2 || true ;;
-    --vendor)
-      echo "SEAT_CHANGE_VENDOR_UNSUPPORTED: vendor 変更は対象外。席を畳んで立て直す" >&2; exit 2 ;;
     *) echo "SEAT_CHANGE_ARGS_INVALID: 不明な引数 $1" >&2; exit 2 ;;
   esac
 done
 [ -n "$proj" ] && [ -n "$name" ] || {
-  echo "SEAT_CHANGE_ARGS_INVALID: usage: change-seat.sh <project_dir> <member> [--model <model>] [--effort <effort>] [--parent <name>] [--reason <text>]" >&2
+  echo "SEAT_CHANGE_ARGS_INVALID: usage: change-seat.sh <project_dir> <member> [--vendor <vendor>] [--model <model>] [--effort <effort>] [--parent <name>] [--reason <text>]" >&2
   exit 2
 }
 [ -n "$opt_model" ] || [ -n "$opt_effort" ] || {
@@ -60,10 +58,19 @@ if not member or member.get("vendor") not in ("claude","codex") or not member.ge
     raise SystemExit(1)
 print("\t".join((member["vendor"],member["model"],member.get("effort") or "")))
 ' "$name") || { echo "SEAT_CHANGE_MEMBER_METADATA_MISSING: ${name} のvendor/modelが要る" >&2; exit 1; }
-IFS=$'\t' read -r vendor old_model old_effort <<EOF
+IFS=$'\t' read -r old_vendor old_model old_effort <<EOF
 $meta
 EOF
 
+vendor="${opt_vendor:-$old_vendor}"
+case "$vendor" in
+  claude|codex) ;;
+  *) echo "SEAT_CHANGE_VENDOR_UNSUPPORTED: vendor=${vendor}（claude / codex のみ）" >&2; exit 2 ;;
+esac
+if [ "$vendor" != "$old_vendor" ] && { [ -z "$opt_model" ] || [ -z "$opt_effort" ]; }; then
+  echo "SEAT_CHANGE_ARGS_INVALID: vendor変更には --model と --effort の明示指定が要る" >&2
+  exit 2
+fi
 model="${opt_model:-$old_model}"
 effort="${opt_effort:-$old_effort}"
 # effort を持たない席（CLI 既定で走っている席）へ model だけ渡すと、再起動で effort が確定してしまう。
@@ -72,10 +79,23 @@ effort="${opt_effort:-$old_effort}"
   echo "SEAT_CHANGE_EFFORT_UNKNOWN: ${name} の現在effortがmetadataに無い。--effort を明示する" >&2; exit 1
 }
 
-if [ "$model" = "$old_model" ] && [ "$effort" = "$old_effort" ]; then
+if [ "$model" = "$old_model" ] && [ "$effort" = "$old_effort" ] && [ "$vendor" = "$old_vendor" ]; then
   echo "SEAT_CHANGE_NOOP: ${name} は既に model=${model} / effort=${effort}（再起動しない）"
   exit 0
 fi
+
+sock="${PEERTABLE_TMUX_SOCKET:-${TMPDIR:-/tmp/}claude-tmux-sockets/claude.sock}"
+sess="peer-$name"
+tmux -S "$sock" has-session -t "$sess" 2>/dev/null || {
+  echo "SEAT_CHANGE_SEAT_MISSING: ${sess}" >&2; exit 1;
+}
+screen=$(tmux -S "$sock" capture-pane -t "$sess" -p -S -25 2>/dev/null) || {
+  echo "SEAT_CHANGE_SEAT_UNREADABLE: $sess" >&2; exit 1;
+}
+# busy の判定文字列は seat-status-bridge と同じ（Claude のステータス行にも Codex の `Working (…)` にも出る）
+case "$screen" in
+  *"esc to interrupt"*) echo "SEAT_CHANGE_SEAT_BUSY: ${sess} は処理中。本人がidleになってから再実行する" >&2; exit 1 ;;
+esac
 
 # target の検証は live 面だけを使い、古くなる hardcode を足さない。
 case "$vendor" in
@@ -124,21 +144,12 @@ print("ok" if effort in levels else "effort")
     ;;
 esac
 
-sock="${PEERTABLE_TMUX_SOCKET:-${TMPDIR:-/tmp/}claude-tmux-sockets/claude.sock}"
-sess="peer-$name"
-tmux -S "$sock" has-session -t "$sess" 2>/dev/null || {
-  echo "SEAT_CHANGE_SEAT_MISSING: ${sess}" >&2; exit 1;
-}
-screen=$(tmux -S "$sock" capture-pane -t "$sess" -p -S -25 2>/dev/null) || {
-  echo "SEAT_CHANGE_SEAT_UNREADABLE: $sess" >&2; exit 1;
-}
-# busy の判定文字列は seat-status-bridge と同じ（Claude のステータス行にも Codex の `Working (…)` にも出る）
-case "$screen" in
-  *"esc to interrupt"*) echo "SEAT_CHANGE_SEAT_BUSY: ${sess} は処理中。本人がidleになってから再実行する" >&2; exit 1 ;;
-esac
-
 changes=""
-[ "$model" = "$old_model" ] || changes="model ${old_model} → ${model}"
+[ "$vendor" = "$old_vendor" ] || changes="vendor ${old_vendor} → ${vendor}"
+[ "$model" = "$old_model" ] || {
+  [ -z "$changes" ] || changes="$changes / "
+  changes="${changes}model ${old_model} → ${model}"
+}
 if [ "$effort" != "$old_effort" ]; then
   [ -z "$changes" ] || changes="$changes / "
   changes="${changes}effort ${old_effort:-default} → ${effort}"
@@ -147,10 +158,10 @@ fi
 launch="$(dirname "$0")/launch-seat.sh"
 brief="席設定が変更され（${changes}）、席を再起動しました。.team/roles/member.mdと工程正本・roomログから再着任し、進行中taskを続けてください。"
 if ! "$launch" "$proj" "$name" "$model" "$vendor" "$effort" "$brief"; then
-  echo "SEAT_CHANGE_RESTART_FAILED: ${changes}。旧設定（model=${old_model} / effort=${old_effort:-default}）へrollbackする" >&2
+  echo "SEAT_CHANGE_RESTART_FAILED: ${changes}。旧設定（vendor=${old_vendor} / model=${old_model} / effort=${old_effort:-default}）へrollbackする" >&2
   rollback_brief="席設定の変更に失敗して旧設定へrollbackしました。.team/roles/member.mdと工程正本・roomログから再着任してください。"
-  if "$launch" "$proj" "$name" "$old_model" "$vendor" "$old_effort" "$rollback_brief"; then
-    echo "SEAT_CHANGE_ROLLED_BACK: ${name} は model=${old_model} / effort=${old_effort:-default} で再着席" >&2
+  if "$launch" "$proj" "$name" "$old_model" "$old_vendor" "$old_effort" "$rollback_brief"; then
+    echo "SEAT_CHANGE_ROLLED_BACK: ${name} は vendor=${old_vendor} / model=${old_model} / effort=${old_effort:-default} で再着席" >&2
   else
     echo "SEAT_CHANGE_ROLLBACK_FAILED: ${name} の席を手動で復旧する必要がある" >&2
   fi
