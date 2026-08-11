@@ -92,16 +92,6 @@ const liveWorker = (member, parentName) => member?.name && member.name !== paren
 const sameNames = (left = [], right = []) => left.length === right.length
   && left.every((name, index) => name === right[index])
 
-const stateChanged = (previous, next) => previous === null
-  ? next.launch_count > 0 || next.retire_count > 0 || next.reclaim_count > 0
-  : previous.target !== next.target
-    || previous.delta !== next.delta
-    || previous.reclaim_count !== next.reclaim_count
-    || previous.launch_count !== next.launch_count
-    || previous.retire_count !== next.retire_count
-    || !sameNames(previous.reclaim_workers, next.reclaim_workers)
-    || !sameNames(previous.retire_candidates, next.retire_candidates)
-
 function actionFor(state) {
   if (state.launch_count > 0 && state.reclaim_count > 0) return 'scale_up_and_reclaim'
   if (state.launch_count > 0) return 'scale_up'
@@ -153,12 +143,43 @@ export function capacityProjection({ todoStatus, members, parentName = 'bell', p
     verified_ready_refs: ready.accepted_refs,
     excluded_ready: ready.excluded,
   }
+
+  // idle席へDMを送ると、そのturn中だけstatusがbusyになり、終了後またidleへ戻る。
+  // 現在のidle集合だけを前回値にすると、この往復を新しいcapacity差分と誤認して
+  // 同じreclaim・launchを8秒ごとに再発火する。frontierが同じ間は通知済み席を
+  // 累積し、launchも絶対targetごとに一度だけ要求する。
+  const sameFrontier = previous !== null
+    && sameNames(previous.active_refs, state.active_refs)
+    && sameNames(previous.verified_ready_refs, state.verified_ready_refs)
+  const notifiedReclaim = sameFrontier
+    ? (previous.reclaim_notified ?? previous.reclaim_workers ?? [])
+    : []
+  const newReclaimWorkers = reclaimWorkers.filter(name => !notifiedReclaim.includes(name))
+  state.reclaim_notified = [...new Set([...notifiedReclaim, ...reclaimWorkers])].sort()
+
+  const launchAlreadyNotified = launchCount > 0
+    && previous?.launch_notified_target === target
+  const launchTriggered = launchCount > 0 && !launchAlreadyNotified
+  state.launch_notified_target = launchCount > 0 ? target : null
   state.action = actionFor(state)
   state.next_operation = nextOperation(state)
 
-  const changed = stateChanged(previous, state)
+  const targetChanged = previous !== null && previous.target !== target
+  const retireChanged = previous === null
+    ? retireCount > 0
+    : previous.retire_count !== retireCount
+      || !sameNames(previous.retire_candidates, state.retire_candidates)
+  const changed = launchTriggered || newReclaimWorkers.length > 0 || retireChanged || targetChanged
   const oldTarget = previous?.target ?? workers.length
   const oldDelta = previous?.delta ?? 0
+  const eventState = {
+    ...state,
+    reclaim_count: newReclaimWorkers.length,
+    reclaim_workers: newReclaimWorkers,
+    launch_count: launchTriggered ? launchCount : 0,
+  }
+  eventState.action = actionFor(eventState)
+  eventState.next_operation = nextOperation(eventState)
   const event = changed ? {
     code: 'PEERTABLE_CAPACITY_CHANGED',
     old_target: oldTarget,
@@ -168,12 +189,12 @@ export function capacityProjection({ todoStatus, members, parentName = 'bell', p
     active_count: state.active_count,
     verified_ready_count: state.verified_ready_count,
     worker_count: state.worker_count,
-    reclaim_workers: reclaimWorkers,
-    launch_count: launchCount,
+    reclaim_workers: newReclaimWorkers,
+    launch_count: eventState.launch_count,
     retire_count: retireCount,
     retire_candidates: state.retire_candidates,
-    action: state.action,
-    next_operation: state.next_operation,
+    action: eventState.action,
+    next_operation: eventState.next_operation,
   } : null
   return { state, event }
 }

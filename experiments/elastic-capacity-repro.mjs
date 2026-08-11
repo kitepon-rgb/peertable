@@ -155,6 +155,44 @@ const changedReclaimSeat = capacityProjection({
 })
 check('同じ件数でもreclaim対象席が変われば新しい席へ再通知する', () => {
   assert.deepEqual(changedReclaimSeat.event?.reclaim_workers, ['busy-a'])
+  assert.equal(changedReclaimSeat.event?.launch_count, 0)
+  assert.equal(changedReclaimSeat.event?.action, 'reclaim_idle')
+})
+
+const reclaimWakeBusy = capacityProjection({
+  todoStatus: status({ ready: ['r1', 'r2', 'r3', 'r4'] }),
+  members: [member('bell', null), member('idle-a', 'busy'), member('idle-b', 'busy')],
+  previous: idleReclaim.state,
+})
+const reclaimWakeIdleAgain = capacityProjection({
+  todoStatus: status({ ready: ['r1', 'r2', 'r3', 'r4'] }),
+  members: [member('bell', null), member('idle-a', 'idle'), member('idle-b', 'idle')],
+  previous: reclaimWakeBusy.state,
+})
+check('reclaim DMによるbusy→idle往復は同じlaunch/reclaimを再通知しない', () => {
+  assert.equal(reclaimWakeBusy.event, null)
+  assert.equal(reclaimWakeIdleAgain.event, null)
+})
+
+const firstLaunchedWorker = capacityProjection({
+  todoStatus: status({ ready: ['r1', 'r2', 'r3', 'r4'] }),
+  members: [member('bell', null), member('idle-a', 'busy'), member('idle-b', 'busy'), member('new-a', 'busy')],
+  previous: reclaimWakeBusy.state,
+})
+const reachedTarget = capacityProjection({
+  todoStatus: status({ ready: ['r1', 'r2', 'r3', 'r4'] }),
+  members: [member('bell', null), member('idle-a', 'busy'), member('idle-b', 'busy'), member('new-a', 'busy'), member('new-b', 'busy')],
+  previous: firstLaunchedWorker.state,
+})
+const workerLostAfterConvergence = capacityProjection({
+  todoStatus: status({ ready: ['r1', 'r2', 'r3', 'r4'] }),
+  members: [member('bell', null), member('idle-a', 'busy'), member('idle-b', 'busy'), member('new-a', 'busy')],
+  previous: reachedTarget.state,
+})
+check('target到達途中は残数launchを重複要求せず、収束後の席喪失だけ再要求する', () => {
+  assert.equal(firstLaunchedWorker.event, null)
+  assert.equal(reachedTarget.event, null)
+  assert.equal(workerLostAfterConvergence.event?.launch_count, 1)
 })
 
 const ownerlessActive = capacityProjection({
