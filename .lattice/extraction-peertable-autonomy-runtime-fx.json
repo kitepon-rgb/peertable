@@ -1,0 +1,113 @@
+{
+  "actor": {
+    "agent": "nagi",
+    "host": "mac",
+    "session": "nagi"
+  },
+  "hard_dependencies": [],
+  "joins": [],
+  "plan_key": "peertable-autonomy-runtime-fx-20260811",
+  "plan_version": "v1",
+  "project_id": "peertable",
+  "recorded_at": "2026-08-11T07:35:00.000Z",
+  "schema": "lattice.todo_extraction.v3",
+  "tasks": [
+    {
+      "compile_binding": null,
+      "completion": null,
+      "design_memo": "所有は .gitignore。lattice run start --selection pull ... が .lattice/runs/ が git の追跡対象（gitignore対象外）になっていることを理由に RUN_STORE_NOT_IGNORED で失敗する（実測: nagi, 2026-08-11T07:22Z）。.gitignore へ .lattice/runs/ を追加して解消する（対象限定commit da11173で実装済み。本taskで正式に工程へ載せ、peer auditを通す）。",
+      "disposition": "register_pending",
+      "lane": "infra",
+      "migration_context": {
+        "carry_over_ref": null,
+        "condition": null,
+        "evidence_refs": [],
+        "external_canonical_ref": null,
+        "h_required": false,
+        "notes": []
+      },
+      "narrative_ref": "docs/plan_peertable-autonomy-runtime-fx-20260811.md",
+      "source": {
+        "checkbox_state": "absent",
+        "heading_path": [
+          "Peertable 自律性改修 companion fix campaign（peertable-autonomy-runtime-fx-20260811）— 計画正本",
+          "2. Lattice 工程",
+          "f1 pull run 前提の `.lattice/runs/` gitignore 整備"
+        ],
+        "markdown_depth": 3,
+        "origin_line": 18,
+        "origin_plan_ref": "docs/plan_peertable-autonomy-runtime-fx-20260811.md",
+        "parent_task_id": null,
+        "source_commit": "fff2e123e47dcecb5e63b632b541c2157602c0ed"
+      },
+      "start": null,
+      "task_id": "f1",
+      "title": "pull run 前提の .lattice/runs/ gitignore 整備"
+    },
+    {
+      "compile_binding": null,
+      "completion": null,
+      "design_memo": "所有は skill/scripts/ensure-bridge.sh。立卓時、3席すべてで launch-seat.sh 末尾の ensure-bridge.sh 再armが saved[@]: unbound variable で失敗した（実測: bell, 2026-08-11T07:20Z）。record file（<project>/.team/<name>-bridge.json）に args が空の場合、saved=() で初期化した空配列を set -- \"${saved[@]}\" で展開する箇所が、macOS標準bash（3.2、set -euo pipefail下）ではunbound variableエラーになる。setup時に起動済みのbridgeはreadyのままなので席は稼働を続けるが、bridge消失後の席起動復帰契約が不成立のまま残る。空配列でも安全に展開できる書き方（例: \"${saved[@]+\"${saved[@]}\"}\" や ((${#saved[@]})) ガード）へ直し、record fileのargsが空の場合の再arm経路をfixtureで再現・検証する。",
+      "disposition": "register_pending",
+      "lane": "runtime",
+      "migration_context": {
+        "carry_over_ref": null,
+        "condition": null,
+        "evidence_refs": [],
+        "external_canonical_ref": null,
+        "h_required": false,
+        "notes": []
+      },
+      "narrative_ref": "docs/plan_peertable-autonomy-runtime-fx-20260811.md",
+      "source": {
+        "checkbox_state": "absent",
+        "heading_path": [
+          "Peertable 自律性改修 companion fix campaign（peertable-autonomy-runtime-fx-20260811）— 計画正本",
+          "2. Lattice 工程",
+          "f2 `ensure-bridge.sh` 再 arm 時の unbound variable"
+        ],
+        "markdown_depth": 3,
+        "origin_line": 27,
+        "origin_plan_ref": "docs/plan_peertable-autonomy-runtime-fx-20260811.md",
+        "parent_task_id": null,
+        "source_commit": "fff2e123e47dcecb5e63b632b541c2157602c0ed"
+      },
+      "start": null,
+      "task_id": "f2",
+      "title": "ensure-bridge.sh 再 arm 時の unbound variable"
+    },
+    {
+      "compile_binding": null,
+      "completion": null,
+      "design_memo": "所有は skill/scripts/launch-seat.sh。fable-5席で、Claudeのバナー文字列が画面に出たためseated=trueと判定されたが、その後の全入力がmodel unavailableで0秒失敗した（実測: bell, 2026-08-11T07:23Z。suzuneがopus/highで復旧済み）。現行のseated判定（launch-seat.sh 94-121行目）は画面上の特定文字列出現だけを見ており、live modelが実際に応答可能かどうかの確認をしていない。着席後に軽い実応答確認を挟み、応答が無ければseated失敗として報告する形へ直す。既存の起動シーケンス・他vendor（Codex判定含む）を壊さないことをfixtureで確認する。",
+      "disposition": "register_pending",
+      "lane": "runtime",
+      "migration_context": {
+        "carry_over_ref": null,
+        "condition": null,
+        "evidence_refs": [],
+        "external_canonical_ref": null,
+        "h_required": false,
+        "notes": []
+      },
+      "narrative_ref": "docs/plan_peertable-autonomy-runtime-fx-20260811.md",
+      "source": {
+        "checkbox_state": "absent",
+        "heading_path": [
+          "Peertable 自律性改修 companion fix campaign（peertable-autonomy-runtime-fx-20260811）— 計画正本",
+          "2. Lattice 工程",
+          "f3 `launch-seat.sh` の live model unavailable 席を seated 成功と誤判定"
+        ],
+        "markdown_depth": 3,
+        "origin_line": 40,
+        "origin_plan_ref": "docs/plan_peertable-autonomy-runtime-fx-20260811.md",
+        "parent_task_id": null,
+        "source_commit": "fff2e123e47dcecb5e63b632b541c2157602c0ed"
+      },
+      "start": null,
+      "task_id": "f3",
+      "title": "launch-seat.sh の live model unavailable 席を seated 成功と誤判定"
+    }
+  ],
+  "extraction_digest": "b3254d69732ae49f55f0f71be210cb278ad1ad9dad1f38f9430c9d09501134fe"
+}
