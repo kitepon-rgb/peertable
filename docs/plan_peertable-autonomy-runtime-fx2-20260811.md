@@ -53,8 +53,38 @@ stopped 状態でも idle と誤判定される。`launch-seat.sh` の seated �
 `ps` state（`T` 等の異常状態）を組み合わせた判定へ直し、既存の busy/blocked/idle 判定・呼び出し元
 （`seat-status-bridge.mjs` 等）を壊さないことを fixture で確認する。
 
+### f6 receipt 未 accept でも ToDo done が先行し、着地しないまま完了に見える
+
+所有: `skill/templates/done.sh`（と生成物 `.team/scripts/done.sh`）、対応する `experiments/` の新規 harness。
+他 task の所有 file は触らない（`skill/templates/done.sh` は t2 の witness では read 宣言であり write ではない）。
+
+実行層に載っている task では、成果の正本は Lattice が撮った observed diff（accepted receipt）である。
+しかし現行 `done.sh <task_id>` は **receipt の accept 状態を一切見ずに `todo done` を打つ**。
+landing-only mode（`done.sh --landing-run <run>`）は accept 済み receipt の未着地本数を警告するだけで、
+**receipt がそもそも無い場合は 0 本＝警告なし**になる。
+
+実測（suzune, 2026-08-11T07:45–07:49Z, room [42][45]）:
+
+1. `lattice run intake accept --run <run> --task t1` が `RUNTIME_CONFLICT_HOLD`
+   （`undeclared_write`: `experiments/seat-change-repro.mjs`, `room/client.mjs`）で失敗した。
+2. それでも `.team/scripts/done.sh t1 --evidence-from <worktree>/...` は成功し、
+   ToDo は `done`（journal seq3）になった。出力は `未push 4本` だけで、
+   **accept されていない事実には触れない**。
+3. 親の工程完了後照合で `run landing` が `landed:false` / `accepted_receipts: []` を返し、
+   canonical main に commit が無いことが判明して t1 は reopen された（bell, room [45]）。
+
+つまり「ToDo は完了、成果はどこにも着地していない」という状態を、卓も親も**事後照合まで検知できない**。
+`done.sh` を次へ直す。
+
+- 対象 plan の active な pull run に当該 task の intake が在るなら、**accept 済みでない限り
+  `todo done` を打たずに落ちる**（次に打つべき command を名指しする）。
+- intake が無い（実行層に載っていない）task は現行どおり done できる——実行層の利用は任意であり、
+  載っていない卓を止めない。
+- `--landing-run` は「accept 済みで未着地」に加えて「intake は在るが accept されていない」も区別して出す。
+- 欠陥版（現行 done.sh）で落ち、修正版で通る harness を `experiments/` へ置く。
+
 ## 3. 完了条件
 
-1. f4・f5 が、実装者と別の文脈近接一席の peer audit を経て done であること。
+1. f4・f5・f6 が、実装者と別の文脈近接一席の peer audit を経て done であること。
 2. 各 f が `dependency connect` で main plan t4 の前提へ接続されていること。
 3. main campaign の t5 着手前に、本 companion plan が全 done であること。
