@@ -1,0 +1,102 @@
+{
+  "capacity": { "executors": 3 },
+  "manual_witness": {
+    "t1": {
+      "affected_tests": ["experiments/effort-change-repro.mjs"],
+      "owns": [
+        { "creates": true, "kind": "path", "target": "skill/scripts/change-seat.sh" },
+        { "kind": "path", "target": "skill/scripts/change-effort.sh" },
+        { "kind": "path", "target": "experiments/effort-change-repro.mjs" },
+        { "creates": true, "kind": "path", "target": "evidence/peertable-autonomy-runtime-20260811/t1.md" }
+      ],
+      "reads": ["skill/scripts/launch-seat.sh", "room/client.mjs", "package.json", "docs/plan_peertable-autonomy-runtime-20260811.md"],
+      "resources": ["seat-runtime", "room-member-metadata"],
+      "sensor_provenance": { "queries": [{ "expect": { "kind": "affected", "path": "skill/scripts/change-effort.sh" }, "query_id": "t1-change-effort-affected" }] },
+      "state_effects": [],
+      "unknowns": [{ "kind": "external_catalog", "ref": "Claude と Codex の live model catalog 可用性は着手時に実測する" }],
+      "writes": ["skill/scripts/change-seat.sh", "skill/scripts/change-effort.sh", "experiments/effort-change-repro.mjs", "evidence/peertable-autonomy-runtime-20260811/t1.md"]
+    },
+    "t2": {
+      "affected_tests": ["experiments/member-autonomy-role-repro.mjs"],
+      "owns": [
+        { "kind": "path", "target": "skill/templates/charter.md" },
+        { "kind": "path", "target": "skill/templates/member.md" },
+        { "kind": "path", "target": "skill/templates/member-standalone.md" },
+        { "creates": true, "kind": "path", "target": "experiments/member-autonomy-role-repro.mjs" },
+        { "creates": true, "kind": "path", "target": "evidence/peertable-autonomy-runtime-20260811/t2.md" }
+      ],
+      "reads": ["docs/plan.md", "docs/plan_peertable-autonomy-runtime-20260811.md", "skill/templates/done.sh"],
+      "resources": ["member-role-contract"],
+      "sensor_provenance": { "queries": [{ "expect": { "kind": "affected", "path": "skill/templates/member.md" }, "query_id": "t2-member-role-affected" }] },
+      "state_effects": [],
+      "unknowns": [{ "kind": "behavioral_smoke", "ref": "実席での抑制発言後の継続は t4 が測る" }],
+      "writes": ["skill/templates/charter.md", "skill/templates/member.md", "skill/templates/member-standalone.md", "experiments/member-autonomy-role-repro.mjs", "evidence/peertable-autonomy-runtime-20260811/t2.md"]
+    },
+    "t3": {
+      "affected_tests": ["experiments/parent-role-repro.mjs"],
+      "owns": [
+        { "creates": true, "kind": "path", "target": "skill/templates/parent.md" },
+        { "kind": "path", "target": "skill/scripts/setup.sh" },
+        { "kind": "path", "target": "skill/scripts/parent-join.sh" },
+        { "creates": true, "kind": "path", "target": "experiments/parent-role-repro.mjs" },
+        { "creates": true, "kind": "path", "target": "evidence/peertable-autonomy-runtime-20260811/t3.md" }
+      ],
+      "reads": ["skill/SKILL.md", "docs/plan.md", "docs/plan_peertable-autonomy-runtime-20260811.md", "room/client.mjs"],
+      "resources": ["parent-role-contract", "parent-room-connection"],
+      "sensor_provenance": { "queries": [
+        { "expect": { "kind": "affected", "path": "skill/scripts/setup.sh" }, "query_id": "t3-setup-affected" },
+        { "expect": { "kind": "affected", "path": "skill/scripts/parent-join.sh" }, "query_id": "t3-parent-join-affected" }
+      ] },
+      "state_effects": [],
+      "unknowns": [{ "kind": "host_capability", "ref": "Codex Desktop への外部自動 wake 面は着手時に実測する" }],
+      "writes": ["skill/templates/parent.md", "skill/scripts/setup.sh", "skill/scripts/parent-join.sh", "experiments/parent-role-repro.mjs", "evidence/peertable-autonomy-runtime-20260811/t3.md"]
+    },
+    "t4": {
+      "affected_tests": ["experiments/peertable-autonomy-runtime-repro.mjs"],
+      "owns": [
+        { "creates": true, "kind": "path", "target": "experiments/peertable-autonomy-runtime-repro.mjs" },
+        { "creates": true, "kind": "path", "target": "evidence/peertable-autonomy-runtime-20260811/t4.md" }
+      ],
+      "reads": ["skill/scripts/change-seat.sh", "skill/scripts/change-effort.sh", "skill/scripts/setup.sh", "skill/scripts/parent-join.sh", "skill/templates/charter.md", "skill/templates/member.md", "skill/templates/member-standalone.md", "skill/templates/parent.md", "docs/plan_peertable-autonomy-runtime-20260811.md"],
+      "resources": ["disposable-room", "disposable-seat-sessions", "codex-parent"],
+      "sensor_provenance": { "queries": [] },
+      "state_effects": [
+        { "kind": "external_effect", "resource_id": "disposable-room" },
+        { "kind": "external_effect", "resource_id": "disposable-seat-sessions" }
+      ],
+      "unknowns": [{ "kind": "runtime_behavior", "ref": "実席の自律継続と親の無言照合はこの task で正負実測する" }],
+      "writes": ["experiments/peertable-autonomy-runtime-repro.mjs", "evidence/peertable-autonomy-runtime-20260811/t4.md"]
+    },
+    "t5": {
+      "affected_tests": ["experiments/effort-change-repro.mjs", "experiments/member-autonomy-role-repro.mjs", "experiments/parent-role-repro.mjs", "experiments/peertable-autonomy-runtime-repro.mjs"],
+      "owns": [
+        { "kind": "path", "target": "skill/SKILL.md" },
+        { "kind": "path", "target": "docs/plan.md" },
+        { "kind": "path", "target": "README.md" },
+        { "kind": "path", "target": "README.ja.md" },
+        { "kind": "path", "target": "docs/intake_peertable-autonomy-runtime-20260811.md" },
+        { "creates": true, "kind": "path", "target": "evidence/peertable-autonomy-runtime-20260811/t5.md" }
+      ],
+      "reads": ["package.json", "docs/plan_peertable-autonomy-runtime-20260811.md", "skill/scripts/change-seat.sh", "skill/scripts/change-effort.sh", "skill/scripts/setup.sh", "skill/scripts/parent-join.sh", "skill/templates/charter.md", "skill/templates/member.md", "skill/templates/member-standalone.md", "skill/templates/parent.md"],
+      "resources": ["product-canon", "npm-package-files"],
+      "sensor_provenance": { "queries": [{ "expect": { "kind": "affected", "path": "skill/SKILL.md" }, "query_id": "t5-skill-affected" }] },
+      "state_effects": [],
+      "unknowns": [{ "kind": "release_gate", "ref": "version bump・npm publish・本番 deploy はオーナーの別途承認対象" }],
+      "writes": ["skill/SKILL.md", "docs/plan.md", "README.md", "README.ja.md", "docs/intake_peertable-autonomy-runtime-20260811.md", "evidence/peertable-autonomy-runtime-20260811/t5.md"]
+    }
+  },
+  "plan_key": "peertable-autonomy-runtime-20260811",
+  "project_id": "peertable",
+  "schema": "lattice.todo_witness_set.v4",
+  "sensor_query_set": {
+    "queries": [
+      { "id": "witness-status", "operation": "status" },
+      { "id": "t1-change-effort-affected", "operation": "affected", "target": "skill/scripts/change-effort.sh" },
+      { "id": "t2-member-role-affected", "operation": "affected", "target": "skill/templates/member.md" },
+      { "id": "t3-setup-affected", "operation": "affected", "target": "skill/scripts/setup.sh" },
+      { "id": "t3-parent-join-affected", "operation": "affected", "target": "skill/scripts/parent-join.sh" },
+      { "id": "t5-skill-affected", "operation": "affected", "target": "skill/SKILL.md" }
+    ]
+  },
+  "witness_set_digest": "726d3535a2bd1d36fa20bc4f0c8202f2999ee304f2af34850eafbd71df1675f7"
+}
