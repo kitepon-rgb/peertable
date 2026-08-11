@@ -182,3 +182,57 @@ export function seatIntakeDecision({ intervention, hasWip }) {
   if (hasWip) return { action: 'handoff_then_leave', code: 'PEERTABLE_CAPACITY_WIP_HANDOFF_REQUIRED' }
   return { action: 'leave_immediately', code: 'PEERTABLE_CAPACITY_INTAKE_RELEASED' }
 }
+
+export function capacityMessage(event) {
+  const signed = event.delta > 0 ? `+${event.delta}` : String(event.delta)
+  return '[capacity] PEERTABLE_CAPACITY_CHANGED '
+    + `target ${event.old_target}→${event.target}; active=${event.active_count}; `
+    + `verified_ready=${event.verified_ready_count}; workers=${event.worker_count}; delta=${signed}; `
+    + `reclaim=${event.reclaim_workers.length}; launch=${event.launch_count}; retire=${event.retire_count}; `
+    + `action=${event.action}; next=${event.next_operation}`
+}
+
+export function capacityRecipients(event, parentName = 'bell') {
+  return [...new Set([parentName, ...event.reclaim_workers])]
+}
+
+export function createCapacityTracker({ project, readTodoStatus, readMembers, post, parentName = 'bell' }) {
+  const statePath = join(project, '.team', 'capacity-advisor.json')
+  const readPrevious = () => {
+    if (!existsSync(statePath)) return null
+    return JSON.parse(readFileSync(statePath, 'utf8')).capacity
+  }
+  const persist = capacity => {
+    const temporary = `${statePath}.${process.pid}.tmp`
+    writeFileSync(temporary, `${JSON.stringify({
+      schema: 'peertable.capacity-advisor-state.v1',
+      capacity,
+      observed_at: new Date().toISOString(),
+    })}\n`, { mode: 0o600 })
+    renameSync(temporary, statePath)
+  }
+
+  return {
+    statePath,
+    async tick() {
+      const [todoStatus, members] = await Promise.all([readTodoStatus(), readMembers()])
+      const projection = capacityProjection({
+        todoStatus,
+        members,
+        parentName,
+        previous: readPrevious(),
+      })
+      if (projection.event !== null) {
+        await post({
+          from: 'capacity',
+          to: capacityRecipients(projection.event, parentName),
+          body: capacityMessage(projection.event),
+        })
+      }
+      persist(projection.state)
+      return projection
+    },
+  }
+}
+import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'

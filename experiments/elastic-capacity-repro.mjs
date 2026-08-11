@@ -1,10 +1,13 @@
 #!/usr/bin/env node
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
+import { mkdir, mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
   capacityProjection,
+  createCapacityTracker,
   seatIntakeDecision,
   standaloneTodoStatus,
 } from '../skill/scripts/capacity-advisor.mjs'
@@ -154,6 +157,50 @@ check('単独卓はtasks.md議題とroom claim/完了から同じcapacity語彙�
   assert.equal(standaloneProjection.state.verified_ready_count, 1)
   assert.equal(standaloneProjection.state.target, 2)
 })
+
+const trackerRoot = await mkdtemp(join(tmpdir(), 'peertable-elastic-capacity-'))
+await mkdir(join(trackerRoot, '.team'))
+try {
+  const posts = []
+  const trackerArgs = {
+    project: trackerRoot,
+    readTodoStatus: async () => status({ active: ['a1'], ready: ['r1', 'r2'] }),
+    readMembers: async () => [member('bell', null), member('idle', 'idle')],
+    post: async message => { posts.push(message) },
+  }
+  const tracker = createCapacityTracker(trackerArgs)
+  await tracker.tick()
+  await tracker.tick()
+  await createCapacityTracker(trackerArgs).tick()
+  check('capacity eventは親＋reclaim席へ一通だけ送り、反復pollと再起動で重複しない', () => {
+    assert.equal(posts.length, 1)
+    assert.deepEqual(posts[0].to, ['bell', 'idle'])
+    assert.match(posts[0].body, /^\[capacity\] PEERTABLE_CAPACITY_CHANGED/u)
+    assert.equal(JSON.parse(readFileSync(tracker.statePath, 'utf8')).capacity.target, 3)
+  })
+
+  const failingRoot = await mkdtemp(join(tmpdir(), 'peertable-elastic-capacity-fail-'))
+  await mkdir(join(failingRoot, '.team'))
+  try {
+    let attempts = 0
+    const failing = createCapacityTracker({
+      ...trackerArgs,
+      project: failingRoot,
+      post: async () => { attempts++; if (attempts === 1) throw new Error('fixture post failure') },
+    })
+    await assert.rejects(failing.tick(), /fixture post failure/u)
+    assert.equal(existsSync(failing.statePath), false)
+    await failing.tick()
+    check('通知POST失敗ではstateを進めず次tickで再試行する', () => {
+      assert.equal(attempts, 2)
+      assert.equal(existsSync(failing.statePath), true)
+    })
+  } finally {
+    await rm(failingRoot, { recursive: true, force: true })
+  }
+} finally {
+  await rm(trackerRoot, { recursive: true, force: true })
+}
 
 console.log(`elastic capacity repro: ${checks.filter(Boolean).length}/${checks.length} green`)
 process.exit(checks.every(Boolean) ? 0 : 1)
