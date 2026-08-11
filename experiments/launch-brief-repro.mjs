@@ -8,7 +8,7 @@
 import { strict as assert } from 'node:assert'
 import { execFileSync, spawnSync } from 'node:child_process'
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 
@@ -22,12 +22,15 @@ const tmuxSocket = join(root, 'tmux.sock')
 const tmuxLog = join(root, 'tmux.log')
 const claudeLog = join(root, 'claude.log')
 const briefPasted = join(root, 'brief-pasted')
+const briefEnterCount = join(root, 'brief-enter-count')
 const submitMarker = join(root, 'brief-submitted')
 const codexReady = join(root, 'codex-ready')
+const codexUpdateCount = join(root, 'codex-update-count')
 const memberState = join(root, 'member-state')
 const legacyLaunch = join(root, 'launch-seat-legacy.sh')
 const fixedLaunch = join(root, 'launch-seat-fixed.sh')
 const rollbackLaunch = join(root, 'launch-seat-rollback.sh')
+const notReadyLaunch = join(root, 'launch-seat-not-ready.sh')
 const longBrief = 'brief-' + 'x'.repeat(12_000)
 
 await mkdir(join(project, '.team', 'seats'), { recursive: true })
@@ -70,7 +73,13 @@ if [ "$has_paste" = true ] && [ "\${VENDOR:-}" = codex ] && [ ! -f "\$CODEX_READ
   exit 1
 fi
 if [ "$has_paste" = true ]; then : > "$BRIEF_PASTED"; fi
-if [ "$has_enter" = true ] && [ -f "$BRIEF_PASTED" ] && [ "\${NO_TURN:-0}" != 1 ]; then : > "$SUBMIT_MARKER"; fi
+if [ "$has_enter" = true ] && [ -f "$BRIEF_PASTED" ]; then
+  enter_count=0
+  if [ -f "$BRIEF_ENTER_COUNT" ]; then enter_count=$(cat "$BRIEF_ENTER_COUNT"); fi
+  enter_count=$((enter_count + 1))
+  printf '%s\\n' "$enter_count" > "$BRIEF_ENTER_COUNT"
+  if [ "\${NO_TURN:-0}" != 1 ]; then : > "$SUBMIT_MARKER"; fi
+fi
 printf '%s\\n' "$*" >> "\$TMUX_LOG"
 exec "\$real_tmux" "$@"
 `)
@@ -90,7 +99,7 @@ while [ ! -f "\$SUBMIT_MARKER" ]; do sleep 0.05; done
 while :; do sleep 1; done
 `)
 
-// Codex はヘッダの直後に prompt を出さず、MCP 初期化後に空の `›` を出す。
+// Codex はヘッダの直後に prompt を出さず、MCP 初期化後にモデルフッタと空の `›` を出す。
 // paste-buffer はそれより前なら拒否し、実装が ready 待ちをしていることを測る。
 await writeFile(join(bin, 'codex'), `#!/bin/bash
 if [ "$1" = exec ]; then echo pong; exit 0; fi
@@ -98,9 +107,17 @@ if [ "$1" = exec ]; then echo pong; exit 0; fi
 printf 'OpenAI Codex (v0.147.0)\\n'
 sleep 4
 : > "$CODEX_READY"
-printf '›\\n'
-while [ ! -f "$SUBMIT_MARKER" ]; do sleep 0.05; done
-if [ "\${NO_TURN:-0}" != 1 ]; then printf 'Working… esc to interrupt\\n'; fi
+printf 'MCP warning: X-HERMES-MCP startup interrupted\\n'
+printf 'gpt-5.6-luna max · ~/project\\n'
+if [ "\${NO_PROMPT:-0}" != 1 ]; then printf '›\\n'; fi
+i=0
+while [ ! -f "$SUBMIT_MARKER" ]; do
+  printf '\\\\rhook SessionStart/UserPromptSubmit update %s' "$i"
+  if [ -n "\${CODEX_UPDATE_COUNT:-}" ]; then printf '%s\\n' "$i" > "$CODEX_UPDATE_COUNT"; fi
+  i=$((i + 1))
+  sleep 0.05
+done
+if [ "\${NO_TURN:-0}" != 1 ]; then printf '\\nWorking… esc to interrupt\\n'; fi
 while :; do sleep 1; done
 `)
 
@@ -133,6 +150,10 @@ const rollbackSource = source.replace('brief_deadline=$((SECONDS + 30))', 'brief
 assert.notEqual(rollbackSource, source, 'rollback fixture の turn timeout を短縮できる')
 await writeFile(rollbackLaunch, rollbackSource)
 await chmod(rollbackLaunch, 0o755)
+const notReadySource = source.replace('brief_ready_deadline=$((SECONDS + 90))', 'brief_ready_deadline=$((SECONDS + 2))')
+assert.notEqual(notReadySource, source, 'not-ready fixture の ready timeout を短縮できる')
+await writeFile(notReadyLaunch, notReadySource)
+await chmod(notReadyLaunch, 0o755)
 // 欠陥版の brief block を明示的に再構成する。修正版の負例が将来の HEAD に依存しない。
 const legacyBrief = `if [ -n "$brief" ]; then
   sleep 2
@@ -159,8 +180,10 @@ const env = {
   TMUX_LOG: tmuxLog,
   CLAUDE_LOG: claudeLog,
   BRIEF_PASTED: briefPasted,
+  BRIEF_ENTER_COUNT: briefEnterCount,
   SUBMIT_MARKER: submitMarker,
   CODEX_READY: codexReady,
+  CODEX_UPDATE_COUNT: codexUpdateCount,
   MEMBER_STATE: memberState,
   VENDOR: 'codex',
   TMPDIR: root,
@@ -192,6 +215,10 @@ try {
   spawnSync(realTmux, ['-S', tmuxSocket, 'kill-server'], { stdio: 'ignore' })
   await writeFile(tmuxLog, '')
   await rm(codexReady, { force: true })
+  await rm(briefPasted, { force: true })
+  await rm(briefEnterCount, { force: true })
+  await rm(codexUpdateCount, { force: true })
+  await rm(submitMarker, { force: true })
   await rm(memberState, { force: true })
 
   // 2. 修正版は Codex の ready 前 paste を拒否する fake に対しても、空 prompt を待ち、
@@ -206,17 +233,46 @@ try {
       result.stderr + '\nstdout=' + result.stdout + '\ncalls='
       + JSON.stringify(fixedCalls) + '\nscreen=' + fixedScreen)
     assert.match(result.stdout, /briefed: peer-fixture-seat/)
+    assert.ok(existsSync(codexUpdateCount), 'ready中のhook表示更新を観測する')
   })
   check('修正版は brief 本文を tmux の一引数へ載せない', () => {
     assert.ok(fixedCalls.some((line) => line.includes('load-buffer')))
     assert.ok(fixedCalls.some((line) => line.includes('paste-buffer')))
     assert.ok(!fixedCalls.some((line) => line.includes(longBrief)))
+    assert.equal(Number.parseInt(readFileSync(briefEnterCount, 'utf8'), 10), 1,
+      'brief dispatch はexactly-once')
   })
 
-  // 3. turn が始まらない実席を再現する。失敗時に半端な tmux / member / seat を残さない。
+  // 3. ready 判定だけが成立しない実席を再現する。brief未投入の空席は残し、
+  // Aiterm の pty_send + Enter で後から dispatch できる状態とする。
   spawnSync(realTmux, ['-S', tmuxSocket, 'kill-server'], { stdio: 'ignore' })
   await writeFile(tmuxLog, '')
   await rm(codexReady, { force: true })
+  await rm(briefPasted, { force: true })
+  await rm(briefEnterCount, { force: true })
+  await rm(codexUpdateCount, { force: true })
+  await rm(submitMarker, { force: true })
+  await rm(memberState, { force: true })
+  await rm(join(project, '.team/seats/fixture-seat.json'), { force: true })
+  const notReadyResult = run(notReadyLaunch, longBrief, 'codex', { NO_PROMPT: '1' })
+  const notReadySession = spawnSync(realTmux, ['-S', tmuxSocket, 'has-session', '-t', 'peer-fixture-seat'], { stdio: 'ignore' })
+  check('ready未確認はNOT_READYを返し、空席をrollbackしない', () => {
+    assert.notEqual(notReadyResult.status, 0)
+    assert.match(notReadyResult.stderr, /LAUNCH_BRIEF_NOT_READY/)
+    assert.doesNotMatch(notReadyResult.stderr, /LAUNCH_BRIEF_ROLLED_BACK/)
+    assert.equal(notReadySession.status, 0)
+    assert.equal(existsSync(memberState), true)
+    assert.equal(existsSync(briefEnterCount), false)
+  })
+
+  // 4. brief投入後にturnが始まらない実席を再現する。失敗時に半端な tmux / member / seat を残さない。
+  spawnSync(realTmux, ['-S', tmuxSocket, 'kill-server'], { stdio: 'ignore' })
+  await writeFile(tmuxLog, '')
+  await rm(codexReady, { force: true })
+  await rm(briefPasted, { force: true })
+  await rm(briefEnterCount, { force: true })
+  await rm(codexUpdateCount, { force: true })
+  await rm(submitMarker, { force: true })
   await rm(memberState, { force: true })
   await rm(join(project, '.team/seats/fixture-seat.json'), { force: true })
   const rollbackResult = run(rollbackLaunch, longBrief, 'codex', { NO_TURN: '1' })
@@ -234,7 +290,7 @@ try {
     assert.equal(existsSync(join(project, '.team/seats/fixture-seat.json')), false)
   })
 
-  // 4. 上限超過は着席前に typed reject し、副作用をゼロにする。
+  // 5. 上限超過は着席前に typed reject し、副作用をゼロにする。
   spawnSync(realTmux, ['-S', tmuxSocket, 'kill-server'], { stdio: 'ignore' })
   await writeFile(tmuxLog, '')
   await rm(codexReady, { force: true })

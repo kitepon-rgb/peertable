@@ -28,6 +28,9 @@ brief_max_bytes=65536
 brief_completed=false
 seat_created=false
 rollback_done=false
+# ready を観測できないだけの不確実性は、投入後の真失敗と分ける。これは
+# Aiterm から手動 dispatch できる空席として残し、席数へ成功着任とは数えない。
+brief_not_ready=false
 sock=""
 sess=""
 url=""
@@ -38,7 +41,7 @@ cleanup_brief() {
   return 0
 }
 
-# brief を受け付けた後に turn が始まらなかった場合は、作りかけの席を残さない。
+# brief を受け付けて送信した後に turn が始まらなかった場合は、作りかけの席を残さない。
 # tmux を先に落とし、client が再登録しない状態にしてから room member を解除する。
 # DELETE は idempotent だが、一覧の読み返しまで通らなければ rollback 成功とは言わない。
 rollback_brief() {
@@ -99,7 +102,7 @@ on_exit() {
   local rollback_rc
   trap - EXIT
   cleanup_brief
-  if [ "$seat_created" = true ] && [ -n "$brief" ] && [ "$brief_completed" != true ] && [ "$rollback_done" != true ]; then
+  if [ "$seat_created" = true ] && [ -n "$brief" ] && [ "$brief_completed" != true ] && [ "$brief_not_ready" != true ] && [ "$rollback_done" != true ]; then
     rollback_done=true
     if rollback_brief "$exit_rc"; then
       :
@@ -272,20 +275,16 @@ fi
 echo "seated: ${sess}（${vendor} / ${model}${effort:+ / $effort} / room=${room} / mode=${mode}）"
 
 if [ -n "$brief" ]; then
-  # Codex はヘッダを描いた後も MCP 初期化を続ける。空の入力 prompt が安定して
-  # 見えるまで待ち、ready 前の paste が入力欄へ残る競合を作らない。
+  # Codex はヘッダを描いた後も MCP 初期化を続ける。Aiterm の ready 契約に合わせ、
+  # 同じ可視 pane 内に入力候補行とモデルフッタがある構造を連続して観測する。
+  # hook / MCP warning の更新で画面全体が変わっても、入力欄周辺が ready なら通す。
   brief_ready_deadline=$((SECONDS + 90))
   brief_ready_streak=0
-  brief_ready_previous=""
   brief_ready=false
   while [ $SECONDS -lt "$brief_ready_deadline" ]; do
     brief_ready_screen=$(tmux -S "$sock" capture-pane -t "$sess" -p 2>/dev/null || true)
-    if [ "$vendor" != codex ] || printf '%s\n' "$brief_ready_screen" | python3 -c 'import sys; lines=sys.stdin.read().splitlines()[-20:]; ready=any(line.strip() == "›" or (line.lstrip().startswith("› ") and any("gpt-" in below and "·" in below for below in lines[i + 1:i + 5])) for i,line in enumerate(lines)); raise SystemExit(0 if ready else 1)'; then
-      if [ "$brief_ready_screen" = "$brief_ready_previous" ]; then
-        brief_ready_streak=$((brief_ready_streak + 1))
-      else
-        brief_ready_streak=1
-      fi
+    if [ "$vendor" != codex ] || printf '%s\n' "$brief_ready_screen" | python3 -c 'import sys; lines=sys.stdin.read().splitlines()[-24:]; has_prompt=any(line.strip() == "›" or line.lstrip().startswith("› ") for line in lines); has_footer=any("gpt-" in line and "·" in line for line in lines); raise SystemExit(0 if has_prompt and has_footer else 1)'; then
+      brief_ready_streak=$((brief_ready_streak + 1))
       if [ "$brief_ready_streak" -ge 3 ]; then
         brief_ready=true
         break
@@ -293,11 +292,11 @@ if [ -n "$brief" ]; then
     else
       brief_ready_streak=0
     fi
-    brief_ready_previous="$brief_ready_screen"
     sleep 1
   done
   if [ "$brief_ready" != true ]; then
-    echo "LAUNCH_BRIEF_NOT_READY: brief を受け付ける入力 prompt を観測できない（席は着席済み）" >&2
+    brief_not_ready=true
+    echo "LAUNCH_BRIEF_NOT_READY: brief を受け付ける入力 prompt を観測できない（brief未投入・空席を保持。Aiterm手動dispatch対象）" >&2
     exit 1
   fi
   # prompt の描画とキー入力受理の境界を分ける。Codex のTUIが入力欄を
@@ -323,12 +322,9 @@ if [ -n "$brief" ]; then
 
   # 入力欄へ置けた事実だけでは着任成功としない。既存の席状態判定と同じ live marker が、
   # brief 投入後に画面へ現れたことを観測する。高速な fake/CLI の残像を拾わないよう、投入前の
-  # 画面と異なることも同時に要求する。Enter が ready 前に落ちた実席では、入力欄に本文が
-  # 残るため一度だけ再送する。
+  # 画面と異なることも同時に要求する。dispatch は Aiterm の手動送信と同じく、この1回だけ行う。
   brief_deadline=$((SECONDS + 30))
   brief_turn_started=false
-  brief_submit_retried=false
-  brief_retry_at=$((SECONDS + 5))
   while [ $SECONDS -lt "$brief_deadline" ]; do
     brief_screen=$(tmux -S "$sock" capture-pane -S -1000 -t "$sess" -p 2>/dev/null || true)
     case "$brief_screen" in
@@ -336,16 +332,6 @@ if [ -n "$brief" ]; then
         if [ "$brief_screen" != "$brief_before" ]; then brief_turn_started=true; break; fi
         ;;
     esac
-    if [ "$brief_submit_retried" != true ] && [ $SECONDS -ge "$brief_retry_at" ]; then
-      brief_current_screen=$(tmux -S "$sock" capture-pane -t "$sess" -p 2>/dev/null || true)
-      if printf '%s\n' "$brief_current_screen" | python3 -c 'import sys; lines=sys.stdin.read().splitlines(); raise SystemExit(0 if any(line.lstrip().startswith("› ") and line.strip() != "›" for line in lines[-12:]) else 1)'; then
-        if ! tmux -S "$sock" send-keys -t "$sess" Enter; then
-          echo "LAUNCH_BRIEF_SEND_FAILED: brief の再submitに失敗（席は着席済み）" >&2
-          exit 1
-        fi
-        brief_submit_retried=true
-      fi
-    fi
     sleep 1
   done
   if [ "$brief_turn_started" != true ]; then
