@@ -17,13 +17,19 @@
 //
 // 計画 Markdown の規約: `# <root見出し>` → `## <section見出し>` → `### <task_id> <title>` の3階層。
 // 各 `###` 見出しの本文（次の `#`/`##`/`###` 見出しまで）が design_memo になる。
-import { readFileSync, writeFileSync } from 'node:fs'
+import { accessSync, constants, existsSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
-import { dirname, join } from 'node:path'
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 
 function usage(message) {
   if (message) console.error(`ERROR: ${message}`)
   console.error('usage: todo-extraction-from-plan.mjs <plan.md> <plan_key> --project <id> --agent <name> [--session <name>] [--host <name>] [--lane <lane>] [--out <path>]')
+  process.exit(1)
+}
+
+function fail(code, message, nextAction) {
+  console.error(`${code}: ${message}`)
+  if (nextAction) console.error(`next: ${nextAction}`)
   process.exit(1)
 }
 
@@ -40,13 +46,70 @@ if (!opts.project) usage('--project は必須')
 if (!opts.agent) usage('--agent は必須')
 if (!opts.session) opts.session = opts.agent
 
-const latticeCli = process.env.LATTICE_CLI
-if (!latticeCli) usage('LATTICE_CLI 環境変数が必要（Lattice パッケージの src/todo-contracts.mjs を解決するため）')
+let absolutePlanPath
+try {
+  absolutePlanPath = realpathSync(resolve(planPath))
+} catch {
+  fail('PLAN_NOT_FOUND', `${planPath} を実在fileとして解決できない`, '実在する計画Markdownを指定する')
+}
+let repoRoot
+try {
+  repoRoot = realpathSync(execFileSync('git', ['-C', dirname(absolutePlanPath), 'rev-parse', '--show-toplevel'], { encoding: 'utf8' }).trim())
+} catch {
+  fail('PLAN_REPO_UNRESOLVED', `${planPath} の所属git repoを解決できない`, 'git管理下の計画Markdownを指定する')
+}
+
+const setupStatePath = join(repoRoot, '.team', 'setup-state.json')
+let latticeCli = process.env.LATTICE_CLI?.trim() ?? ''
+let latticeCliSource = 'LATTICE_CLI'
+if (!latticeCli) {
+  latticeCliSource = setupStatePath
+  if (!existsSync(setupStatePath)) {
+    fail(
+      'LATTICE_CLI_UNRESOLVED',
+      `LATTICE_CLIが未指定で ${setupStatePath} も存在しない`,
+      'Peertable setupの正規手順で .team/setup-state.json を生成するか、LATTICE_CLI=<実行可能file> を明示する',
+    )
+  }
+  let setupState
+  try {
+    setupState = JSON.parse(readFileSync(setupStatePath, 'utf8'))
+  } catch {
+    fail(
+      'PEERTABLE_SETUP_STATE_INVALID',
+      `${setupStatePath} をJSONとして読めない`,
+      'Peertable setupの正規手順で setup-state.json を再生成する',
+    )
+  }
+  latticeCli = typeof setupState.lattice_cli === 'string' ? setupState.lattice_cli.trim() : ''
+  if (!latticeCli) {
+    fail(
+      'LATTICE_CLI_UNRESOLVED',
+      `${setupStatePath} に lattice_cli が無い`,
+      'Peertable setupの正規手順で lattice_cli を記録するか、LATTICE_CLI=<実行可能file> を明示する',
+    )
+  }
+}
+try {
+  latticeCli = realpathSync(latticeCli)
+  accessSync(latticeCli, constants.X_OK)
+} catch {
+  fail(
+    'LATTICE_CLI_INVALID',
+    `${latticeCliSource} の lattice CLI が実行可能fileではない: ${latticeCli}`,
+    latticeCliSource === 'LATTICE_CLI'
+      ? 'LATTICE_CLI=<実行可能な lattice CLI> を指定する'
+      : 'Peertable setupの正規手順で setup-state.json の lattice_cli を再生成する',
+  )
+}
 const latticePkgSrc = join(dirname(dirname(latticeCli)), 'src', 'todo-contracts.mjs')
 const { todoSelfDigest } = await import(latticePkgSrc)
 
-const repoRoot = execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' }).trim()
-const relPlanPath = execFileSync('git', ['-C', repoRoot, 'ls-files', '--full-name', planPath], { encoding: 'utf8' }).trim()
+const planPathFromRoot = relative(repoRoot, absolutePlanPath)
+if (isAbsolute(planPathFromRoot) || planPathFromRoot.startsWith(`..${process.platform === 'win32' ? '\\' : '/'}`) || planPathFromRoot === '..') {
+  fail('PLAN_OUTSIDE_REPO', `${planPath} は ${repoRoot} の外にある`, 'repo内の計画Markdownを指定する')
+}
+const relPlanPath = execFileSync('git', ['-C', repoRoot, 'ls-files', '--full-name', planPathFromRoot], { encoding: 'utf8' }).trim()
 if (!relPlanPath) usage(`${planPath} は git 管理下にない（先に commit すること）`)
 const dirty = execFileSync('git', ['-C', repoRoot, 'status', '--porcelain', '--', relPlanPath], { encoding: 'utf8' }).trim()
 if (dirty) usage(`${relPlanPath} に未 commit の変更がある。先に commit してから実行すること`)

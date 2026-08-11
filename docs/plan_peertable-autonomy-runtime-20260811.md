@@ -103,6 +103,9 @@ peer audit の不足補充である。
    plan_key> --project <id> --agent <name>` で companion fix plan（`<campaign>-fx[N]-<日付>`）の
    migrate 入力を自動生成し、`lattice todo migrate` で起票する**。計画 Markdown に
    `### <task_id> <title>` 見出しで独立欠陥を書くだけで、見出し階層・行番号・digest が機械的に揃う。
+   ツールは計画Markdownの所属repoにある `.team/setup-state.json` の `lattice_cli` を自動利用するため、
+   親shellで `LATTICE_CLI` を手入力しない。stateにも明示envにもCLIが無い時だけ、正規setup入口を伴う
+   typed診断で停止する。
 3. 新しい欠陥 ToDo を、影響する統合工程または最終工程の前提へ `dependency connect` で接続する。
 4. 親へ task 化や工程管理を代行させず、ready になった欠陥を卓が通常の pull ループで直す。
 
@@ -215,4 +218,3 @@ t3 親 role ──┘
 4. Lattice `todo verify` が green で、工程・room・evidence・commit の参照が一致する。
 5. 関連 repro、client diagnostics、package files 確認が green である。
 6. clean worktree、既定ブランチへの着地、origin への通常 push が確認できる。
-
