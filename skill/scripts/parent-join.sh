@@ -49,14 +49,7 @@ curl -sf -X POST "$url/api/$room/members" \
   -d "$member" > /dev/null
 echo "joined: ${name}（room=${room}）"
 
-# 親がroomへ登録された後にcapacity観測を起こす。setup時点では親memberも番犬も無く、
-# そこで初回DMを送るとstateだけ進んで親が永続的に見逃す。
 here="$(cd "$(dirname "$0")" && pwd)"
-if "$here/ensure-bridge.sh" "$proj" capacity; then
-  echo "capacity-bridge を親（${name}）登録後に起動した"
-else
-  echo "WARN: capacity-bridge の起動に失敗した。手動で ${here}/ensure-bridge.sh ${proj} capacity を実行すること" >&2
-fi
 
 # owner裁定[46]④: 子processのexportは親shellへ伝播しないため、Lattice mutation
 # （todo reopen 等）に要る actor 環境変数は親自身が source する持続ファイルとして配る。
@@ -77,16 +70,31 @@ fi
 # Codex 親は wakeup-bridge が起床を担う（parent.md）。observe 記述子（＝tmux内で動いている）が
 # 無いと対象を解決できず自動配線できないので、その場合は制約を明示して手動監視へ回す
 # （実測: tsubaki, room[95]。owner候補[37]①と同系統）。
+capacity_delivery_ready=1
 if [ "$vendor" = "codex" ]; then
   if [ -n "$observe_target" ]; then
     if "$here/ensure-bridge.sh" "$proj" wakeup "$name"; then
       echo "wakeup-bridge を親（${name}）宛に起動した"
     else
       echo "WARN: wakeup-bridge の起動に失敗した。手動で ${here}/ensure-bridge.sh ${proj} wakeup ${name} を実行すること" >&2
+      capacity_delivery_ready=0
     fi
   else
     echo "WARN: 親が tmux 外で動いているため wakeup-bridge を自動配線できない（外部注入面が無いhost）。room の新着は read_unread を自分で定期的に呼ぶこと" >&2
+    capacity_delivery_ready=0
   fi
+fi
+
+# capacity通知はroomへ記録するだけでなく、上で準備したname→session descriptor経路から
+# 親を実際に起こせて初めて届く。Codex親ではwakeup-bridge readyより先に初回差分を送らない。
+if [ "$capacity_delivery_ready" = "1" ]; then
+  if "$here/ensure-bridge.sh" "$proj" capacity; then
+    echo "capacity-bridge を親（${name}）の配送経路準備後に起動した"
+  else
+    echo "WARN: capacity-bridge の起動に失敗した。手動で ${here}/ensure-bridge.sh ${proj} capacity を実行すること" >&2
+  fi
+else
+  echo "WARN: CAPACITY_BRIDGE_DELIVERY_NOT_READY: 親（${name}）の配送経路が無いためcapacity-bridgeを起動しない" >&2
 fi
 
 curl -sf "$url/api/$room/members" | python3 -c "import json,sys;print('members:', ', '.join(m['name'] for m in json.load(sys.stdin)['members']))"

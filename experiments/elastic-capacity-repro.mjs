@@ -176,9 +176,10 @@ check('親roleはtyped capacity通知からlaunchと安全な縮退へ進む', (
   assert.match(role, /本人に WIP と未報告の作業が/u)
 })
 
-check('配布SKILLは親登録後のcapacity常駐とteardown停止を正規入口にする', () => {
+check('配布SKILLは親登録・配送ready後のcapacity常駐とteardown停止を正規入口にする', () => {
   const skill = readFileSync(join(repo, 'skill/SKILL.md'), 'utf8')
-  assert.match(skill, /parent-join\.sh が親登録後に自動で起こす/u)
+  assert.match(skill, /parent-join\.sh が親登録・DM配送経路ready後に自動で起こす/u)
+  assert.match(skill, /CAPACITY_BRIDGE_DELIVERY_NOT_READY/u)
   assert.match(skill, /ensure-bridge\.sh <project> capacity/u)
   assert.match(skill, /capacity-bridge\.mjs <project> --stop/u)
 })

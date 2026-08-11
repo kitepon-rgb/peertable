@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import { once } from 'node:events'
 import { existsSync, readFileSync } from 'node:fs'
-import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { chmod, copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -19,6 +19,7 @@ const latticeStub = join(root, 'lattice-stub.mjs')
 const token = 'capacity-bridge-fixture-token'
 const room = 'capacity-bridge-fixture'
 const posts = []
+const joinedMembers = []
 let members = [
   { name: 'bell', status: null },
   { name: 'busy', status: 'busy' },
@@ -49,6 +50,15 @@ const server = createServer((request, response) => {
     })
     return
   }
+  if (request.method === 'POST' && url.pathname.endsWith('/members')) {
+    let raw = ''
+    request.on('data', chunk => { raw += chunk })
+    request.on('end', () => {
+      joinedMembers.push(JSON.parse(raw))
+      response.end(JSON.stringify({ ok: true }))
+    })
+    return
+  }
   response.writeHead(404).end(JSON.stringify({ error: 'not found' }))
 })
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
@@ -74,6 +84,16 @@ const env = { ...process.env, PEERTABLE_POST_TOKEN: token, CAPACITY_FIXTURE_STAT
 const runOnce = () => new Promise(resolve => {
   const child = spawn(process.execPath, [bridgeScript, project, '--once'], {
     env, stdio: ['ignore', 'pipe', 'pipe'],
+  })
+  let stdout = ''
+  let stderr = ''
+  child.stdout.on('data', chunk => { stdout += chunk })
+  child.stderr.on('data', chunk => { stderr += chunk })
+  child.once('close', status => resolve({ status, stdout, stderr }))
+})
+const runProcess = (command, args, options = {}) => new Promise(resolve => {
+  const child = spawn(command, args, {
+    env: options.env ?? env, stdio: ['ignore', 'pipe', 'pipe'],
   })
   let stdout = ''
   let stderr = ''
@@ -163,6 +183,48 @@ try {
   await Promise.race([once(bridge, 'exit'), new Promise(resolve => setTimeout(resolve, 2_000))])
   if (bridge.exitCode === null) bridge.kill('SIGKILL')
   check('SIGTERMで常駐recordを撤去する', () => assert.equal(existsSync(recordPath), false))
+
+  const parentProject = join(root, 'parent-project')
+  const parentScripts = join(root, 'parent-scripts')
+  const fakeBin = join(root, 'fake-bin')
+  const ensureLog = join(root, 'ensure.log')
+  await mkdir(join(parentProject, '.team'), { recursive: true })
+  await mkdir(parentScripts, { recursive: true })
+  await mkdir(fakeBin, { recursive: true })
+  await writeFile(join(parentProject, '.team/setup-state.json'), `${JSON.stringify({
+    room, server_url: serverUrl, mode: 'standalone',
+  })}\n`)
+  await copyFile(join(repo, 'skill/scripts/parent-join.sh'), join(parentScripts, 'parent-join.sh'))
+  await writeFile(join(parentScripts, 'ensure-bridge.sh'), `#!/bin/bash\nprintf '%s\\n' "$*" >> "$CAPACITY_FIXTURE_ENSURE_LOG"\n`)
+  await writeFile(join(fakeBin, 'tmux'), `#!/bin/bash\ncase "$3" in\n  '#{socket_path}') printf '%s\\n' /tmp/capacity-fixture.sock ;;\n  '#{pane_id}') printf '%s\\n' %42 ;;\nesac\n`)
+  await chmod(join(parentScripts, 'parent-join.sh'), 0o755)
+  await chmod(join(parentScripts, 'ensure-bridge.sh'), 0o755)
+  await chmod(join(fakeBin, 'tmux'), 0o755)
+
+  const parentEnv = {
+    ...env,
+    PATH: `${fakeBin}:${process.env.PATH}`,
+    TMUX: 'capacity-fixture',
+    CAPACITY_FIXTURE_ENSURE_LOG: ensureLog,
+  }
+  const joined = await runProcess('bash', [join(parentScripts, 'parent-join.sh'), parentProject, 'bell', '', '', 'codex'], { env: parentEnv })
+  check('Codex親はname→descriptor配送bridge ready後にcapacityを起動する', () => {
+    assert.equal(joined.status, 0, joined.stderr)
+    const calls = readFileSync(ensureLog, 'utf8').trim().split('\n')
+    assert.match(calls[0], / wakeup bell$/u)
+    assert.match(calls[1], / capacity$/u)
+    assert.equal(joinedMembers.at(-1)?.observe?.tmux_target, '%42')
+  })
+
+  await rm(ensureLog, { force: true })
+  const noDescriptor = await runProcess('bash', [join(parentScripts, 'parent-join.sh'), parentProject, 'bell-undeliverable', '', '', 'codex'], {
+    env: { ...parentEnv, TMUX: '' },
+  })
+  check('Codex親にdescriptorが無ければ初回DMをstate済みにせずcapacityを起動しない', () => {
+    assert.equal(noDescriptor.status, 0, noDescriptor.stderr)
+    assert.match(noDescriptor.stderr, /CAPACITY_BRIDGE_DELIVERY_NOT_READY/u)
+    assert.equal(existsSync(ensureLog), false)
+  })
 } finally {
   await new Promise(resolve => server.close(resolve))
   await rm(root, { recursive: true, force: true })
