@@ -99,11 +99,20 @@ if (option === '--stop') {
 
 if (existsSync(recordPath)) {
   const stored = JSON.parse(readFileSync(recordPath, 'utf8'))
-  if (alive(stored.pid)) {
+  const facts = await processFacts(stored.pid)
+  if (facts === null || !alive(stored.pid)) {
+    unlinkSync(recordPath)
+  } else if (stored.start_identity === facts.startIdentity
+    && facts.command.includes('capacity-bridge.mjs') && facts.command.includes(project)) {
     console.error(`CAPACITY_BRIDGE_ALREADY_RUNNING: pid ${stored.pid}`)
     process.exit(1)
+  } else if (!facts.command.includes('capacity-bridge.mjs') || !facts.command.includes(project)) {
+    unlinkSync(recordPath)
+    log(`別processを指す死んだ記録を掃除した（pid ${stored.pid}）`)
+  } else {
+    console.error(`CAPACITY_BRIDGE_RECORD_STALE: pid ${stored.pid} は別世代のcapacity常駐。起動を重ねない`)
+    process.exit(1)
   }
-  unlinkSync(recordPath)
 }
 
 const setup = JSON.parse(readFileSync(join(project, '.team', 'setup-state.json'), 'utf8'))

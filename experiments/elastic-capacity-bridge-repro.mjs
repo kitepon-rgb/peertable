@@ -189,6 +189,19 @@ try {
     assert.equal(existsSync(`${recordPath}.lock`), false)
   })
 
+  await writeFile(recordPath, `${JSON.stringify({
+    pid: process.pid,
+    start_identity: 'Thu Jan  1 00:00:00 1970',
+    room,
+    started_at: new Date().toISOString(),
+  })}\n`)
+  const reusedPid = await runOnce()
+  check('PID再利用で別processを指す死んだrecordは常駐と誤認せず掃除する', () => {
+    assert.equal(reusedPid.status, 0, reusedPid.stderr)
+    assert.match(reusedPid.stdout, /別processを指す死んだ記録を掃除した/u)
+    assert.equal(existsSync(recordPath), false)
+  })
+
   await writeFile(latticeState, `${JSON.stringify({
     status: {
       active_set: ['a1', 'a2'].map(task_id => ({ plan_key: 'plan', task_id })),
