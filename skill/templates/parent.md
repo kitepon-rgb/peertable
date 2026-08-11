@@ -84,13 +84,55 @@ roomへ流すべき内容だったというだけで実務へ落とさない。p
 
 ## 親の再着卓（context が要約された／セッションが替わった時）
 
-1. room ログを読む（会話が卓の正本）
-2. 工程正本で照合する（Lattice 併用: `lattice todo status --json`。単独: `.team/tasks.md` と
+1. 新しい shell では、最初に次のブロックをそのまま読み込む。`PEERTABLE_PROJECT` は対象 project の
+   絶対 path、`PEERTABLE_PARENT_NAME` は親の room 名へ置き換える。正規 config を source するので
+   `PEERTABLE_POST_TOKEN` を画面へ表示・貼り直しせず、`setup-state.json` から room の URL/name を
+   復元できる。room 名は URL path 用に percent-encode するため、日本語名でも同じ入口を使える。
+
+<!-- parent-rejoin-shell:start -->
+```sh
+: "${PEERTABLE_PROJECT:?対象 project の絶対 path を PEERTABLE_PROJECT へ設定すること}"
+PEERTABLE_PARENT_NAME="${PEERTABLE_PARENT_NAME:-bell}"
+. "${HOME}/.config/peertable.env"
+: "${PEERTABLE_POST_TOKEN:?~/.config/peertable.env に PEERTABLE_POST_TOKEN が必要}"
+
+PEERTABLE_URL=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["server_url"])' \
+  "$PEERTABLE_PROJECT/.team/setup-state.json")
+PEERTABLE_ROOM=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["room"])' \
+  "$PEERTABLE_PROJECT/.team/setup-state.json")
+PEERTABLE_ROOM_API=$(python3 -c 'import sys,urllib.parse; print(sys.argv[1].rstrip("/") + "/api/" + urllib.parse.quote(sys.argv[2], safe=""))' \
+  "$PEERTABLE_URL" "$PEERTABLE_ROOM")
+export PEERTABLE_URL PEERTABLE_ROOM PEERTABLE_ROOM_API PEERTABLE_PARENT_NAME
+
+peertable_parent_read() {
+  local since="${1:-0}"
+  curl -sf --get "$PEERTABLE_ROOM_API/messages" --data-urlencode "since=$since"
+}
+
+peertable_parent_post() {
+  if [ "$#" -lt 2 ]; then
+    echo 'usage: peertable_parent_post <to> <message>' >&2
+    return 2
+  fi
+  local to="$1"
+  shift
+  python3 -c 'import json,sys; print(json.dumps({"from":sys.argv[1],"to":sys.argv[2],"body":sys.argv[3]}))' \
+    "$PEERTABLE_PARENT_NAME" "$to" "$*" \
+    | curl -sf -X POST "$PEERTABLE_ROOM_API/messages" \
+        -H "X-Peertable-Token: $PEERTABLE_POST_TOKEN" \
+        -H 'content-type: application/json' --data-binary @-
+}
+```
+<!-- parent-rejoin-shell:end -->
+
+2. `peertable_parent_read <最後に読んだseq>` で room ログを読む（会話が卓の正本）。返事が必要なら
+   `peertable_parent_post <宛先> '<本文>'` を使う。抽象名 `$TOKEN` や手組みJSONへ置き換えない
+3. 工程正本で照合する（Lattice 併用: `lattice todo status --json`。単独: `.team/tasks.md` と
    room ログの突き合わせ）。食い違ったら工程正本が正で、食い違い自体を room へ出す
-3. member 登録は残っているので `parent-join.sh` を再実行しない。名前を確認するだけでよい
-4. Claude: 番犬を張り直す（前の Monitor は死んでいる）。Codex: wakeup-bridge は起こしたまま
+4. member 登録は残っているので `parent-join.sh` を再実行しない。名前を確認するだけでよい
+5. Claude: 番犬を張り直す（前の Monitor は死んでいる）。Codex: wakeup-bridge は起こしたまま
    （teardown が停止するまで生存する）ので張り直し不要
-5. 順序の要点は「room と工程正本を読み終えるまで発言しない」
+6. 順序の要点は「room と工程正本を読み終えるまで発言しない」
 
 ## 席の縮退・散会
 
