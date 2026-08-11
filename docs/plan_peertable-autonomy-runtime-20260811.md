@@ -96,8 +96,14 @@ peer audit の不足補充である。
 
 1. 再現と影響範囲を記録する。
 2. 現在の ToDo の受入内で閉じない独立欠陥なら、発見者自身が `todo split` / `todo revise` の
-   適切な authoring transaction で新しい ToDo と依存線を工程正本へ追加する。
-3. 新しい欠陥 ToDo を、影響する統合工程または最終工程の前提へ接続する。
+   適切な authoring transaction で新しい ToDo と依存線を工程正本へ追加する。**本 plan は migrate
+   時に narrative_ref へ行番号を持たせていないため、`todo split` は `predecessor_source_inventory_
+   unavailable` で機構的に失敗する（実測: nagi, 2026-08-11）。その場合は `todo revise`（重量級）を
+   自作せず、`node skill/scripts/todo-extraction-from-plan.mjs <計画Markdown> <新規companion
+   plan_key> --project <id> --agent <name>` で companion fix plan（`<campaign>-fx[N]-<日付>`）の
+   migrate 入力を自動生成し、`lattice todo migrate` で起票する**。計画 Markdown に
+   `### <task_id> <title>` 見出しで独立欠陥を書くだけで、見出し階層・行番号・digest が機械的に揃う。
+3. 新しい欠陥 ToDo を、影響する統合工程または最終工程の前提へ `dependency connect` で接続する。
 4. 親へ task 化や工程管理を代行させず、ready になった欠陥を卓が通常の pull ループで直す。
 
 依頼外の改善案は欠陥へ偽装しない。再現するエラー、受入不成立、明白な論理破綻、具体的事故経路だけが
