@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import { once } from 'node:events'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -13,6 +13,7 @@ const REPO = dirname(dirname(fileURLToPath(import.meta.url)))
 const HELPER = join(REPO, 'skill/scripts/seat-credential.mjs')
 const SERVER = join(REPO, 'room/server.mjs')
 const CLIENT = join(REPO, 'room/client.mjs')
+const LEAVE = join(REPO, 'skill/scripts/leave-seat.sh')
 const TOKEN = 'K2_SENTINEL_TOKEN_7f17c12a'
 const ROOM = 'k2-secret-transport'
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms))
@@ -103,6 +104,10 @@ try {
   credential = restored.stdout.trim()
 
   const port = await freePort()
+  writeFileSync(join(project, '.team', 'setup-state.json'), JSON.stringify({
+    room: ROOM,
+    server_url: `http://127.0.0.1:${port}`,
+  }) + '\n')
   let serverOutput = ''
   server = spawn(process.execPath, [SERVER], {
     env: { ...process.env, PEERTABLE_PORT: String(port), PEERTABLE_DATA: data, PEERTABLE_POST_TOKEN: TOKEN },
@@ -141,6 +146,40 @@ try {
   })
   const unread = await client.call('tools/call', { name: 'read_unread', arguments: {} })
   assert.match(unread.result?.content?.[0]?.text ?? '', /fixture reply/)
+
+  const leaver = await run(process.execPath, [HELPER, 'prepare', project, ROOM, 'leaver'], cleanEnv)
+  assert.equal(leaver.code, 0, leaver.stderr)
+  const leaverCredential = leaver.stdout.trim()
+  await fetch(`http://127.0.0.1:${port}/api/${ROOM}/members`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Peertable-Token': TOKEN },
+    body: JSON.stringify({ name: 'leaver' }),
+  })
+  mkdirSync(join(project, '.team', 'seats'), { recursive: true })
+  const leaverIdentity = join(project, '.team', 'seats', 'leaver.json')
+  writeFileSync(leaverIdentity, '{}\n', { mode: 0o600 })
+  const fakeBin = join(root, 'bin')
+  const tmuxMarker = join(root, 'tmux-killed')
+  mkdirSync(fakeBin)
+  const fakeTmux = join(fakeBin, 'tmux')
+  writeFileSync(fakeTmux, `#!/bin/bash
+if [ "$3" = has-session ]; then exit 0; fi
+if [ "$3" = kill-session ]; then : > "$TMUX_MARKER"; exit 0; fi
+exit 1
+`)
+  chmodSync(fakeTmux, 0o755)
+  const left = await run('/bin/bash', [LEAVE, project, 'leaver'], {
+    ...cleanEnv,
+    PATH: `${fakeBin}:${process.env.PATH}`,
+    PEERTABLE_TMUX_SOCKET: join(root, 'tmux.sock'),
+    TMUX_MARKER: tmuxMarker,
+  })
+  assert.equal(left.code, 0, left.stderr)
+  assert.throws(() => statSync(leaverCredential), /ENOENT/, '通常退席後にcredentialが残った')
+  assert.throws(() => statSync(leaverIdentity), /ENOENT/, '通常退席後にseat identityが残った')
+  assert.equal(readFileSync(tmuxMarker, 'utf8'), '', '通常退席でsessionを畳んでいない')
+  const membersAfterLeave = await fetch(`http://127.0.0.1:${port}/api/${ROOM}/members`).then(r => r.json())
+  assert.ok(!membersAfterLeave.members.some(member => member.name === 'leaver'), '通常退席後にroom memberが残った')
 
   await stop(client.child)
   client = null
