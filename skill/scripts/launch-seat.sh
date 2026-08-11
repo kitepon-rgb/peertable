@@ -25,11 +25,92 @@ fi
 # 一つも行わず、何が拒否されたかを機械的に読める形で返す。
 brief_file=""
 brief_max_bytes=65536
+brief_completed=false
+seat_created=false
+rollback_done=false
+sock=""
+sess=""
+url=""
+room=""
+seat_file="$proj/.team/seats/$name.json"
 cleanup_brief() {
   if [ -n "$brief_file" ]; then rm -f "$brief_file"; fi
   return 0
 }
-trap cleanup_brief EXIT
+
+# brief を受け付けた後に turn が始まらなかった場合は、作りかけの席を残さない。
+# tmux を先に落とし、client が再登録しない状態にしてから room member を解除する。
+# DELETE は idempotent だが、一覧の読み返しまで通らなければ rollback 成功とは言わない。
+rollback_brief() {
+  local original_rc="${1:-1}"
+  local rollback_failed=0
+  local encoded_name member_code listing
+
+  if [ -n "$sock" ] && [ -n "$sess" ] && [ "$seat_created" = true ]; then
+    tmux -S "$sock" kill-session -t "$sess" 2>/dev/null || true
+    if tmux -S "$sock" has-session -t "$sess" 2>/dev/null; then
+      rollback_failed=1
+      echo "LAUNCH_BRIEF_ROLLBACK_FAILED: tmux session を撤去できない: ${sess}" >&2
+    fi
+  fi
+
+  if [ -n "$seat_file" ] && [ -e "$seat_file" ]; then
+    if ! rm -f "$seat_file"; then
+      rollback_failed=1
+      echo "LAUNCH_BRIEF_ROLLBACK_FAILED: seat identity を撤去できない: ${seat_file}" >&2
+    fi
+  fi
+
+  if [ -n "$url" ] && [ -n "$room" ]; then
+    if ! encoded_name=$(python3 -c 'import sys,urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$name"); then
+      rollback_failed=1
+      echo "LAUNCH_BRIEF_ROLLBACK_FAILED: member 名を URL 化できない: ${name}" >&2
+    else
+      member_code=$(curl -s -o /dev/null -w '%{http_code}' -X DELETE \
+        "$url/api/$room/members/$encoded_name" \
+        -H "X-Peertable-Token: ${PEERTABLE_POST_TOKEN:-}" || printf '000')
+      case "$member_code" in
+        2??) ;;
+        *)
+          rollback_failed=1
+          echo "LAUNCH_BRIEF_ROLLBACK_FAILED: room member を解除できない: HTTP ${member_code}" >&2
+          ;;
+      esac
+      listing=$(curl -sf "$url/api/$room/members" || true)
+      if ! printf '%s' "$listing" | python3 -c 'import json,sys; name=sys.argv[1]; members=json.load(sys.stdin).get("members",[]); raise SystemExit(0 if not any(m.get("name") == name for m in members) else 1)' "$name"; then
+        rollback_failed=1
+        echo "LAUNCH_BRIEF_ROLLBACK_FAILED: room member の解除を読み返せない: ${name}" >&2
+      fi
+    fi
+  else
+    rollback_failed=1
+    echo "LAUNCH_BRIEF_ROLLBACK_FAILED: room の rollback 境界が未解決" >&2
+  fi
+
+  if [ "$rollback_failed" -ne 0 ]; then
+    return 1
+  fi
+  echo "LAUNCH_BRIEF_ROLLED_BACK: ${sess}（tmux / room member / seat identity を撤去）" >&2
+  return "$original_rc"
+}
+
+on_exit() {
+  local exit_rc=$?
+  local rollback_rc
+  trap - EXIT
+  cleanup_brief
+  if [ "$seat_created" = true ] && [ -n "$brief" ] && [ "$brief_completed" != true ] && [ "$rollback_done" != true ]; then
+    rollback_done=true
+    if rollback_brief "$exit_rc"; then
+      :
+    else
+      rollback_rc=$?
+      [ "$exit_rc" -eq 0 ] && exit_rc="$rollback_rc"
+    fi
+  fi
+  exit "$exit_rc"
+}
+trap on_exit EXIT
 if [ -n "$brief" ]; then
   brief_bytes=$(printf '%s' "$brief" | LC_ALL=C wc -c | tr -d '[:space:]')
   case "$brief_bytes" in
@@ -112,6 +193,7 @@ tmux -S "$sock" kill-session -t "$sess" 2>/dev/null || true
 # **消すのは同名の自分の分だけ**——`peer-*` を一括で消すと同じマシンの別卓を巻き込む。
 rm -f "$proj/.team/seats/$name.json"
 tmux -S "$sock" new-session -d -s "$sess" -x 200 -y 50 -c "$proj"
+seat_created=true
 # Codex の closed env には launcher 自身でなく、今作った session の識別子を渡す。
 # 自己申告の observe が別 pane を指すと、稼働状態・起床とも別席を誤操作する。
 seat_tmux=$(tmux -S "$sock" display-message -p -t "$sess" '#{socket_path}')
@@ -188,6 +270,91 @@ if [ "$seated" != "true" ]; then
 fi
 
 echo "seated: ${sess}（${vendor} / ${model}${effort:+ / $effort} / room=${room} / mode=${mode}）"
+
+if [ -n "$brief" ]; then
+  # Codex はヘッダを描いた後も MCP 初期化を続ける。空の入力 prompt が安定して
+  # 見えるまで待ち、ready 前の paste が入力欄へ残る競合を作らない。
+  brief_ready_deadline=$((SECONDS + 90))
+  brief_ready_streak=0
+  brief_ready_previous=""
+  brief_ready=false
+  while [ $SECONDS -lt "$brief_ready_deadline" ]; do
+    brief_ready_screen=$(tmux -S "$sock" capture-pane -t "$sess" -p 2>/dev/null || true)
+    if [ "$vendor" != codex ] || printf '%s\n' "$brief_ready_screen" | python3 -c 'import sys; lines=sys.stdin.read().splitlines()[-20:]; ready=any(line.strip() == "›" or (line.lstrip().startswith("› ") and any("gpt-" in below and "·" in below for below in lines[i + 1:i + 5])) for i,line in enumerate(lines)); raise SystemExit(0 if ready else 1)'; then
+      if [ "$brief_ready_screen" = "$brief_ready_previous" ]; then
+        brief_ready_streak=$((brief_ready_streak + 1))
+      else
+        brief_ready_streak=1
+      fi
+      if [ "$brief_ready_streak" -ge 3 ]; then
+        brief_ready=true
+        break
+      fi
+    else
+      brief_ready_streak=0
+    fi
+    brief_ready_previous="$brief_ready_screen"
+    sleep 1
+  done
+  if [ "$brief_ready" != true ]; then
+    echo "LAUNCH_BRIEF_NOT_READY: brief を受け付ける入力 prompt を観測できない（席は着席済み）" >&2
+    exit 1
+  fi
+  # prompt の描画とキー入力受理の境界を分ける。Codex のTUIが入力欄を
+  # mountした直後に paste と Enter を同一tickで受けると、Enterだけ落ちる。
+  sleep 1
+
+  brief_before=$(tmux -S "$sock" capture-pane -S -1000 -t "$sess" -p 2>/dev/null || true)
+  brief_buffer="peertable-brief-${name}-$$"
+  if ! tmux -S "$sock" load-buffer -b "$brief_buffer" "$brief_file"; then
+    echo "LAUNCH_BRIEF_SEND_FAILED: brief の tmux buffer 読み込みに失敗（席は着席済み）" >&2
+    exit 1
+  fi
+  if ! tmux -S "$sock" paste-buffer -b "$brief_buffer" -d -t "$sess"; then
+    tmux -S "$sock" delete-buffer -b "$brief_buffer" 2>/dev/null || true
+    echo "LAUNCH_BRIEF_SEND_FAILED: brief の tmux paste に失敗（席は着席済み）" >&2
+    exit 1
+  fi
+  sleep 1
+  if ! tmux -S "$sock" send-keys -t "$sess" Enter; then
+    echo "LAUNCH_BRIEF_SEND_FAILED: brief の submit に失敗（席は着席済み）" >&2
+    exit 1
+  fi
+
+  # 入力欄へ置けた事実だけでは着任成功としない。既存の席状態判定と同じ live marker が、
+  # brief 投入後に画面へ現れたことを観測する。高速な fake/CLI の残像を拾わないよう、投入前の
+  # 画面と異なることも同時に要求する。Enter が ready 前に落ちた実席では、入力欄に本文が
+  # 残るため一度だけ再送する。
+  brief_deadline=$((SECONDS + 30))
+  brief_turn_started=false
+  brief_submit_retried=false
+  brief_retry_at=$((SECONDS + 5))
+  while [ $SECONDS -lt "$brief_deadline" ]; do
+    brief_screen=$(tmux -S "$sock" capture-pane -S -1000 -t "$sess" -p 2>/dev/null || true)
+    case "$brief_screen" in
+      *"esc to interrupt"*)
+        if [ "$brief_screen" != "$brief_before" ]; then brief_turn_started=true; break; fi
+        ;;
+    esac
+    if [ "$brief_submit_retried" != true ] && [ $SECONDS -ge "$brief_retry_at" ]; then
+      brief_current_screen=$(tmux -S "$sock" capture-pane -t "$sess" -p 2>/dev/null || true)
+      if printf '%s\n' "$brief_current_screen" | python3 -c 'import sys; lines=sys.stdin.read().splitlines(); raise SystemExit(0 if any(line.lstrip().startswith("› ") and line.strip() != "›" for line in lines[-12:]) else 1)'; then
+        if ! tmux -S "$sock" send-keys -t "$sess" Enter; then
+          echo "LAUNCH_BRIEF_SEND_FAILED: brief の再submitに失敗（席は着席済み）" >&2
+          exit 1
+        fi
+        brief_submit_retried=true
+      fi
+    fi
+    sleep 1
+  done
+  if [ "$brief_turn_started" != true ]; then
+    echo "LAUNCH_BRIEF_TURN_NOT_STARTED: brief 投入後の turn 開始を観測できない（席は着席済み）" >&2
+    exit 1
+  fi
+  brief_completed=true
+  echo "briefed: $sess"
+fi
 
 # 席の素性を `.team/seats/<name>.json` へ置く。**席が自分の pid を知るための唯一の経路**である
 # （Lattice の `run intake attach` は expected identity を要求し、pid を推定しない）。
@@ -303,43 +470,4 @@ if "$(dirname "$0")/ensure-bridge.sh" "$proj" seat-status; then
   echo "seat-status-bridge: 起動確認済み"
 else
   echo "seat-status-bridge の起動確認に失敗した（席は着席済み）" >&2
-fi
-
-if [ -n "$brief" ]; then
-  sleep 2
-  brief_before=$(tmux -S "$sock" capture-pane -S -1000 -t "$sess" -p 2>/dev/null || true)
-  brief_buffer="peertable-brief-${name}-$$"
-  if ! tmux -S "$sock" load-buffer -b "$brief_buffer" "$brief_file"; then
-    echo "LAUNCH_BRIEF_SEND_FAILED: brief の tmux buffer 読み込みに失敗（席は着席済み）" >&2
-    exit 1
-  fi
-  if ! tmux -S "$sock" paste-buffer -b "$brief_buffer" -d -t "$sess"; then
-    tmux -S "$sock" delete-buffer -b "$brief_buffer" 2>/dev/null || true
-    echo "LAUNCH_BRIEF_SEND_FAILED: brief の tmux paste に失敗（席は着席済み）" >&2
-    exit 1
-  fi
-  if ! tmux -S "$sock" send-keys -t "$sess" Enter; then
-    echo "LAUNCH_BRIEF_SEND_FAILED: brief の submit に失敗（席は着席済み）" >&2
-    exit 1
-  fi
-
-  # 入力欄へ置けた事実だけでは着任成功としない。既存の席状態判定と同じ live marker が、
-  # brief 投入後に画面へ現れたことを観測する。高速な fake/CLI の残像を拾わないよう、投入前の
-  # 画面と異なることも同時に要求する。
-  brief_deadline=$((SECONDS + 30))
-  brief_turn_started=false
-  while [ $SECONDS -lt "$brief_deadline" ]; do
-    brief_screen=$(tmux -S "$sock" capture-pane -S -1000 -t "$sess" -p 2>/dev/null || true)
-    case "$brief_screen" in
-      *"esc to interrupt"*)
-        if [ "$brief_screen" != "$brief_before" ]; then brief_turn_started=true; break; fi
-        ;;
-    esac
-    sleep 1
-  done
-  if [ "$brief_turn_started" != true ]; then
-    echo "LAUNCH_BRIEF_TURN_NOT_STARTED: brief 投入後の turn 開始を観測できない（席は着席済み）" >&2
-    exit 1
-  fi
-  echo "briefed: $sess"
 fi
