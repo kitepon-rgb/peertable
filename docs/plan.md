@@ -766,6 +766,24 @@ Peertable が Lattice のどの面をどう消費するか（consumer contract �
   今回は採らない——②で「起こしたのに書けない」状態が存在できなくなったので、点が無いことは
   「起こしていない」だけを意味するようになり、区別する対象が消えた。
 
+- **決定74（2026-08-11・オーナー裁定）: 席の観測先は名前で推測せず記述子で決め、常駐の起動成功は `ready_at` で確かめる**
+
+  Windows + WSL の aiterm 運用で、room は `member_observation_v1` を返すのに `GET /members` へ稼働状態が
+  一切届かなかった。原因は Peertable 側が `peer-${name}` と固定 socket から観測先を推測していたことで、
+  実際の aiterm session 名・socket を知る起動者と食い違っていた。
+
+  **観測先は member の記述子 `observe: { tmux_socket, tmux_target }` を最優先する。** `launch-seat.sh` と
+  `room/client.mjs` が自己の socket / session を登録し、記述子の無い既存 member だけを `peer-<name>` へ
+  後方互換で落とす。socket の全 session 走査はしない。socket 解決は明示 env → aiterm POSIX 既定 →
+  検証済み `/tmp/aiterm-*.sock` 1本 → 既定パスへ集約し、複数候補は選ばず診断へ出す。
+
+  **常駐は `nohup` で保持せず、専用 tmux session で保持する。** `ensure-bridge.sh` は bridge ごとの初回実成功が
+  record へ書く `ready_at` を待ち、出なければログ末尾を stderr へ出して非ゼロで終える。pid 生存だけを成功と
+  読まない。2026-08-11 の受入で、record の改行を文字列化して JSON を壊すと停止・再起動が不能になること、死んだ
+  record の stale `ready_at` を残すと新 bridge が未起動でも成功になること、tmux server が呼出元の
+  `PEERTABLE_TMUX_SOCKET` を継がず別 socket を読むことをそれぞれ再現し、record の原子的更新・新世代を待つ
+  起動確認・tmux session への環境明示引渡しで解消した。
+
 ---
 
 ## 9. スキル化 — 完了（2026-08-08）
@@ -906,7 +924,16 @@ consumer contract 4面の明文化（→ §12 と Lattice `docs/00_product-contr
 
 **消化済み（2026-08-10・決定73）**: **常駐が起こす側のシェルに生死を握られていた**穴（→ トークン解決を `seat-usage.mjs` の `resolvePostToken` に1つだけ置き、`seat-status-bridge` と `run-bridge` が共有する。`export` の有無を問わない）。**書けない常駐が生まれる**穴（→ 一度も書けずに全件失敗したら `SEAT_STATUS_BRIDGE_WRITE_DENIED` で常駐に入らず死ぬ。一度書けた後の連続失敗は10回で `SEAT_STATUS_BRIDGE_UNREACHABLE`）。**稼働状態ブリッジを手で起こす非対称**（→ setup が起こし teardown が止める）。実害の実測: `~/.config/peertable.env` の `export` 欠落により、`source` した shell から起こした常駐がトークンを持たず **4時間 HTTP 403 を撃ち続け**、参加者一覧に点が1つも出なかった。**「起こしていない」と見分けがつかなかった**。
 
+**消化済み（2026-08-11・決定74）**: **観測先を表示名と固定 socket から推測していた**穴（→ `observe: {tmux_socket, tmux_target}` を起動者と client が登録し、bridge / wakeup / teardown は記述子を最優先。記述子が無い既存 member のみ `peer-<name>` へ後方互換）。**常駐を起こしたことを pid だけで成功としていた**穴（→ `ensure-bridge.sh` が初回実成功の `ready_at` を待ち、専用 tmux session で保持。失敗はログ末尾つき非ゼロ）。受入で record の JSON 破壊・死んだ記録の stale `ready_at`・tmux server へ env が渡らない3件を再現し、原子的な record 更新・新世代 `ready_at` の待機・env 明示引渡しへ修正した。
+
 **未着手（次以降の campaign へ）**
+- **room 不達で bridge が「黙って無になる」。** members GET が失敗すると `attempted===0` が `verdict:'idle'` になり、常駐は届かなかったことを検出しない。オーナーは「検出したら粘る」と裁定済みだが、検出機能自体は決定74 campaign の範囲外だった。
+- **fetch に deadline が無く、`setInterval` が前 tick を待たない。** WSL の半開き TCP では tick が並走しうる。
+- **`$TMUX` が無い環境の ppid 鎖 fallback。** `$TMUX` だけで足りるかはまだ実測していない。
+- **session 名 target が split 時に別 pane を掴む可能性。** pane_id で解決する余地はあるが、誤観測は未観測。
+- **Windows + WSL の二重 install を検出する機械 gate。** 今回は WSL 側の版が正であることを手順書へ明記するまで。
+- **`change-effort.sh` の aiterm 管理外席への対応。**
+- **稼働状態の心拍30秒／減衰90秒の刻み直し。** 負荷測定と UI / bridge / 証跡を含む再受入が必要なため、今回実装しない。
 - **commit の持ち主が記録されていないので、「他人の commit か」を機械で引けない。** 卓の commit は author が全席同じ（`kitepon-rgb`）で、`git log --author=` で絞れない。したがって「共有 branch へ push する前に、他人の未監査 commit が居ないか `git log @{u}..HEAD` を見る」という運用は、**押す人が卓の会話を全部読んでいる記憶に依存している**——2026-08-08 に14本を棚卸しした時、持ち主の判定はメッセージ本文からの人力推定だった。塞ぐ候補は `launch-seat.sh` が席の env へ `GIT_AUTHOR_NAME` / `GIT_COMMITTER_NAME` を席名で入れること。`git log --author=<席名>` で自分の分を引けるようになり、**証跡と監査の照合（この commit はどの task か）にも効く**。ただし author を変えると既存 commit との連続性が切れる面もあるので、採るかは次の campaign が決める
 - **起床ブリッジは10連続失敗で止まるが、止まったことを誰も見ていない。** 2026-08-08 の room 停止（約40分・MS-A2 の ext4 障害）で実測された。`WAKEUP_BRIDGE_UNREACHABLE` で止まるのは設計どおりで（黙って再試行するゾンビを作らない・決定54）、**止まった事実はログに残る**。しかし**そのログを誰も見ていない**——席は room から切り離されたまま、人が気づいて手で再起動するまで復帰しない。今回は親が気づいたが、**気づく人が居なければ Codex 席は卓から永久に落ちる**。穴の形は「沈黙していない失敗を、誰も観測していない」であって、決定58 の受信側の作法とは別種である。塞ぐ手掛かり: **room が死んでいても席の tmux は生きている**——**配達先が生きている経路が1本残っているのに使っていない**。止まる時に席へ1行送れば、本人が気づける。**2026-08-10 に同型が3例目として出た**（`seat-status-bridge` がトークン欠落で4時間403）。決定73 はそのうち**「起きているのに何も届いていない」を作らせない側**を塞いだ（書けないなら常駐しない・連続失敗で止まる）が、**「止まったことを誰も見ていない」側は依然として空いている**——止まった後に誰かへ届く経路は、両ブリッジとも持っていない
 - **運用で守っているものは、運用が緩んだ瞬間に露出する（決定52 の逆向き）。** 卓は共有資源（ポート・ブラウザ・常駐 process）を room で毎回宣言し合う運用で衝突を避けてきた。**その運用が効いていたために、`experiments/member-repost-noise-repro.mjs` の既定ポートが卓の宣言帯と衝突していることに誰も気づかなかった**——宣言して譲り合う限り、既定値は使われないからである。素で回した時に初めて他席の server へ当たり、しかも子 process を `stdio: 'ignore'` で起こしていたので **`EADDRINUSE` が1文字も出ず**、**自分の子に繋いだか確かめないまま**別人の server と喋っていた。**運用が効いている間は、その下の型の欠陥が見えない**。検証用の常駐を書く時は、既定値を安全側に倒す（ポート 0 で起こして実ポートを子から受け取る）か、起動失敗を握り潰さないか、の少なくとも一方を型として持たせる
