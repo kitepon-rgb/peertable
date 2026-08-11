@@ -19,9 +19,18 @@ if [ -z "${PEERTABLE_POST_TOKEN:-}" ] && [ -f "$HOME/.config/peertable.env" ]; t
   . "$HOME/.config/peertable.env"
 fi
 
-member=$(python3 - "$name" "$model" "$effort" "$vendor" <<'PY'
+# 親が tmux 内で動いていれば、席と同じ観測記述子（tmux_socket/tmux_target）を自己申告する。
+# これで seat-status-bridge.mjs / wakeup-bridge.mjs が親を通常の席と同じ経路で見つけられる
+# （実測: tsubaki, room[95]。記述子が無いと wakeup-bridge は対象を解決できない）。
+observe_socket=""; observe_target=""
+if [ -n "${TMUX:-}" ]; then
+  observe_socket=$(tmux display-message -p '#{socket_path}' 2>/dev/null || true)
+  observe_target=$(tmux display-message -p '#{pane_id}' 2>/dev/null || true)
+fi
+
+member=$(python3 - "$name" "$model" "$effort" "$vendor" "$observe_socket" "$observe_target" <<'PY'
 import json, sys
-name, model, effort, vendor = sys.argv[1:5]
+name, model, effort, vendor, observe_socket, observe_target = sys.argv[1:7]
 body = {'name': name}
 # 渡された欄だけ載せる。空欄を送ると、素性を持つ既存登録を空で上書きしうる
 if model or vendor:
@@ -30,6 +39,8 @@ if model:
     body['model'] = model
 if effort:
     body['effort'] = effort
+if observe_socket and observe_target:
+    body['observe'] = {'tmux_socket': observe_socket, 'tmux_target': observe_target}
 print(json.dumps(body))
 PY
 )
@@ -52,6 +63,22 @@ fi
 
 if [ -f "$proj/.team/roles/parent.md" ]; then
   echo "親役割は $proj/.team/roles/parent.md を読むこと"
+fi
+
+# Codex 親は wakeup-bridge が起床を担う（parent.md）。observe 記述子（＝tmux内で動いている）が
+# 無いと対象を解決できず自動配線できないので、その場合は制約を明示して手動監視へ回す
+# （実測: tsubaki, room[95]。owner候補[37]①と同系統）。
+if [ "$vendor" = "codex" ]; then
+  if [ -n "$observe_target" ]; then
+    here="$(cd "$(dirname "$0")" && pwd)"
+    if "$here/ensure-bridge.sh" "$proj" wakeup "$name"; then
+      echo "wakeup-bridge を親（${name}）宛に起動した"
+    else
+      echo "WARN: wakeup-bridge の起動に失敗した。手動で ${here}/ensure-bridge.sh ${proj} wakeup ${name} を実行すること" >&2
+    fi
+  else
+    echo "WARN: 親が tmux 外で動いているため wakeup-bridge を自動配線できない（外部注入面が無いhost）。room の新着は read_unread を自分で定期的に呼ぶこと" >&2
+  fi
 fi
 
 curl -sf "$url/api/$room/members" | python3 -c "import json,sys;print('members:', ', '.join(m['name'] for m in json.load(sys.stdin)['members']))"

@@ -99,6 +99,18 @@ try {
     check('parent-env.sh が LATTICE_TODO_ACTOR_* を親名でexportする',
       (envFile?.includes('LATTICE_TODO_ACTOR_HOST=mac') && envFile?.includes('LATTICE_TODO_ACTOR_SESSION=nagi-test') && envFile?.includes('LATTICE_TODO_ACTOR_AGENT=nagi-test')) ?? false);
     check('vendor=codex が member 登録へ反映される', registered.some((m) => m.vendor === 'codex'));
+    // TMUX 環境変数はこの harness プロセス自身から継承される（fixture が TMUX 外なら observe は無い）。
+    const codexMember = registered.find((m) => m.name === 'nagi-test');
+    if (process.env.TMUX) {
+      check('親が tmux 内なら observe（tmux_socket/tmux_target）を自己申告する',
+        typeof codexMember?.observe?.tmux_target === 'string' && codexMember.observe.tmux_target.length > 0,
+        JSON.stringify(codexMember?.observe));
+      check('observe が在れば wakeup-bridge 起動を試みる（ensure-bridge.sh 呼び出しの痕跡）',
+        joinResult.stdout.includes('wakeup-bridge') || joinResult.stderr.includes('wakeup-bridge'));
+    } else {
+      check('親が tmux 外なら observe を送らず制約を明示する',
+        codexMember?.observe === undefined && joinResult.stderr.includes('外部注入面が無いhost'));
+    }
 
     // 3. mode=standalone では parent-env.sh を作らない
     const standaloneProj = path.join(work, 'standalone-proj');
