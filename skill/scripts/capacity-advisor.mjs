@@ -158,8 +158,8 @@ export function capacityProjection({ todoStatus, members, parentName = 'bell', p
   state.reclaim_notified = [...new Set([...notifiedReclaim, ...reclaimWorkers])].sort()
 
   // 一度増員してtargetへ達したあと、新席が「claim可能なし」で正規退席しても、
-  // 同じfrontierを不足として再起動し続けない。launch済みtargetはfrontierが
-  // 変わるまで保持し、新しい作業面が開いた時だけ次のlaunch waveを許す。
+  // 同じtargetを不足として再起動し続けない。launch済みtargetは総数が
+  // 変わるまで保持し、新しい作業面が増減した時だけ次のlaunch waveを許す。
   const carriedLaunchTarget = previous?.target === target
     ? (previous.launch_notified_target ?? null)
     : null
