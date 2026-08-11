@@ -109,7 +109,7 @@ function nextOperation(state) {
   if (state.action === 'scale_up') return `launch-seat.shで${state.launch_count}席起こす`
   if (state.action === 'reclaim_idle') return `idle ${state.reclaim_count}席へ正本照合と自律claimを促す`
   if (state.action === 'scale_down') {
-    return `idle候補の本人と工程正本でWIPなしを確認後、leave-seat.shで最大${state.retire_count}席畳む`
+    return `idle候補の本人と工程正本でWIPなしを確認後、leave-seat.shで最大${state.retire_candidates.length}席畳む`
   }
   if (state.action === 'shrink_blocked') return 'busy/blocked席を畳まず、WIP解消後の再観測を待つ'
   return '操作不要'

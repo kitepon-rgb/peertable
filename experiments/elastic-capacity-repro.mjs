@@ -177,6 +177,16 @@ check('余剰がbusy/blocked席だけなら縮退を強行しない', () => {
   assert.deepEqual(blockedShrink.event?.retire_candidates, [])
 })
 
+const partialShrink = capacityProjection({
+  todoStatus: status({ active: [] }),
+  members: [member('bell', null), member('idle-a', 'idle'), member('busy-a', 'busy'), member('busy-b', 'blocked')],
+})
+check('余剰総数がidle候補より多くても安全な縮退上限はidle候補数だけ示す', () => {
+  assert.equal(partialShrink.event?.retire_count, 3)
+  assert.deepEqual(partialShrink.event?.retire_candidates, ['idle-a'])
+  assert.match(partialShrink.event?.next_operation ?? '', /最大1席畳む/u)
+})
+
 check('wait/holdの新規intakeはWIPなしなら即退席する', () => {
   assert.deepEqual(seatIntakeDecision({ intervention: 'hold', hasWip: false }), {
     action: 'leave_immediately', code: 'PEERTABLE_CAPACITY_INTAKE_RELEASED',
