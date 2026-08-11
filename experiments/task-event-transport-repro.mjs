@@ -3,7 +3,7 @@
 import { spawn } from 'node:child_process'
 import { once } from 'node:events'
 import { createServer } from 'node:net'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -13,6 +13,8 @@ const TOKEN = 'task-event-transport-repro-token'
 const ROOM = 'task-event-transport-repro'
 const PLAN = 'peertable-task-announcements-20260811'
 const root = mkdtempSync(join(tmpdir(), 'peertable-task-event-'))
+const credential = join(root, 'client.token')
+writeFileSync(credential, `${TOKEN}\n`, { mode: 0o600 })
 
 const freePort = async () => {
   const probe = createServer()
@@ -87,7 +89,7 @@ function startClient(port) {
       PEERTABLE_URL: `http://127.0.0.1:${port}`,
       PEERTABLE_ROOM: ROOM,
       PEERTABLE_MEMBER: 'sender',
-      PEERTABLE_POST_TOKEN: TOKEN,
+      PEERTABLE_CREDENTIAL_FILE: credential,
     },
     stdio: ['pipe', 'pipe', 'pipe'],
   })

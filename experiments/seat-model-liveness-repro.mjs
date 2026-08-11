@@ -27,6 +27,10 @@ await mkdir(join(root, '.config'))
 await writeFile(join(root, '.config/peertable.env'), 'export PEERTABLE_POST_TOKEN=fixture-token\n')
 await writeFile(join(project, '.team/setup-state.json'), JSON.stringify({
   room: 'fixture', server_url: 'http://127.0.0.1:1', mode: 'team', plan_key: null,
+  added_root_mcp: true,
+}) + '\n')
+await writeFile(join(project, '.mcp.json'), JSON.stringify({
+  mcpServers: { room: { command: 'peertable-client', args: [] } },
 }) + '\n')
 
 // tmux は「呼ばれたこと」だけ記録する。preflight で落ちる契約なら、そもそも1行も出ないはず。
@@ -107,10 +111,14 @@ try {
   // 4. 応答する model では preflight を通過して起動シーケンスへ進む
   result = launch('opus', 'claude')
   const calls = await tmuxCalls()
+  const roomMcp = JSON.parse(await readFile(join(project, '.mcp.json'), 'utf8')).mcpServers.room
   check('応答する model では preflight を通り、起動シーケンスへ進む', () => {
     assert.ok(calls.length > 0, 'tmux 呼び出しが始まっている')
     assert.ok(calls.some(line => line.includes('new-session')), 'session を作っている')
+    assert.ok(calls.some(line => line.includes('PEERTABLE_POST_TOKEN=')), 'new sessionでtmux global tokenを空上書きしている')
     assert.doesNotMatch(result.stderr, /model が live で使えない/)
+    assert.equal(roomMcp.command, 'node')
+    assert.equal(roomMcp.args[0], join(REPO, 'room/client.mjs'))
   })
 
   console.log(`seat-model-liveness repro: ${checks}/${checks} green`)

@@ -24,6 +24,7 @@ fi
 # 値の解決はcredential helperだけが設定fileから行う。env/argvへのfallbackは持たない。
 unset PEERTABLE_POST_TOKEN
 credential_helper="${PEERTABLE_CREDENTIAL_HELPER:-$(dirname "$0")/seat-credential.mjs}"
+room_mcp_helper="${PEERTABLE_ROOM_MCP_HELPER:-$(dirname "$0")/ensure-room-mcp.mjs}"
 peertable_repo=$(cd "$(dirname "$0")/../.." && pwd -P)
 peertable_client="$peertable_repo/room/client.mjs"
 credential_file=""
@@ -194,6 +195,14 @@ EOF
 # 無い卓（旧 setup-state）では空になり、席は既定どおり `lattice` を使う。
 lattice_cli=$(python3 -c "import json;print(json.load(open('$state')).get('lattice_cli') or '')")
 
+if [ "$vendor" = claude ]; then
+  mcp_ownership=$(python3 -c "import json;d=json.load(open('$state'));print('managed' if d.get('added_root_mcp', d.get('root_mcp_json_fallback', False)) else 'preexisting')")
+  if ! node "$room_mcp_helper" "$proj" "$peertable_repo" "$mcp_ownership"; then
+    echo "SEAT_ROOM_MCP_INVALID: Claude席のroom clientをcurrent treeへ束縛できない（席は立てない）" >&2
+    exit 1
+  fi
+fi
+
 if ! credential_file=$(env -u PEERTABLE_POST_TOKEN node "$credential_helper" prepare "$proj" "$room" "$name"); then
   echo "SEAT_CREDENTIAL_PREPARE_FAILED: 席別credentialを用意できない（席は立てない）" >&2
   exit 1
@@ -206,7 +215,9 @@ tmux -S "$sock" kill-session -t "$sess" 2>/dev/null || true
 # 死んだ記録がここで必ず消える（ADR 0157）。teardown や人が叩くコマンドに置くと、誰も叩かず溜まる。
 # **消すのは同名の自分の分だけ**——`peer-*` を一括で消すと同じマシンの別卓を巻き込む。
 rm -f "$proj/.team/seats/$name.json"
-tmux -S "$sock" new-session -d -s "$sess" -x 200 -y 50 -c "$proj"
+# tmux serverは起動時のglobal envを保持する。旧手順のtokenが残っていても、新sessionでは
+# 明示的に空で上書きし、shell/model/clientへ再注入させない。
+tmux -S "$sock" new-session -d -s "$sess" -x 200 -y 50 -c "$proj" -e PEERTABLE_POST_TOKEN=
 seat_created=true
 # Codex の closed env には launcher 自身でなく、今作った session の識別子を渡す。
 # 自己申告の observe が別 pane を指すと、稼働状態・起床とも別席を誤操作する。

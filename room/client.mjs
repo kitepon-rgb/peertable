@@ -34,7 +34,7 @@ const ROOM = process.env.PEERTABLE_ROOM
 const ME = process.env.PEERTABLE_MEMBER
 const CREDENTIAL_FILE = process.env.PEERTABLE_CREDENTIAL_FILE ?? null
 const TOKEN = (() => {
-  if (!CREDENTIAL_FILE) return process.env.PEERTABLE_POST_TOKEN ?? null
+  if (!CREDENTIAL_FILE) throw new Error('PEERTABLE_CREDENTIAL_MISSING: credential file pathが無い')
   let value
   try { value = readFileSync(CREDENTIAL_FILE, 'utf8').trim() } catch {
     throw new Error('PEERTABLE_CREDENTIAL_UNREADABLE: credential fileを読めない')
@@ -300,6 +300,9 @@ async function runDiagnostics(asJson) {
       'scripts/teardown.sh',
       'scripts/external-pane.mjs',
       'scripts/launch-seat.sh',
+      'scripts/seat-credential.mjs',
+      'scripts/ensure-room-mcp.mjs',
+      'scripts/leave-seat.sh',
       'scripts/change-seat.sh',
       // effort 専用の互換入口。change-seat.sh へ委譲するので、どちらが欠けても席設定変更が死ぬ
       'scripts/change-effort.sh',

@@ -44,8 +44,20 @@ if [ -n "$member_socket" ] && tmux -S "$member_socket" has-session -t "$target" 
   if ! tmux -S "$member_socket" kill-session -t "$target"; then
     echo "SEAT_LEAVE_SESSION_FAILED: $target" >&2
     failed=1
+  elif tmux -S "$member_socket" has-session -t "$target" 2>/dev/null; then
+    echo "SEAT_LEAVE_SESSION_FAILED: $target が撤去後も残っている" >&2
+    failed=1
   fi
+elif [ -n "$member_socket" ] && tmux -S "$member_socket" list-sessions >/dev/null 2>&1; then
+  : # serverへ到達でき、対象sessionが無い
+elif [ -n "$member_socket" ] && [ -S "$member_socket" ]; then
+  echo "SEAT_LEAVE_SESSION_UNREADABLE: $member_socket" >&2
+  failed=1
 fi
+
+# live clientを止めたと確認できない時は、member/identity/credentialを先に消して
+# 「退席済み」に見せない。観測面を残したままtyped failureで止める。
+[ "$failed" -eq 0 ] || exit 1
 
 encoded_name=$(python3 -c 'import sys,urllib.parse;print(urllib.parse.quote(sys.argv[1],safe=""))' "$name")
 if ! env -u PEERTABLE_POST_TOKEN node "$credential_helper" request "$credential_file" DELETE \

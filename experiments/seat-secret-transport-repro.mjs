@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url'
 
 const REPO = dirname(dirname(fileURLToPath(import.meta.url)))
 const HELPER = join(REPO, 'skill/scripts/seat-credential.mjs')
+const MCP_HELPER = join(REPO, 'skill/scripts/ensure-room-mcp.mjs')
 const SERVER = join(REPO, 'room/server.mjs')
 const CLIENT = join(REPO, 'room/client.mjs')
 const LEAVE = join(REPO, 'skill/scripts/leave-seat.sh')
@@ -95,6 +96,28 @@ try {
   assert.notEqual(peerCredential, credential, '同じroomの別席がcredential fileを共有した')
   assert.equal(statSync(peerCredential).mode & 0o777, 0o600)
 
+  const managedMcpProject = join(root, 'managed-mcp')
+  mkdirSync(managedMcpProject)
+  const managedMcp = join(managedMcpProject, '.mcp.json')
+  writeFileSync(managedMcp, JSON.stringify({
+    mcpServers: { room: { command: 'peertable-client', args: [] }, other: { command: 'other' } },
+  }) + '\n')
+  const syncedMcp = await run(process.execPath, [MCP_HELPER, managedMcpProject, REPO, 'managed'], cleanEnv)
+  assert.equal(syncedMcp.code, 0, syncedMcp.stderr)
+  const managedConfig = JSON.parse(readFileSync(managedMcp, 'utf8'))
+  assert.deepEqual(managedConfig.mcpServers.room, { command: 'node', args: [CLIENT] })
+  assert.equal(managedConfig.mcpServers.other.command, 'other', '管理下mcp同期が他serverを壊した')
+
+  const preexistingMcpProject = join(root, 'preexisting-mcp')
+  mkdirSync(preexistingMcpProject)
+  const preexistingMcp = join(preexistingMcpProject, '.mcp.json')
+  const staleMcp = '{"mcpServers":{"room":{"command":"peertable-client","args":[]}}}\n'
+  writeFileSync(preexistingMcp, staleMcp)
+  const refusedMcp = await run(process.execPath, [MCP_HELPER, preexistingMcpProject, REPO, 'preexisting'], cleanEnv)
+  assert.notEqual(refusedMcp.code, 0, '既存mcpを無断更新した')
+  assert.match(refusedMcp.stderr, /SEAT_ROOM_MCP_STALE/)
+  assert.equal(readFileSync(preexistingMcp, 'utf8'), staleMcp)
+
   const second = await run(process.execPath, [HELPER, 'prepare', project, 'another-room', 'sender'], cleanEnv)
   assert.equal(second.code, 0, second.stderr)
   assert.notEqual(second.stdout.trim(), credential, '別roomがcredential fileを共有した')
@@ -163,7 +186,8 @@ try {
   mkdirSync(fakeBin)
   const fakeTmux = join(fakeBin, 'tmux')
   writeFileSync(fakeTmux, `#!/bin/bash
-if [ "$3" = has-session ]; then exit 0; fi
+if [ "\${TMUX_MODE:-}" = unreadable ]; then exit 1; fi
+if [ "$3" = has-session ]; then [ ! -f "$TMUX_MARKER" ]; exit; fi
 if [ "$3" = kill-session ]; then : > "$TMUX_MARKER"; exit 0; fi
 exit 1
 `)
@@ -181,6 +205,30 @@ exit 1
   const membersAfterLeave = await fetch(`http://127.0.0.1:${port}/api/${ROOM}/members`).then(r => r.json())
   assert.ok(!membersAfterLeave.members.some(member => member.name === 'leaver'), '通常退席後にroom memberが残った')
 
+  const stuck = await run(process.execPath, [HELPER, 'prepare', project, ROOM, 'stuck'], cleanEnv)
+  assert.equal(stuck.code, 0, stuck.stderr)
+  const stuckCredential = stuck.stdout.trim()
+  const stuckIdentity = join(project, '.team', 'seats', 'stuck.json')
+  writeFileSync(stuckIdentity, '{}\n', { mode: 0o600 })
+  const unreadableSocket = join(root, 'unreadable.sock')
+  const socketHolder = createServer()
+  await new Promise(resolve => socketHolder.listen(unreadableSocket, resolve))
+  const refusedLeave = await run('/bin/bash', [LEAVE, project, 'stuck'], {
+    ...cleanEnv,
+    PATH: `${fakeBin}:${process.env.PATH}`,
+    PEERTABLE_TMUX_SOCKET: unreadableSocket,
+    TMUX_MODE: 'unreadable',
+  })
+  socketHolder.close()
+  await once(socketHolder, 'close')
+  assert.notEqual(refusedLeave.code, 0, 'session観測不能を退席成功に丸めた')
+  assert.match(refusedLeave.stderr, /SEAT_LEAVE_SESSION_UNREADABLE/)
+  assert.equal(statSync(stuckCredential).mode & 0o777, 0o600, 'session未停止なのにcredentialを先に消した')
+  assert.equal(statSync(stuckIdentity).mode & 0o777, 0o600, 'session未停止なのにidentityを先に消した')
+  const stuckRemoved = await run(process.execPath, [HELPER, 'remove', project, stuckCredential], cleanEnv)
+  assert.equal(stuckRemoved.code, 0, stuckRemoved.stderr)
+  rmSync(stuckIdentity)
+
   await stop(client.child)
   client = null
   const badEnv = {
@@ -195,6 +243,13 @@ exit 1
   assert.notEqual(bad.code, 0, '読めないcredential fileから平文envへfallbackした')
   assert.match(bad.stderr, /PEERTABLE_CREDENTIAL_(?:UNREADABLE|INVALID)/)
   assert.ok(!bad.stderr.includes(TOKEN), 'typed errorへtokenが出た')
+
+  const missingPathEnv = { ...badEnv }
+  delete missingPathEnv.PEERTABLE_CREDENTIAL_FILE
+  const missingPath = await run(process.execPath, [CLIENT], missingPathEnv)
+  assert.notEqual(missingPath.code, 0, 'credential path欠落時に平文envへfallbackした')
+  assert.match(missingPath.stderr, /PEERTABLE_CREDENTIAL_MISSING/)
+  assert.ok(!missingPath.stderr.includes(TOKEN), 'path欠落typed errorへtokenが出た')
 
   const removed = await run(process.execPath, [HELPER, 'remove', project, credential], cleanEnv)
   assert.equal(removed.code, 0, removed.stderr)
