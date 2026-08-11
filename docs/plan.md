@@ -927,6 +927,15 @@ consumer contract 4面の明文化（→ §12 と Lattice `docs/00_product-contr
 **消化済み（2026-08-11・決定74）**: **観測先を表示名と固定 socket から推測していた**穴（→ `observe: {tmux_socket, tmux_target}` を起動者と client が登録し、bridge / wakeup / teardown は記述子を最優先。記述子が無い既存 member のみ `peer-<name>` へ後方互換）。**常駐を起こしたことを pid だけで成功としていた**穴（→ `ensure-bridge.sh` が初回実成功の `ready_at` を待ち、専用 tmux session で保持。失敗はログ末尾つき非ゼロ）。受入で record の JSON 破壊・死んだ記録の stale `ready_at`・tmux server へ env が渡らない3件を再現し、原子的な record 更新・新世代 `ready_at` の待機・env 明示引渡しへ修正した。
 
 **未着手（次以降の campaign へ）**
+- **socket 発見が「既定が生きていれば既定」で止まる。** 決定74 の解決順は ①明示 env ②aiterm POSIX 既定
+  （`tmux -S ls` が通れば採用）③`/tmp/aiterm-*.sock` の検証付き発見 だが、**②が通ると③へ進まない**。
+  2026-08-11 に WSL 実機（fox-wsl）で実測: `/tmp/claude-tmux-sockets/claude.sock` は生きている
+  （`sumire` 等 peertable と無関係な4 session）一方、**席は `/tmp/aiterm-d13d1ecda45a.sock` に居た**。
+  resolver は既定を返すので、**記述子を持たない legacy member はこのホストで永久に観測されない**。
+  記述子を持つ席（client が自己申告する新しい席）は socket を自分で運ぶので影響を受けない＝
+  決定74 の主経路は成立しているが、fallback は不完全である。塞ぐなら target を見る解決
+  （既定 socket に当の session が無ければ発見へ進む）が要る。なお同ホストの `/tmp/aiterm-*.sock` は
+  **22本のうち tmux server が生きているのは1本だけ**で、検証付き発見（`tmux -S ls` で絞る）自体は正しく効いた。
 - **ensure-bridge が作る supervisor session を teardown が確認していない。** `teardown.sh` は 3 bridge を
   `--stop` で止めるが、`peertable-<bridge>-<room>` の残存ゼロを検証する段が無い。実害を 2026-08-11 に実測:
   `experiments/setup-runtime-exclude-repro.mjs` が使い捨て project へ `setup.sh` を走らせると、その ensure が
