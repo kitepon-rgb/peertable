@@ -1,0 +1,184 @@
+const ref = task => `${task.plan_key}/${task.task_id}`
+
+const groupTaskIds = group => {
+  if (Array.isArray(group)) return group
+  if (Array.isArray(group?.task_ids)) return group.task_ids
+  if (Array.isArray(group?.tasks)) return group.tasks
+  return []
+}
+
+const pairTaskIds = pair => {
+  if (Array.isArray(pair)) return pair
+  if (Array.isArray(pair?.task_ids)) return pair.task_ids
+  return [pair?.left_task_id, pair?.right_task_id].filter(Boolean)
+}
+
+export function verifiedReadyTasks(todoStatus) {
+  const readyByPlan = new Map()
+  for (const task of todoStatus?.next_ready ?? []) {
+    const tasks = readyByPlan.get(task.plan_key) ?? []
+    tasks.push(task)
+    readyByPlan.set(task.plan_key, tasks)
+  }
+
+  const candidates = new Map((todoStatus?.parallel_candidates ?? [])
+    .map(candidate => [candidate.plan_key, candidate]))
+  const accepted = []
+  const excluded = []
+
+  for (const [planKey, tasks] of readyByPlan) {
+    const candidate = candidates.get(planKey)
+    if (candidate?.coverage !== 'complete') {
+      excluded.push(...tasks.map(task => ({ task, reason: candidate?.coverage ?? 'missing' })))
+      continue
+    }
+    const unjudged = new Set(candidate.unjudged_task_ids ?? [])
+    const activeConflicts = new Set((candidate.conflicts_with_active ?? []).flatMap(pairTaskIds))
+    const eligible = tasks.filter(task => !unjudged.has(task.task_id) && !activeConflicts.has(task.task_id))
+    const groups = (candidate.verified_parallel_groups ?? [])
+      .map(groupTaskIds)
+      .map(ids => eligible.filter(task => ids.includes(task.task_id)))
+      .filter(group => group.length > 0)
+      .sort((a, b) => b.length - a.length)
+
+    if (groups.length > 0) {
+      accepted.push(...groups[0])
+      const selected = new Set(groups[0].map(task => task.task_id))
+      excluded.push(...eligible.filter(task => !selected.has(task.task_id))
+        .map(task => ({ task, reason: 'serialized_frontier' })))
+      continue
+    }
+
+    const serialized = new Set((candidate.serialize_pairs ?? []).flatMap(pairTaskIds))
+    const parallel = eligible.filter(task => !serialized.has(task.task_id))
+    accepted.push(...parallel)
+    excluded.push(...eligible.filter(task => serialized.has(task.task_id))
+      .map(task => ({ task, reason: 'serialized_frontier' })))
+  }
+
+  return {
+    accepted,
+    accepted_refs: accepted.map(ref),
+    excluded: excluded.map(({ task, reason }) => ({ ref: ref(task), reason })),
+  }
+}
+
+const liveWorker = (member, parentName) => member?.name && member.name !== parentName
+  && member.status !== 'dead'
+
+const stateChanged = (previous, next) => previous === null
+  ? next.launch_count > 0 || next.retire_count > 0 || next.reclaim_count > 0
+  : previous.target !== next.target
+    || previous.delta !== next.delta
+    || previous.reclaim_count !== next.reclaim_count
+    || previous.launch_count !== next.launch_count
+    || previous.retire_count !== next.retire_count
+
+function actionFor(state) {
+  if (state.launch_count > 0 && state.reclaim_count > 0) return 'scale_up_and_reclaim'
+  if (state.launch_count > 0) return 'scale_up'
+  if (state.reclaim_count > 0) return 'reclaim_idle'
+  if (state.retire_count > 0 && state.retire_candidates.length > 0) return 'scale_down'
+  if (state.retire_count > 0) return 'shrink_blocked'
+  return 'balanced'
+}
+
+function nextOperation(state) {
+  if (state.action === 'scale_up_and_reclaim') {
+    return `idle ${state.reclaim_count}席へ自律claimを促し、launch-seat.shで${state.launch_count}席起こす`
+  }
+  if (state.action === 'scale_up') return `launch-seat.shで${state.launch_count}席起こす`
+  if (state.action === 'reclaim_idle') return `idle ${state.reclaim_count}席へ正本照合と自律claimを促す`
+  if (state.action === 'scale_down') {
+    return `idle候補の本人と工程正本でWIPなしを確認後、leave-seat.shで最大${state.retire_count}席畳む`
+  }
+  if (state.action === 'shrink_blocked') return 'busy/blocked席を畳まず、WIP解消後の再観測を待つ'
+  return '操作不要'
+}
+
+export function capacityProjection({ todoStatus, members, parentName = 'bell', previous = null }) {
+  const active = [...new Map((todoStatus?.active_set ?? []).map(task => [ref(task), task])).values()]
+  const ready = verifiedReadyTasks(todoStatus)
+  const workers = (members ?? []).filter(member => liveWorker(member, parentName))
+  const idle = workers.filter(member => member.status === 'idle').map(member => member.name)
+  const engagedCount = workers.length - idle.length
+  const target = active.length + ready.accepted.length
+  const delta = target - workers.length
+  const launchCount = Math.max(0, delta)
+  const retireCount = Math.max(0, -delta)
+  const reclaimCount = Math.min(idle.length, Math.max(0, target - engagedCount))
+  const state = {
+    target,
+    delta,
+    active_count: active.length,
+    verified_ready_count: ready.accepted.length,
+    worker_count: workers.length,
+    engaged_worker_count: engagedCount,
+    idle_workers: idle,
+    reclaim_count: reclaimCount,
+    launch_count: launchCount,
+    retire_count: retireCount,
+    retire_candidates: idle.slice(0, retireCount),
+    active_refs: active.map(ref),
+    verified_ready_refs: ready.accepted_refs,
+    excluded_ready: ready.excluded,
+  }
+  state.action = actionFor(state)
+  state.next_operation = nextOperation(state)
+
+  const changed = stateChanged(previous, state)
+  const oldTarget = previous?.target ?? workers.length
+  const oldDelta = previous?.delta ?? 0
+  const event = changed ? {
+    code: 'PEERTABLE_CAPACITY_CHANGED',
+    old_target: oldTarget,
+    target,
+    old_delta: oldDelta,
+    delta,
+    active_count: state.active_count,
+    verified_ready_count: state.verified_ready_count,
+    worker_count: state.worker_count,
+    reclaim_workers: idle.slice(0, reclaimCount),
+    launch_count: launchCount,
+    retire_count: retireCount,
+    retire_candidates: state.retire_candidates,
+    action: state.action,
+    next_operation: state.next_operation,
+  } : null
+  return { state, event }
+}
+
+export function standaloneTodoStatus(tasksMarkdown, messages = []) {
+  const topics = tasksMarkdown.split('\n')
+    .map(line => /^\s*-\s+(.+?)\s*$/u.exec(line)?.[1])
+    .filter(Boolean)
+  const claims = new Set()
+  const done = new Set()
+  for (const message of messages) {
+    const body = message?.body ?? ''
+    const claim = /^\[claim\]\s+(.+)$/u.exec(body)?.[1]
+    const completed = /^\[(?:done|完了)\]\s+(.+)$/u.exec(body)?.[1]
+    if (claim) claims.add(claim)
+    if (completed) done.add(completed)
+  }
+  const active = topics.filter(topic => claims.has(topic) && !done.has(topic))
+  const ready = topics.filter(topic => !claims.has(topic) && !done.has(topic))
+  return {
+    active_set: active.map(task_id => ({ plan_key: 'standalone', task_id })),
+    next_ready: ready.map(task_id => ({ plan_key: 'standalone', task_id })),
+    parallel_candidates: [{
+      plan_key: 'standalone',
+      coverage: 'complete',
+      unjudged_task_ids: [],
+      verified_parallel_groups: [{ task_ids: ready }],
+      serialize_pairs: [],
+    }],
+  }
+}
+
+export function seatIntakeDecision({ intervention, hasWip }) {
+  const waiting = ['wait', 'hold', 'conflict'].includes(intervention)
+  if (!waiting) return { action: 'continue', code: null }
+  if (hasWip) return { action: 'handoff_then_leave', code: 'PEERTABLE_CAPACITY_WIP_HANDOFF_REQUIRED' }
+  return { action: 'leave_immediately', code: 'PEERTABLE_CAPACITY_INTAKE_RELEASED' }
+}
