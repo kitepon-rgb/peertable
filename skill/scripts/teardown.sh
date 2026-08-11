@@ -268,7 +268,7 @@ urllib.request.urlopen(req, timeout=10).read()
       c=$(curl -s -o /dev/null -w '%{http_code}' -X DELETE "$url/api/$room/members/$name" -H "X-Peertable-Token: $PEERTABLE_POST_TOKEN" || true)
       [ "$c" = 200 ] && n=$((n + 1))
     done <<<"$member_lines"
-    did "メンバー登録の解除（${n}名）— **部屋と過去ログは残す**（$url/$room）"
+    did "メンバー登録の解除（${n}名）— **部屋と過去ログは残す**（${url}/${room}）"
   fi
 # room 削除は --purge だけ。トークンを要する唯一の段で、ここだけが外部サービスへの依存境界
 elif [ "$log_saved" = no ]; then
