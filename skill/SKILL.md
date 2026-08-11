@@ -184,7 +184,7 @@ witness をどう生成するかは**対象 project 側の作法に従う**（La
 
 ## 親の operating notes（このセッションの振る舞い）
 
-- **席数制御は親のloopである（決定68の運用側）**: 節目（claim/done/accept/縮退の観測）ごとに親が ready＋active な実装ToDo数を数え、**不足なら席を起こし、超過なら畳む**——親が黙って合わせる。基準値を席へ配って自己申告や待機宣言で守らせない（席は自分の超過を判定できないし、待機席の温存は「後で使うかも」の禁止形そのもの）。畳む手順は縮退（通告→WIP棚卸し→`env -u PEERTABLE_POST_TOKEN scripts/leave-seat.sh <project> <member>`→必要なら`pty_close`でAiterm読取状態を破棄→宣言）。`leave-seat.sh`がsession / room member / seat identity / credentialを同じ境界で撤去し、sessionを停止確認できなければ後段を消さずtyped failureで止まる。起こすのは上記launch-seat.sh一発。
+- **席数制御は親のloopである（決定68の運用側）**: `capacity-advisor.mjs`はactive＋検証済み非競合ready、roomのlive worker（親・dead除外）を同じ面へ投影し、capacity差が変わった時だけ親と自律claim対象のidle席へ`[capacity] PEERTABLE_CAPACITY_CHANGED`を一通送る。independenceのmissing／stale／unjudgedはready数へ含めない。親は通知の不足数だけ`launch-seat.sh`で起こし、超過時はidleかつ本人・工程正本の双方でWIPなしを確認できた席だけ畳む。基準値を席へ配って自己申告で守らせず、reclaim対象のidle席は通知を起点に自分でclaimする。畳む手順は縮退（通告→WIP棚卸し→`env -u PEERTABLE_POST_TOKEN scripts/leave-seat.sh <project> <member>`→必要なら`pty_close`でAiterm読取状態を破棄→宣言）。`leave-seat.sh`がsession / room member / seat identity / credentialを同じ境界で撤去し、sessionを停止確認できなければ後段を消さずtyped failureで止まる。
 
 - 親は MCP を後付けできないため room へは HTTP API 直で参加する:
   - 登録: `curl -X POST $URL/api/$ROOM/members -H "X-Peertable-Token: $TOKEN" -d '{"name":"bell"}'`

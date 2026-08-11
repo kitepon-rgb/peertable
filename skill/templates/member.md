@@ -80,7 +80,7 @@ lattice run intake --run .lattice/runs/<run-id> --task <id>
 空のまま**である。作った席が他の席の仕事を決めたことにはならない。
 
 1. **`todo start` を先に済ませてから intake する。** 装置は Todo 正本の start event へ束縛するので、start していない task は intake できない。**逆順にしない。**
-2. **`intervention.state` を読む。** `none` なら worktree を使ってそのまま進める。`hold` なら**留まる**——他の着手済み task と競合しているという装置の判定である。理由（`reason`）を読み、room で調整するか、seam を切って解消する。**hold を無視して進めない。** 解消したかは `lattice run intake intervention --run <ref> --task <id>` で自分で読み直せる（bridge の `[介入]` 投稿を待たなくてよい。bridge は可視化であって通知の唯一経路ではない）
+2. **`intervention.state` を読む。** `none` なら worktree を使ってそのまま進める。新しく起きた席または次工程を探した席が`hold`を受け、まだ既存WIPを持たない場合は待機席として残らない。競合理由と未着手をroomへ一度記録し、未受理intakeを解放して`leave-seat.sh`で直ちに退席する。既存WIPがある席だけは工程正本へhandoffを残してから畳む。**hold を無視して進めず、競合解除pollのために席を温存しない。**
 3. **worktree を受け取ったら、自分の pid を装置へ渡す（attach）。** これをしないと、装置は競合時に「留まれ」と言うことはできても、実際に止めることができない（協調 hold のまま）。
    ```
    lattice run intake attach --run <ref> --task <id> --input <file>

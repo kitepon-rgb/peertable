@@ -1,10 +1,15 @@
 #!/usr/bin/env node
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import {
   capacityProjection,
   seatIntakeDecision,
   standaloneTodoStatus,
 } from '../skill/scripts/capacity-advisor.mjs'
+
+const repo = dirname(dirname(fileURLToPath(import.meta.url)))
 
 const task = (plan_key, task_id) => ({ plan_key, task_id })
 const member = (name, status) => ({ name, status })
@@ -121,6 +126,19 @@ check('wait/holdの新規intakeはWIPなしなら即退席する', () => {
 
 check('既存WIPがある待機席はhandoffを先に要求する', () => {
   assert.equal(seatIntakeDecision({ intervention: 'wait', hasWip: true }).action, 'handoff_then_leave')
+})
+
+check('配布roleは競合hold席を待機温存せず即退席させる', () => {
+  const role = readFileSync(join(repo, 'skill/templates/member.md'), 'utf8')
+  assert.match(role, /未受理intakeを解放して`leave-seat\.sh`で直ちに退席/u)
+  assert.match(role, /競合解除pollのために席を温存しない/u)
+})
+
+check('親roleはtyped capacity通知からlaunchと安全な縮退へ進む', () => {
+  const role = readFileSync(join(repo, 'skill/templates/parent.md'), 'utf8')
+  assert.match(role, /\[capacity\] PEERTABLE_CAPACITY_CHANGED/u)
+  assert.match(role, /不足数だけ`launch-seat\.sh`/u)
+  assert.match(role, /本人に WIP と未報告の作業が/u)
 })
 
 const standalone = standaloneTodoStatus('- 調査\n- 実装\n- 監査\n', [
