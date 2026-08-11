@@ -21,14 +21,22 @@ export function verifiedReadyTasks(todoStatus) {
     readyByPlan.set(task.plan_key, tasks)
   }
 
-  const candidates = new Map((todoStatus?.parallel_candidates ?? [])
+  const projected = (todoStatus?.independence_projections ?? []).map(projection => ({
+    plan_key: projection.plan_key,
+    coverage: projection.coverage,
+    unjudged_task_ids: (projection.frontier?.unknown ?? []).map(item => item.task_id),
+    verified_parallel_groups: projection.frontier?.parallel_groups ?? [],
+    serialize_pairs: projection.frontier?.serialize_pairs ?? [],
+    conflicts_with_active: projection.frontier?.conflicts_with_active ?? [],
+  }))
+  const candidates = new Map([...(todoStatus?.parallel_candidates ?? []), ...projected]
     .map(candidate => [candidate.plan_key, candidate]))
   const accepted = []
   const excluded = []
 
   for (const [planKey, tasks] of readyByPlan) {
     const candidate = candidates.get(planKey)
-    if (candidate?.coverage !== 'complete') {
+    if (candidate?.coverage !== 'verified') {
       excluded.push(...tasks.map(task => ({ task, reason: candidate?.coverage ?? 'missing' })))
       continue
     }
@@ -49,11 +57,10 @@ export function verifiedReadyTasks(todoStatus) {
       continue
     }
 
-    const serialized = new Set((candidate.serialize_pairs ?? []).flatMap(pairTaskIds))
-    const parallel = eligible.filter(task => !serialized.has(task.task_id))
-    accepted.push(...parallel)
-    excluded.push(...eligible.filter(task => serialized.has(task.task_id))
-      .map(task => ({ task, reason: 'serialized_frontier' })))
+    if (eligible.length > 0) {
+      accepted.push(eligible[0])
+      excluded.push(...eligible.slice(1).map(task => ({ task, reason: 'serialized_frontier' })))
+    }
   }
 
   return {
@@ -168,7 +175,7 @@ export function standaloneTodoStatus(tasksMarkdown, messages = []) {
     next_ready: ready.map(task_id => ({ plan_key: 'standalone', task_id })),
     parallel_candidates: [{
       plan_key: 'standalone',
-      coverage: 'complete',
+      coverage: 'verified',
       unjudged_task_ids: [],
       verified_parallel_groups: [{ task_ids: ready }],
       serialize_pairs: [],

@@ -16,13 +16,13 @@ const repo = dirname(dirname(fileURLToPath(import.meta.url)))
 
 const task = (plan_key, task_id) => ({ plan_key, task_id })
 const member = (name, status) => ({ name, status })
-const status = ({ active = [], ready = [], coverage = 'complete', groups = [ready] }) => ({
+const status = ({ active = [], ready = [], coverage = 'verified', groups = [ready] }) => ({
   active_set: active.map(id => task('plan', id)),
   next_ready: ready.map(id => task('plan', id)),
   parallel_candidates: [{
     plan_key: 'plan',
     coverage,
-    unjudged_task_ids: coverage === 'complete' ? [] : ready,
+    unjudged_task_ids: coverage === 'verified' ? [] : ready,
     verified_parallel_groups: groups.map(task_ids => ({ task_ids })),
     serialize_pairs: [],
   }],
@@ -80,6 +80,37 @@ check('independence未検査readyは競合なし席数へ含めない', () => {
   assert.equal(unverified.state.target, 3)
   assert.equal(unverified.event, null)
   assert.deepEqual(unverified.state.excluded_ready.map(entry => entry.reason), Array(4).fill('missing'))
+})
+
+const verifiedSingle = capacityProjection({
+  todoStatus: {
+    active_set: [],
+    next_ready: [task('single', 'r1')],
+    parallel_candidates: [],
+    independence_projections: [{
+      plan_key: 'single', coverage: 'verified',
+      frontier: { unknown: [], parallel_groups: [], serialize_pairs: [], conflicts_with_active: [] },
+    }],
+  },
+  members: [member('bell', null)],
+})
+check('status候補欄から省略される検証済みready 1件もindependence projectionから数える', () => {
+  assert.equal(verifiedSingle.state.verified_ready_count, 1)
+  assert.equal(verifiedSingle.event?.launch_count, 1)
+})
+
+const serializedReady = capacityProjection({
+  todoStatus: {
+    ...status({ ready: ['r1', 'r2'], groups: [] }),
+    parallel_candidates: [{
+      plan_key: 'plan', coverage: 'verified', unjudged_task_ids: [], verified_parallel_groups: [],
+      serialize_pairs: [{ task_ids: ['r1', 'r2'] }],
+    }],
+  },
+  members: [member('bell', null)],
+})
+check('直列化されたready 2件は同時2席でなく現在着手可能な1席だけ数える', () => {
+  assert.equal(serializedReady.state.verified_ready_count, 1)
 })
 
 const idleReclaim = capacityProjection({
