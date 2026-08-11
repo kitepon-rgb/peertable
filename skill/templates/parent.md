@@ -44,11 +44,19 @@ export は親 shell に伝播しないため**、これをしないまま `latti
     | jq --unbuffered -rc 'select(type=="object" and .from!="<親名>" and (.to=="<親名>" or ((.to_names//[])|index("<親名>")))) | ...' ; \
     echo "[番犬] SSE切断——3秒後に再接続"; sleep 3; done
   ```
-- **Codex**: 起床は wakeup-bridge が担う（席と同じ入口）。`room に新着あり（<誰> → <宛先>）。
-  read_unread で読むこと。` が端末へ直接届く。届いたらその場で手を止めて read_unread で読み、
-  返事が要るなら post してから元の作業へ戻る（作業中でも割り込んで届く）。**この経路は
-  Desktop/CLI どちらでも同一の wakeup-bridge を使うため、Desktop での注入成立可否は個別に確認する
-  こと**——手動でのポーリングを自動 wake の成功と偽らない（未実測項目。t4 で実円卓検証する）。
+- **Codex**: 起床は wakeup-bridge が担う（席と同じ入口。実測: room[104][109]、
+  `experiments/parent-wakeup-e2e-repro.mjs`）。`room に新着あり（<誰> → <宛先>）。
+  read_unread で読むこと。` が端末へ直接届く。**この文言は席（room MCP を持つ）向けの定型句を
+  そのまま使っているので、親は文字どおり `read_unread` を呼ばず、上の「親は MCP を後付けできない
+  ため room へは HTTP API 直で入る」の原則どおり `curl -s $URL/api/$ROOM/messages?since=<最後に
+  読んだseq>` で新着を確認する**（親は launch-seat.sh の `-c mcp_servers.room...` オーバーライド
+  を経ていないため room MCP を持たない。実測: tsubaki[110]、`codex mcp list` に room connector が
+  無いことを確認済み——これは欠陥ではなく親が最初から MCP 経由でない設計であることの裏付け）。
+  届いたらその場で手を止めて確認し、返事が要るなら post してから元の作業へ戻る（作業中でも
+  割り込んで届く）。**この経路は Desktop/CLI どちらでも同一の wakeup-bridge を使うため、Desktop
+  での注入成立可否は個別に確認すること**——手動でのポーリングを自動 wake の成功と偽らない
+  （未実測項目: 実 Codex CLI セッションでの turn 内 steering・Desktop 環境。t4 で実円卓検証する。
+  このhostは `codex mcp list` に room connector を持たない CLI のみの環境という制約を確認済み）。
 
 ## 発言規律（決定43・正典 §3.4）
 
