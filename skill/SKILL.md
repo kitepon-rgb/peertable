@@ -145,6 +145,28 @@ description: 任意プロジェクトに Peertable チーム（対等メンバ�
 
 witness をどう生成するかは**対象 project 側の作法に従う**（Lattice repo なら `.lattice/todo/witness/<plan_key>.json` へ書いて `lattice todo independence compile --plan <key> --input <ref>`）。線はその witness の各 task entry へ足す欄であって、別の置き場を作らない。
 
+- **手書きより `independence witness scaffold` が安い。** `lattice.todo_witness_draft.v2`
+  （`{schema, project_id, plan_key, capacity:{executors}, tasks:{<task_id>:{owns:[{path,creates}...], reads:[...]}}}`）
+  を書いて `lattice todo independence witness scaffold --plan <key> --input <draft>` を打つと、
+  fresh 観測込みの witness set を組んで `.lattice/todo/witness/<plan_key>.json` へ書いてくれる
+  （affected_tests・sensor_provenance を手で埋めなくてよい）。**companion plan（`todo migrate` で
+  新規に立てた plan）にも同じ手順がそのまま使える**——plan の種別を witness scaffold は問わない
+  （実測: nagi, 2026-08-11, fx3 companion plan で確認）。相対パスは `./` を付けない
+  （`isTodoRef` が `./`/`../` を typed reject する）。
+- **`independence compile` は repo 全体（未追跡ファイル含む）が clean でないと走らない**
+  （`INDEPENDENCE_WORKTREE_DIRTY`）。これは companion plan 固有ではなく機構全体の制約で、
+  `--commit-store` は compile には使えない（`STORE_COMMIT_UNSUPPORTED`——store 以外も動かす
+  command は対象外。実測: nagi, 2026-08-11）。複数席が同時に作業している卓では、compile 前に
+  room で一声かけて各自の作業中変更を対象限定 commit してもらう必要がある（決定71の宛先規律に
+  従い、今すぐ動く必要がある相手だけへ依頼する）。
+- **task 単位の push はできない。** git の push は連続した history の先頭までを送る操作であり、
+  途中の特定 commit だけを選んで送ることはできない（実測・結論: nagi, 2026-08-11）。ある task の
+  受理済み成果を push すると、**その手前にある他 task の未監査 commit も一緒に origin へ運ばれる**
+  （実測: bell, room[66]。t1 の push が未監査 f2 WIP commit 478de1b/49fb249 を祖先として運んだ）。
+  運用側の回避は「push する前に、未push分の全 commit が対応する task の done（peer audit 済み）で
+  あることを確認する」——`git log origin/<default>..HEAD` で祖先を確認し、doneでない task の
+  commit が混ざっていれば、そちらを先に監査へ通してから push する。
+
 ## 親の operating notes（このセッションの振る舞い）
 
 - **席数制御は親のloopである（決定68の運用側）**: 節目（claim/done/accept/縮退の観測）ごとに親が ready＋active な実装ToDo数を数え、**不足なら席を起こし、超過なら畳む**——親が黙って合わせる。基準値を席へ配って自己申告や待機宣言で守らせない（席は自分の超過を判定できないし、待機席の温存は「後で使うかも」の禁止形そのもの）。畳む手順は縮退（通告→WIP棚卸し→pty_close→member削除→宣言）、起こすのはlaunch-seat.sh一発。
