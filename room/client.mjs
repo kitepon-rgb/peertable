@@ -266,6 +266,8 @@ async function runDiagnostics(asJson) {
       'scripts/teardown.sh',
       'scripts/external-pane.mjs',
       'scripts/launch-seat.sh',
+      'scripts/change-seat.sh',
+      // effort 専用の互換入口。change-seat.sh へ委譲するので、どちらが欠けても席設定変更が死ぬ
       'scripts/change-effort.sh',
       'scripts/make-plan-input.mjs',
       'scripts/parent-join.sh',

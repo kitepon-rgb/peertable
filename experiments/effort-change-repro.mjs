@@ -1,3 +1,12 @@
+// effort 専用入口（配布済み change-effort.sh）の退行ハーネス。
+//
+// **この file が止めているのは1つの退行だけである**: 「本人→親の単独DMが
+// `[effort変更依頼] <level>` と完全一致すること」を script が再検証する形が戻ってくること。
+// 2026-08-11 実測では、意味の一意な自然文依頼（「effort を max に上げてほしい」）が
+// EFFORT_CHANGE_REQUEST_REQUIRED で拒否され、同じ文面の再送を人へ要求していた。
+// 依頼の意味判断は親（AI）が行い、script は確定した target だけを受ける（計画 §2.1）。
+//
+// model / effort 変更そのものの契約は experiments/seat-change-repro.mjs が測る。
 import { strict as assert } from 'node:assert'
 import { spawn, spawnSync } from 'node:child_process'
 import { chmod, cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
@@ -12,17 +21,17 @@ const bin = join(root, 'bin')
 const data = join(root, 'data')
 const screen = join(root, 'screen.txt')
 const launchLog = join(root, 'launch.log')
-const failOnce = join(root, 'fail-once')
-const port = 19100 + Math.floor(Math.random() * 500)
+const port = 19700 + Math.floor(Math.random() * 300)
 const base = `http://127.0.0.1:${port}`
 const token = 'test-token'
 
 await Promise.all([mkdir(join(project, '.team'), { recursive: true }), mkdir(scripts), mkdir(bin), mkdir(data)])
 await writeFile(join(project, '.team/setup-state.json'), JSON.stringify({ room: 'fixture', server_url: base }) + '\n')
-await cp(join(REPO, 'skill/scripts/change-effort.sh'), join(scripts, 'change-effort.sh'))
-await chmod(join(scripts, 'change-effort.sh'), 0o755)
+for (const script of ['change-seat.sh', 'change-effort.sh']) {
+  await cp(join(REPO, 'skill/scripts', script), join(scripts, script))
+  await chmod(join(scripts, script), 0o755)
+}
 await writeFile(screen, 'idle\n')
-
 await writeFile(join(bin, 'tmux'), `#!/bin/bash
 case " $* " in
   *" has-session "*) exit 0 ;;
@@ -30,29 +39,24 @@ case " $* " in
 esac
 exit 1
 `)
-await writeFile(join(bin, 'codex'), `#!/bin/bash
-if [ "$1 $2" = "debug models" ]; then
-  printf '%s\n' '{"models":[{"slug":"gpt-5.6-sol","supported_reasoning_levels":[{"effort":"low"},{"effort":"high"},{"effort":"ultra"}]}]}'
+await writeFile(join(bin, 'claude'), `#!/bin/bash
+if [ "$1" = "--help" ]; then
+  printf '%s\\n' '  --effort <level>                      Effort level for the current session'
+  printf '%s\\n' '                                        (low, medium, high, xhigh, max)'
   exit 0
 fi
 exit 1
 `)
 await writeFile(join(scripts, 'launch-seat.sh'), `#!/bin/bash
-printf '%s|%s|%s|%s|%s|%s\n' "$1" "$2" "$3" "$4" "$5" "$6" >> "$LAUNCH_LOG"
-if [ -f "$FAIL_ONCE" ] && [ "$5" = "high" ]; then rm -f "$FAIL_ONCE"; exit 9; fi
+printf '%s|%s|%s|%s|%s|%s\\n' "$1" "$2" "$3" "$4" "$5" "$6" >> "$LAUNCH_LOG"
 payload=$(python3 -c 'import json,sys;print(json.dumps({"name":sys.argv[1],"vendor":sys.argv[2],"model":sys.argv[3],"effort":sys.argv[4]}))' "$2" "$4" "$3" "$5")
 curl -sf -o /dev/null -X POST "$PEERTABLE_URL/api/fixture/members" -H "X-Peertable-Token: $PEERTABLE_POST_TOKEN" -H 'content-type: application/json' -d "$payload"
 `)
-await Promise.all(['tmux', 'codex'].map(name => chmod(join(bin, name), 0o755)))
+await Promise.all(['tmux', 'claude'].map(name => chmod(join(bin, name), 0o755)))
 await chmod(join(scripts, 'launch-seat.sh'), 0o755)
 
 const server = spawn(process.execPath, [join(REPO, 'room/server.mjs')], {
-  env: {
-    ...process.env,
-    PEERTABLE_PORT: String(port),
-    PEERTABLE_DATA: data,
-    PEERTABLE_POST_TOKEN: token,
-  },
+  env: { ...process.env, PEERTABLE_PORT: String(port), PEERTABLE_DATA: data, PEERTABLE_POST_TOKEN: token },
   stdio: ['ignore', 'ignore', 'pipe'],
 })
 const env = {
@@ -63,9 +67,7 @@ const env = {
   PEERTABLE_TMUX_SOCKET: join(root, 'tmux.sock'),
   FAKE_SCREEN: screen,
   LAUNCH_LOG: launchLog,
-  FAIL_ONCE: failOnce,
 }
-
 const api = async (path, init) => {
   const res = await fetch(`${base}/api/fixture/${path}`, init)
   assert.ok(res.ok, `${path}: HTTP ${res.status}`)
@@ -76,17 +78,9 @@ for (let i = 0; i < 50; i++) {
   try { await api('members'); ready = true; break } catch { await new Promise(r => setTimeout(r, 40)) }
 }
 assert.equal(ready, true, 'fixture room serverが起動する')
-const member = body => api('members', {
+const post = (path, body) => api(path, {
   method: 'POST', headers: { 'content-type': 'application/json', 'X-Peertable-Token': token },
-  body: JSON.stringify({ name: 'koharu', ...body }),
-})
-const request = effort => api('messages', {
-  method: 'POST', headers: { 'content-type': 'application/json', 'X-Peertable-Token': token },
-  body: JSON.stringify({ from: 'koharu', to: 'bell', body: `[effort変更依頼] ${effort}` }),
-})
-const requestMany = (effort, recipients) => api('messages', {
-  method: 'POST', headers: { 'content-type': 'application/json', 'X-Peertable-Token': token },
-  body: JSON.stringify({ from: 'koharu', to: recipients, body: `[effort変更依頼] ${effort}` }),
+  body: JSON.stringify(body),
 })
 const run = effort => spawnSync(join(scripts, 'change-effort.sh'), [project, 'koharu', effort, 'bell'], {
   env, encoding: 'utf8', timeout: 20_000,
@@ -96,87 +90,40 @@ const launchLines = async () => {
 }
 
 try {
-  await member({ vendor: 'claude', model: 'opus', effort: 'high' })
+  await post('members', { name: 'koharu', vendor: 'claude', model: 'opus', effort: 'high' })
+  // room に在るのは自然文の依頼だけ。`[effort変更依頼] max` の完全一致DMは**置かない**
+  await post('messages', { from: 'koharu', to: 'bell', body: 'ベル、この工程は判断が重いので effort を max に上げてほしい。今 idle です' })
 
   let result = run('max')
-  assert.notEqual(result.status, 0)
-  assert.match(result.stderr, /EFFORT_CHANGE_REQUEST_REQUIRED/)
-  assert.equal((await launchLines()).length, 0)
-
-  await requestMany('max', ['bell', 'nagi'])
-  result = run('max')
-  assert.notEqual(result.status, 0)
-  assert.match(result.stderr, /EFFORT_CHANGE_REQUEST_REQUIRED/)
-  assert.equal((await launchLines()).length, 0, '複数宛依頼では席を再起動しない')
-
-  await request('max')
-  result = run('max')
   assert.equal(result.status, 0, result.stderr)
-  assert.match(result.stdout, /EFFORT_CHANGE_OK: koharu high → max/)
+  assert.match(result.stdout, /SEAT_CHANGE_OK: koharu effort high → max/)
+  assert.doesNotMatch(result.stderr, /REQUEST_REQUIRED/)
   assert.equal((await launchLines()).length, 1)
-  assert.match((await launchLines())[0], /\|koharu\|opus\|claude\|max\|/)
   assert.equal((await api('members')).members.find(x => x.name === 'koharu').effort, 'max')
-  let rows = (await api('messages')).messages
-  const changed = rows.find(x => x.from === 'bell' && x.to === 'koharu' && x.body.startsWith('[effort変更]'))
-  assert.ok(changed)
-  assert.match(changed.body, /high → max/)
 
-  result = run('max')
-  assert.notEqual(result.status, 0)
-  assert.match(result.stderr, /EFFORT_CHANGE_REQUEST_REQUIRED/)
-  assert.equal((await launchLines()).length, 1, '同じ依頼を再利用しない')
-
-  // high依頼の後にlow依頼を置き、lowだけ先に完了させる。別requestの完了でhighを
-  // 消費済みにしてはいけない（request seqへの束縛を測る）。
-  await request('high')
-  await request('low')
+  // 依頼DMの「消費」状態も持たない: 親が続けて別のtargetを確定できる
   result = run('low')
   assert.equal(result.status, 0, result.stderr)
-  assert.equal((await api('members')).members.find(x => x.name === 'koharu').effort, 'low')
   assert.equal((await launchLines()).length, 2)
-
-  await writeFile(screen, 'Working… esc to interrupt\n')
-  result = run('high')
-  assert.notEqual(result.status, 0)
-  assert.match(result.stderr, /EFFORT_CHANGE_SEAT_BUSY/)
-  assert.equal((await launchLines()).length, 2)
-  await writeFile(screen, 'idle\n')
-
-  await request('ultra')
-  result = run('ultra')
-  assert.notEqual(result.status, 0)
-  assert.match(result.stderr, /EFFORT_CHANGE_UNSUPPORTED: claude/)
-  assert.equal((await launchLines()).length, 2)
-
-  await writeFile(failOnce, 'yes\n')
-  result = run('high')
-  assert.notEqual(result.status, 0)
-  assert.match(result.stderr, /EFFORT_CHANGE_RESTART_FAILED/)
-  assert.match(result.stderr, /EFFORT_CHANGE_ROLLED_BACK/)
-  assert.equal((await launchLines()).length, 4)
-  assert.match((await launchLines())[2], /\|high\|/)
-  assert.match((await launchLines())[3], /\|low\|/)
   assert.equal((await api('members')).members.find(x => x.name === 'koharu').effort, 'low')
 
-  await member({ vendor: 'codex', model: 'gpt-5.6-sol', effort: 'high' })
-  await request('ultra')
-  result = run('ultra')
-  assert.equal(result.status, 0, result.stderr)
-  assert.match((await launchLines()).at(-1), /\|gpt-5\.6-sol\|codex\|ultra\|/)
-  assert.equal((await api('members')).members.find(x => x.name === 'koharu').effort, 'ultra')
+  // 引数の形（配布済み入口）が保たれている
+  result = spawnSync(join(scripts, 'change-effort.sh'), [project, 'koharu'], { env, encoding: 'utf8' })
+  assert.equal(result.status, 2)
+  assert.match(result.stderr, /usage: change-effort\.sh <project_dir> <member> <effort> \[parent_name\]/)
 
-  const launchSource = await readFile(join(REPO, 'skill/scripts/launch-seat.sh'), 'utf8')
-  assert.match(launchSource, /model_reasoning_effort=/)
-  const clientSource = await readFile(join(REPO, 'room/client.mjs'), 'utf8')
-  assert.match(clientSource, /'scripts\/change-effort\.sh'/, 'diagnosticsが新scriptの梱包漏れを検出する')
-  for (const ref of ['skill/SKILL.md', 'skill/templates/member.md', 'skill/templates/member-standalone.md']) {
-    const source = await readFile(join(REPO, ref), 'utf8')
-    assert.match(source, /\[effort変更依頼\] <level>/, `${ref}が本人要請protocolを持つ`)
-    assert.match(source, /再起動/, `${ref}が再起動を明示する`)
+  // script 側に room メッセージの再解釈が戻っていない
+  for (const script of ['change-effort.sh', 'change-seat.sh']) {
+    const source = await readFile(join(REPO, 'skill/scripts', script), 'utf8')
+    // コメントは「昔こうだった」を書き残す面なので除く。見るのは実際に走る行だけ
+    const code = source.split('\n').filter(line => !/^\s*#/.test(line)).join('\n')
+    // 履歴の POST は残す。禁じているのは**読み直して依頼を再検証する**形（GET /messages）だけ
+    assert.doesNotMatch(code, /curl -sf "\$url\/api\/\$room\/messages"/, `${script} が room の発言を読み直さない`)
+    assert.doesNotMatch(code, /effort変更依頼/, `${script} が依頼文面の完全一致を検査しない`)
   }
-  console.log('effort-change repro: 10/10 green')
+  console.log('effort-change repro: 5/5 green（自然文依頼を拒否しない）')
 } finally {
   server.kill('SIGTERM')
-  await new Promise(resolveDone => server.once('exit', resolveDone))
+  await new Promise(done => server.once('exit', done))
   await rm(root, { recursive: true, force: true })
 }
