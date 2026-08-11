@@ -111,6 +111,15 @@ http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x')
   const seg = url.pathname.split('/').filter(Boolean)
 
+  // API: /api/rooms — 公開されている全room名。状態は既存のroom別summaryから読む。
+  if (req.method === 'GET' && seg.length === 2 && seg[0] === 'api' && seg[1] === 'rooms') {
+    const roomNames = readdirSync(DATA, { withFileTypes: true })
+      .filter(entry => entry.isDirectory())
+      .map(entry => entry.name)
+      .sort((a, b) => a.localeCompare(b))
+    return json(res, 200, { schema: 'peertable.rooms.v1', rooms: roomNames }, CORS)
+  }
+
   // API: /api/<room>/...
   if (seg[0] === 'api' && seg[1]) {
     const room = loadRoom(seg[1], req.method !== 'GET')
