@@ -173,11 +173,11 @@ members_after=$(curl -sf "$url/api/$room/members") || {
 }
 if ! printf '%s' "$members_after" | python3 -c '
 import json,sys
-name,model,effort=sys.argv[1:4]
+name,vendor,model,effort=sys.argv[1:5]
 m=next((m for m in json.load(sys.stdin).get("members",[]) if m.get("name")==name),{})
-raise SystemExit(0 if m.get("model")==model and m.get("effort")==effort else 1)
-' "$name" "$model" "$effort"; then
-  echo "SEAT_CHANGE_CHANGED_BUT_UNVERIFIED: 席は再起動済み、member metadataが model=${model} / effort=${effort} でない" >&2
+raise SystemExit(0 if m.get("vendor")==vendor and m.get("model")==model and m.get("effort")==effort else 1)
+' "$name" "$vendor" "$model" "$effort"; then
+  echo "SEAT_CHANGE_CHANGED_BUT_UNVERIFIED: 席は再起動済み、member metadataが vendor=${vendor} / model=${model} / effort=${effort} でない" >&2
   exit 1
 fi
 

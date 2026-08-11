@@ -69,9 +69,11 @@ exit 1
 await writeFile(join(scripts, 'launch-seat.sh'), `#!/bin/bash
 printf '%s|%s|%s|%s|%s|%s\\n' "$1" "$2" "$3" "$4" "$5" "$6" >> "$LAUNCH_LOG"
 if [ -f "$FAIL_MODEL" ] && [ "$3" = "$(cat "$FAIL_MODEL")" ]; then exit 9; fi
+vendor="$4"
 effort="$5"
+[ -n "\${STALE_VENDOR:-}" ] && vendor="\$STALE_VENDOR"
 [ -n "\${STALE_META:-}" ] && effort="\$STALE_META"
-payload=$(python3 -c 'import json,sys;print(json.dumps({"name":sys.argv[1],"vendor":sys.argv[2],"model":sys.argv[3],"effort":sys.argv[4]}))' "$2" "$4" "$3" "\$effort")
+payload=$(python3 -c 'import json,sys;print(json.dumps({"name":sys.argv[1],"vendor":sys.argv[2],"model":sys.argv[3],"effort":sys.argv[4]}))' "$2" "\$vendor" "$3" "\$effort")
 curl -sf -o /dev/null -X POST "$PEERTABLE_URL/api/fixture/members" -H "X-Peertable-Token: ${token}" -H 'content-type: application/json' -d "$payload"
 `)
 await writeFile(credentialHelper, `#!/usr/bin/env node
@@ -303,7 +305,17 @@ try {
     assert.match(result.stderr, /SEAT_CHANGE_CHANGED_BUT_UNVERIFIED/)
   })
 
-  // 12. room 履歴が残る
+  // 12. metadata の vendor が target と食い違っても成功にしない
+  await member({ vendor: 'claude', model: 'opus', effort: 'high' })
+  result = run(['--vendor', 'codex', '--model', 'gpt-5.6-luna', '--effort', 'max'], { STALE_VENDOR: 'claude' })
+  check('vendor metadata が target と違えば成功扱いにしない', () => {
+    assert.notEqual(result.status, 0)
+    assert.match(result.stderr, /SEAT_CHANGE_CHANGED_BUT_UNVERIFIED/)
+    assert.match(result.stderr, /vendor=codex/)
+  })
+  assert.equal((await seat()).vendor, 'claude', '不一致metadataは履歴確定前に検出する')
+
+  // 13. room 履歴が残る
   await member({ vendor: 'claude', model: 'opus', effort: 'high' })
   result = run(['--effort', 'low', '--reason', '判断が軽い工程へ移ったため'])
   assert.equal(result.status, 0, result.stderr)
@@ -315,7 +327,7 @@ try {
     assert.match(changed.body, /理由: 判断が軽い工程へ移ったため/)
   })
 
-  // 13. codex 席は catalog が model / effort の両方を検証する
+  // 14. codex 席は catalog が model / effort の両方を検証する
   await member({ vendor: 'codex', model: 'gpt-5.6-sol', effort: 'high' })
   result = run(['--model', 'gpt-5.6-luna', '--effort', 'max'])
   check('codex の model + effort 同時変更が catalog 検証を通る', () => {
@@ -339,7 +351,7 @@ try {
     assert.match(result.stderr, /SEAT_CHANGE_MODEL_CATALOG_UNAVAILABLE/)
   })
 
-  // 14. 席が居なければ何もしない
+  // 15. 席が居なければ何もしない
   await writeFile(join(root, 'seat-missing'), 'yes\n')
   result = run(['--effort', 'high'])
   check('席が無ければ SEAT_CHANGE_SEAT_MISSING で止まる', () => {
@@ -348,7 +360,7 @@ try {
   })
   await rm(join(root, 'seat-missing'), { force: true })
 
-  // 15. 互換入口（配布済み change-effort.sh）が DM 無しで動く
+  // 16. 互換入口（配布済み change-effort.sh）が DM 無しで動く
   await member({ vendor: 'claude', model: 'opus', effort: 'high' })
   const beforeCompat = (await launchLines()).length
   const compat = runCompat('max')
@@ -359,7 +371,7 @@ try {
   assert.equal((await launchLines()).length, beforeCompat + 1)
   assert.equal((await seat()).effort, 'max')
 
-  // 16. 配布面: diagnostics が両入口の梱包漏れを検出する
+  // 17. 配布面: diagnostics が両入口の梱包漏れを検出する
   const clientSource = await readFile(join(REPO, 'room/client.mjs'), 'utf8')
   check('diagnostics が change-seat.sh / change-effort.sh を必須にする', () => {
     assert.match(clientSource, /'scripts\/change-seat\.sh'/)
