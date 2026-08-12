@@ -39,6 +39,11 @@ for (let i = 0; i < 100; i++) {
   await wait(25)
 }
 
+await fetch(`${base}/members`, {
+  method: 'POST', headers,
+  body: JSON.stringify({ name: 'bell', delivery: { kind: 'parent_watch', host: 'codex' } }),
+})
+
 const post = async (from, to, body) => {
   const response = await fetch(`${base}/messages`, {
     method: 'POST', headers, body: JSON.stringify({ from, to, body }),
@@ -52,6 +57,11 @@ try {
 
   const self = await post('alice', 'alice', '[次の行動] 実装を続ける')
   if (!self.response.ok || self.data.to !== 'alice') throw new Error('自己DMが失敗')
+
+  for (const word of ['待機する', '待機します', '待機。']) {
+    const waiting = await post('alice', 'alice', `[次の行動] ${word}`)
+    if (!waiting.response.ok || waiting.data.to !== 'bell') throw new Error(`${word}を含む投稿が親宛DMへ変換されない`)
+  }
 
   const done = await post('alice', 'all', '[done] x1 実装と確認を完了')
   if (!done.response.ok || done.data.to !== 'all') throw new Error('完了のall投稿が失敗')
@@ -70,7 +80,7 @@ try {
   if (retired.status !== 404) throw new Error(`task-eventsが残っている: HTTP ${retired.status}`)
 
   const messageCount = readFileSync(join(data, room, 'log.jsonl'), 'utf8').trim().split('\n').map(JSON.parse).length
-  if (messageCount !== 5) throw new Error(`通常post以外の行数が混ざった: ${messageCount}`)
+  if (messageCount !== 9) throw new Error(`通常post以外の行数が混ざった: ${messageCount}`)
 
   console.log('room-routing repro: green')
 } finally {

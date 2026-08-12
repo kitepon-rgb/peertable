@@ -56,6 +56,12 @@ const recipientError = (code, message) => ({
   schema: 'peertable.error.v1', code, message,
 })
 
+const WAITING_WORDS = ['待機する', '待機します', '待機。']
+
+function parentName(room) {
+  return [...room.members].find(([, meta]) => meta.delivery?.kind === 'parent_watch')?.[0]
+}
+
 // `all` は room 全体、名前は DM、配列は明示した複数人宛。いずれも同じ通常発言である。
 function normalizeAudience(to, toNames) {
   const list = Array.isArray(to) ? to : Array.isArray(toNames) ? toNames : null
@@ -160,7 +166,8 @@ http.createServer(async (req, res) => {
       // append-only の正本へ**本文の無い行**が入る——しかも送信側には 200 と seq が返るので
       // 「送れた」と表示される（2026-08-08 に本番で2件実測。消せない）
       if (typeof text !== 'string') return json(res, 400, { error: 'body_required' })
-      const audience = normalizeAudience(to, toNames)
+      const waiting = WAITING_WORDS.some(word => text.includes(word))
+      const audience = normalizeAudience(waiting ? parentName(room) : to, waiting ? null : toNames)
       if (audience.error) return json(res, 400, audience.error)
       return json(res, 200, post(room, from, audience.to, text, audience.to_names))
     }
