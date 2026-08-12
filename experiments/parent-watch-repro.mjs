@@ -49,8 +49,10 @@ try {
   const api = `${base}/api/${room}`
   await mkdir(join(project, '.team'), { recursive: true })
   await writeFile(join(project, '.team/setup-state.json'), `${JSON.stringify({ room, server_url: base })}\n`)
+  const serverEnv = { ...process.env, PEERTABLE_PORT: String(port), PEERTABLE_DATA: data }
+  delete serverEnv.PEERTABLE_POST_TOKEN
   server = spawn(process.execPath, [roomServer], {
-    env: { ...process.env, PEERTABLE_PORT: String(port), PEERTABLE_DATA: data }, stdio: 'ignore',
+    env: serverEnv, stdio: 'ignore',
   })
   for (let i = 0; i < 50; i += 1) {
     try { if ((await fetch(`${api}/summary`)).ok) break } catch {}
