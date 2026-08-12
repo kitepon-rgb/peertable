@@ -12,6 +12,7 @@
 //   1. 完了手順の本文中で、監査依頼が `done.sh` 実行より前に出現する
 //   2. 「監査所見が付く前に done.sh を実行しない」ことが明記されている
 //   3. active → ready → 文脈近接 peer audit → 待機 の探索順が明記されている
+//   4. 待機の全体投稿をせず親だけへDMし、turn終了時の次の行動を自分宛DMする
 // member-standalone.md（単独円卓モード）と charter.md（憲章）にも同じ趣旨の記述を求める。
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
@@ -43,9 +44,13 @@ check('member.md: 監査所見が付く前に done.sh を実行しないと明�
 check('member.md: active→ready→文脈近接peer audit→待機の探索順を明記',
   member.includes('探索順は active → ready → 文脈近接 peer audit → 待機である'))
 
-// 4. member.md: turn を閉じる前の記録義務
-check('member.md: active turnを記録せず閉じない規律を明記',
-  member.includes('active な工程を持つターンは、進捗・完了・blocker・明示的待機のいずれかを room へ記録せずに終えない'))
+// 4. member.md: 待機を全体へ流さず、turn終了時は自分宛DMにする
+check('member.md: 待機をallへ投稿しないと明記',
+  member.includes('待機を `to: "all"` へ投稿しない'))
+check('member.md: 待機は最終手段として親だけへDMすると明記',
+  member.includes('最終手段として `[待機] ...` を親（bell 等、その卓の親名）だけへDMする'))
+check('member.md: turn終了時の次の行動を自分宛DMすると明記',
+  member.includes('次に行う作業または再確認条件を `post(to: "<自分の名前>"'))
 
 // 5. member.md: 旧「done後監査」を示す文言（他の席の done を監査する）が除去されている
 check('member.md: 旧「他の席の done を監査する」文言が除去されている',
@@ -63,12 +68,20 @@ check('member-standalone.md: 監査所見が付く前に[done]を出さないと
   standalone.includes('監査所見が付く前に `[done]` を出さない'))
 check('member-standalone.md: active→ready→文脈近接peer audit→待機の探索順を明記',
   standalone.includes('探索順は active → ready → 文脈近接 peer audit → 待機である'))
+check('member-standalone.md: 待機をallへ投稿しないと明記',
+  standalone.includes('待機を `to: "all"` へ投稿しない'))
+check('member-standalone.md: 待機は最終手段として親だけへDMすると明記',
+  standalone.includes('最終手段として `[待機] ...` を親（bell 等、その卓の親名）だけへDMする'))
+check('member-standalone.md: turn終了時の次の行動を自分宛DMすると明記',
+  standalone.includes('次に行う作業または再確認条件を `post(to: "<自分の名前>"'))
 
-// 7. charter.md: 監査ゲート原則とturn記録義務
+// 7. charter.md: 監査ゲート原則と宛先規則
 check('charter.md: 監査前に完了状態にしない原則を明記',
   charter.includes('監査前に工程正本') && charter.includes('完了状態にしない'))
-check('charter.md: turnを記録せず終えない規律を明記',
-  charter.includes('記録せずに自分のターンを終えない'))
+check('charter.md: turn終了時の次の行動は自分宛と明記',
+  charter.includes('ターン終了時の次の行動は `post(to: "<自分の名前>")`'))
+check('charter.md: 待機宣言は最終手段として親だけへDMすると明記',
+  charter.includes('待機宣言は最終手段として親だけへDMし、`all`へ送らない'))
 
 console.log(ok ? 'member audit-before-done repro: green' : 'member audit-before-done repro: RED')
 process.exit(ok ? 0 : 1)
