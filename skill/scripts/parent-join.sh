@@ -19,18 +19,20 @@ if [ -z "${PEERTABLE_POST_TOKEN:-}" ] && [ -f "$HOME/.config/peertable.env" ]; t
   . "$HOME/.config/peertable.env"
 fi
 
-# 親が tmux 内で動いていれば、席と同じ観測記述子（tmux_socket/tmux_target）を自己申告する。
-# これで seat-status-bridge.mjs / wakeup-bridge.mjs が親を通常の席と同じ経路で見つけられる
-# （実測: tsubaki, room[95]。記述子が無いと wakeup-bridge は対象を解決できない）。
+# 親はAiterm席ではない。Codex親は起動元taskそのものを配送先として登録する。
+# tmux observe は通常席専用で、親へ流用すると同名の別席を起こしてしまう。
 observe_socket=""; observe_target=""
-if [ -n "${TMUX:-}" ]; then
+thread_id=""
+if [ "${vendor:-}" = "codex" ] && [ -n "${CODEX_THREAD_ID:-}" ]; then
+  thread_id="$CODEX_THREAD_ID"
+elif [ "${vendor:-}" != "codex" ] && [ -n "${TMUX:-}" ]; then
   observe_socket=$(tmux display-message -p '#{socket_path}' 2>/dev/null || true)
   observe_target=$(tmux display-message -p '#{pane_id}' 2>/dev/null || true)
 fi
 
-member=$(python3 - "$name" "$model" "$effort" "$vendor" "$observe_socket" "$observe_target" <<'PY'
+member=$(python3 - "$name" "$model" "$effort" "$vendor" "$observe_socket" "$observe_target" "$thread_id" <<'PY'
 import json, sys
-name, model, effort, vendor, observe_socket, observe_target = sys.argv[1:7]
+name, model, effort, vendor, observe_socket, observe_target, thread_id = sys.argv[1:8]
 body = {'name': name}
 # 渡された欄だけ載せる。空欄を送ると、素性を持つ既存登録を空で上書きしうる
 if model or vendor:
@@ -41,6 +43,8 @@ if effort:
     body['effort'] = effort
 if observe_socket and observe_target:
     body['observe'] = {'tmux_socket': observe_socket, 'tmux_target': observe_target}
+if thread_id:
+    body['delivery'] = {'kind': 'codex_thread', 'thread_id': thread_id}
 print(json.dumps(body))
 PY
 )
@@ -67,11 +71,9 @@ if [ -f "$proj/.team/roles/parent.md" ]; then
   echo "親役割は $proj/.team/roles/parent.md を読むこと"
 fi
 
-# 外部親は vendor を問わず、observe 記述子があれば wakeup-bridge が起床を担う。
-# descriptor が無いと current name→descriptor 経路を解決できず自動配線できないので、
-# その場合は制約を明示して手動監視へ回す（実測: tsubaki, room[95]）。
+# 親のhost固有delivery記述子がある時だけwakeupを配線する。
 capacity_delivery_ready=1
-if [ -n "$observe_target" ]; then
+if [ -n "$thread_id" ] || [ -n "$observe_target" ]; then
   if "$here/ensure-bridge.sh" "$proj" wakeup "$name"; then
     echo "wakeup-bridge を外部親（${name}）宛に起動した"
   else
@@ -79,7 +81,7 @@ if [ -n "$observe_target" ]; then
     capacity_delivery_ready=0
   fi
 else
-  echo "WARN: 外部親が tmux 外で動いているため wakeup-bridge を自動配線できない（外部注入面が無いhost）。room の新着は read_unread を自分で定期的に呼ぶこと" >&2
+  echo "WARN: PARENT_DELIVERY_DESCRIPTOR_MISSING: 親hostのsession記述子が無いためwakeup-bridgeを自動配線できない" >&2
   capacity_delivery_ready=0
 fi
 

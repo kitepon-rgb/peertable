@@ -112,7 +112,8 @@ try {
     const latticeProj = path.join(work, 'lattice-proj');
     await mkdir(path.join(latticeProj, '.team'), { recursive: true });
     await writeFile(path.join(latticeProj, '.team/setup-state.json'), JSON.stringify({ room: 'r', server_url: url, mode: 'lattice' }));
-    const childEnv = { PEERTABLE_POST_TOKEN: 'x' };
+    const parentThreadId = '019fef48-49b0-7190-a4cc-6ca657000c48';
+    const childEnv = { PEERTABLE_POST_TOKEN: 'x', CODEX_THREAD_ID: parentThreadId };
     const joinResult = await run('bash', [PARENT_JOIN, latticeProj, 'nagi-test', '', '', 'codex'], { env: childEnv });
     check('parent-join.sh（lattice）が成功する', joinResult.code === 0, joinResult.stderr.trim().slice(-300));
     const envFile = await readFile(path.join(latticeProj, '.team/parent-env.sh'), 'utf8').catch(() => null);
@@ -120,18 +121,14 @@ try {
     check('parent-env.sh が LATTICE_TODO_ACTOR_* を親名でexportする',
       (envFile?.includes('LATTICE_TODO_ACTOR_HOST=mac') && envFile?.includes('LATTICE_TODO_ACTOR_SESSION=nagi-test') && envFile?.includes('LATTICE_TODO_ACTOR_AGENT=nagi-test')) ?? false);
     check('vendor=codex が member 登録へ反映される', registered.some((m) => m.vendor === 'codex'));
-    // TMUX 環境変数はこの harness プロセス自身から継承される（fixture が TMUX 外なら observe は無い）。
     const codexMember = registered.find((m) => m.name === 'nagi-test');
-    if (process.env.TMUX) {
-      check('親が tmux 内なら observe（tmux_socket/tmux_target）を自己申告する',
-        typeof codexMember?.observe?.tmux_target === 'string' && codexMember.observe.tmux_target.length > 0,
-        JSON.stringify(codexMember?.observe));
-      check('observe が在れば wakeup-bridge 起動を試みる（ensure-bridge.sh 呼び出しの痕跡）',
-        joinResult.stdout.includes('wakeup-bridge') || joinResult.stderr.includes('wakeup-bridge'));
-    } else {
-      check('親が tmux 外なら observe を送らず制約を明示する',
-        codexMember?.observe === undefined && joinResult.stderr.includes('外部注入面が無いhost'));
-    }
+    check('Codex親はtmux observeでなくthread記述子を自己申告する',
+      codexMember?.observe === undefined
+      && codexMember?.delivery?.kind === 'codex_thread'
+      && codexMember?.delivery?.thread_id === parentThreadId,
+      JSON.stringify(codexMember));
+    check('thread記述子が在ればwakeup-bridge起動を試みる',
+      joinResult.stdout.includes('wakeup-bridge') || joinResult.stderr.includes('wakeup-bridge'));
 
     // 3. mode=standalone では parent-env.sh を作らない
     const standaloneProj = path.join(work, 'standalone-proj');

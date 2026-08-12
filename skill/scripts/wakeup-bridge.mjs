@@ -209,7 +209,38 @@ async function wake(seat, msgs) {
     : `room に新着 ${msgs.length} 件（最新: ${last.from} → ${audience}）。${actionHint}`
   // 配送直前に member ledger を取り直し、current name -> descriptor の一経路だけを使う。
   await refreshMembers()
-  const observation = resolveSeatObservation(members.get(seat), null)
+  const member = members.get(seat)
+  const delivery = member?.delivery
+  if (delivery?.kind === 'codex_thread') {
+    if (typeof delivery.thread_id !== 'string' || !/^[0-9a-f-]{36}$/iu.test(delivery.thread_id)) {
+      const error = new Error(`CODEX_THREAD_DESCRIPTOR_INVALID: ${seat}`)
+      error.code = 'CODEX_THREAD_DESCRIPTOR_INVALID'
+      throw error
+    }
+    const codex = process.env.PEERTABLE_CODEX_BIN || 'codex'
+    let stdout
+    try {
+      ({ stdout } = await run(codex, ['exec', 'resume', delivery.thread_id, text, '--json'], {
+        timeout: 180_000,
+        maxBuffer: 8 * 1024 * 1024,
+      }))
+    } catch (cause) {
+      const error = new Error(`CODEX_THREAD_DELIVERY_FAILED: ${seat}: ${cause.message.split('\n')[0]}`)
+      error.code = 'CODEX_THREAD_DELIVERY_FAILED'
+      throw error
+    }
+    const completed = String(stdout).split('\n').some(line => {
+      try { return JSON.parse(line).type === 'turn.completed' } catch { return false }
+    })
+    if (!completed) {
+      const error = new Error(`CODEX_THREAD_TURN_INCOMPLETE: ${seat}`)
+      error.code = 'CODEX_THREAD_TURN_INCOMPLETE'
+      throw error
+    }
+    log(`Codex親taskを起こした: ${seat} ← ${msgs.length} 件（最新 seq ${last.seq}）`)
+    return
+  }
+  const observation = resolveSeatObservation(member, null)
   if (observation === null) {
     const code = members.has(seat) ? 'DESCRIPTOR_MISSING' : 'MEMBER_MISSING'
     const error = new Error(`${code}: ${seat}`)
