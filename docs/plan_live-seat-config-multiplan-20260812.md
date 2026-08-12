@@ -259,17 +259,18 @@ publish／deployは行わない。
 ## 4. 依存グラフと並列化
 
 ```text
-c1 focused境界
-  ├-> c2 live設定変更実装 ─┐
-  └-> m3 done/evidence/run ─┴-> c3 実席往復・Phase 1受入
-                                  -> m1 単一PLAN負例
-                                  -> m2 setup/launch/role
-                                  -> m4 案内・正典
-                                  -> i1 同一卓複数PLAN実測
-                                  -> g1 最終gate
+c1 focused境界（predecessorでdone） -> c2 live設定変更実装 ─┐
+m3 done/evidence/run（revision時にready）─────────────────────┴-> c3 実席往復・Phase 1受入
+                                                               -> m1 単一PLAN負例
+                                                               -> m2 setup/launch/role
+                                                               -> m4 案内・正典
+                                                               -> i1 同一卓複数PLAN実測
+                                                               -> g1 最終gate
 ```
 
-c1後のc2とm3は書込pathが分離し、一方はlive設定変更、他方は完了gateなので並列候補とする。
+c1完了後のrevisionでは、done済みc1のcarry意味論を変えずにm3をready rootとして登録する。時間上の前提は
+predecessorのc1 doneで証明済みであり、successor storeではc2とm3がready／in-progressで並行する。
+c2とm3は書込pathが分離し、一方はlive設定変更、他方は完了gateなので並列候補とする。
 既存dirty worktreeのためLattice independenceを検証済みにできない間は、計画に明記した所有pathをroomで
 相互確認して直接作業し、既存差分をstageしない。c3以降は直列である。
 
