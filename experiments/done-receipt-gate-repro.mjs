@@ -23,6 +23,7 @@ const plan = 'fixture-plan'
 const latticeLog = join(root, 'lattice.log')
 const state = join(root, 'state.json')
 const remote = join(root, 'remote.git')
+const pullWorktree = join(root, 'pull-worktree')
 
 await mkdir(join(repo, `evidence/${plan}`), { recursive: true })
 await mkdir(bin)
@@ -37,6 +38,11 @@ git('branch', '-M', 'main')
 assert.equal(spawnSync('git', ['init', '--bare', '-q', remote], { encoding: 'utf8' }).status, 0)
 assert.equal(git('remote', 'add', 'origin', remote).status, 0)
 assert.equal(git('push', '-q', '-u', 'origin', 'main').status, 0)
+assert.equal(git('worktree', 'add', '-q', '-b', 'pull-fixture', pullWorktree).status, 0)
+await mkdir(join(pullWorktree, `evidence/${plan}`), { recursive: true })
+await writeFile(join(pullWorktree, `evidence/${plan}/x1.md`), '# pull x1\n')
+assert.equal(spawnSync('git', ['-C', pullWorktree, 'add', '.'], { encoding: 'utf8' }).status, 0)
+assert.equal(spawnSync('git', ['-C', pullWorktree, 'commit', '-q', '-m', 'pull evidence'], { encoding: 'utf8' }).status, 0)
 
 // stub lattice: state.json が「この run/task が今どう見えるか」を決める。
 // run list → active_runs、run observe → intakes、todo done → 呼ばれたことを log へ書く。
@@ -84,6 +90,16 @@ print(json.dumps({"schema":"lattice.pull_run_observation.v1","intakes":intakes})
     printf '{"schema":"lattice.run_landing_report.v1","run_id":"r1","landed":true,"accepted_receipts":[{"task_id":"x1","landed":true}]}\\n'
     exit 0 ;;
   "todo done")
+    test_result_ref=""
+    while [ "$#" -gt 0 ]; do
+      if [ "$1" = "--test-result" ]; then
+        test_result_ref="$2"
+        shift 2
+      else
+        shift
+      fi
+    done
+    [ -n "$test_result_ref" ] && [ -f "$test_result_ref" ] || { echo "test_result missing" >&2; exit 1; }
     python3 -c '
 import json,sys
 path=sys.argv[1]
@@ -92,8 +108,9 @@ sequence=state.get("done_seq", 0) + 1
 state["done_seq"]=sequence
 state["todo_status"]="done"
 state["done_at"]=f"done-{sequence}"
+state["test_result"]=open(sys.argv[2]).read()
 json.dump(state, open(path, "w"))
-' "$STUB_STATE"
+' "$STUB_STATE" "$test_result_ref"
     printf '{"schema":"lattice.todo_mutation_result.v2","task_id":"x1","status":"done"}\\n'
     exit 0 ;;
 esac
@@ -169,6 +186,12 @@ try {
     assert.equal(result.status, 0, `${result.error ?? ''}\n${result.stdout}\n${result.stderr}`)
   })
   assert.equal((await doneCalls()).length, 1)
+  check('証跡と同じ本文をtest_resultへ渡す', () => {
+    const recorded = JSON.parse(spawnSync('cat', [state], { encoding: 'utf8' }).stdout)
+    assert.equal(recorded.test_result, '# x1\n')
+    assert.match((spawnSync('cat', [latticeLog], { encoding: 'utf8' }).stdout), /--test-result \.test-result-fixture-plan-x1\.md/)
+    assert.equal(existsSync(join(repo, '.test-result-fixture-plan-x1.md')), false)
+  })
 
   // 4. 同じdoneの再試行はtodo doneを重ねない
   await resetLog()
@@ -230,7 +253,18 @@ try {
   })
   assert.equal((await doneCalls()).length, 1)
 
-  // 10. --plan は環境の互換既定より優先し、同名taskでも全操作と証跡を呼出しPLANへ束縛する
+  // 10. pull型では隔離worktreeの証跡本文をそのままtest_resultへ渡す
+  await setMode('no_run')
+  await resetLog()
+  result = run('x1', '--evidence-from', join(pullWorktree, `evidence/${plan}/x1.md`))
+  check('pull型も隔離worktreeの証跡本文をtest_resultへ渡す', () => {
+    assert.equal(result.status, 0, result.stderr)
+    const recorded = JSON.parse(spawnSync('cat', [state], { encoding: 'utf8' }).stdout)
+    assert.equal(recorded.test_result, '# pull x1\n')
+    assert.equal(existsSync(join(repo, '.test-result-fixture-plan-x1.md')), false)
+  })
+
+  // 11. --plan は環境の互換既定より優先し、同名taskでも全操作と証跡を呼出しPLANへ束縛する
   const explicitPlan = 'explicit-plan'
   await mkdir(join(repo, `evidence/${explicitPlan}`), { recursive: true })
   await writeFile(join(repo, `evidence/${explicitPlan}/x1.md`), '# explicit plan x1\n')
@@ -243,7 +277,7 @@ try {
   assert.ok((await calls()).some(line => line === `todo show --plan ${explicitPlan} --task x1 --json`), 'todo show が明示PLANを使う')
   assert.ok((await calls()).some(line => line.includes(`todo done --plan ${explicitPlan} --task x1`)), 'todo done が明示PLANを使う')
 
-  // 11. 状態を読めない時は黙って通さない（fallbackで成功にしない）
+  // 12. 状態を読めない時は黙って通さない（fallbackで成功にしない）
   for (const [mode, label] of [
     ['list_broken', 'run list'],
     ['list_invalid', 'run list のJSON不正'],
@@ -263,7 +297,7 @@ try {
     assert.deepEqual(await doneCalls(), [], `${label} 失敗時に todo done が呼ばれていない`)
   }
 
-  // 12. landing-only mode の読取失敗は全て非0で落とす
+  // 13. landing-only mode の読取失敗は全て非0で落とす
   for (const [mode, label] of [
     ['landing_broken', 'run landing の失敗'],
     ['landing_invalid', 'run landing のJSON不正'],
@@ -290,7 +324,7 @@ try {
     assert.match(result.stderr, /着地状態を読めない/)
   })
 
-  // 13. landing-only mode が「未accept」を着地とは別軸で出す
+  // 14. landing-only mode が「未accept」を着地とは別軸で出す
   await setMode('pending')
   await resetLog()
   result = run('--landing-run', '.lattice/runs/r1')

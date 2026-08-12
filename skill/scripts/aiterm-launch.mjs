@@ -8,7 +8,7 @@ if (!session_name || !['claude', 'codex'].includes(vendor) || !model || !reasoni
   throw new Error('SEAT_AITERM_LAUNCH_ARGS_INVALID')
 }
 
-const client = new Client({ name: 'peertable-seat-launch', version: '0.3.9' })
+const client = new Client({ name: 'peertable-seat-launch', version: '0.3.10' })
 await client.connect(new StdioClientTransport({ command: 'aiterm-mcp', env: process.env }))
 const result = await client.callTool({
   name: `${vendor}_agent`,

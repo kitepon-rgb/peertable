@@ -1,7 +1,8 @@
 #!/bin/bash
 # usage: .team/scripts/done.sh <task_id> [--plan <plan_key>] [--evidence-from <隔離worktreeの証跡の絶対path>]
 #        .team/scripts/done.sh --landing-run <run_ref>
-# evidence/<plan_key>/<task_id>.md（commit 済みであること）から記述子を作り lattice todo done を実行する。
+# evidence/<plan_key>/<task_id>.md（commit 済みであること）から記述子を作り、同じ本文を
+# Latticeのtest_resultへ渡して lattice todo done を実行する。
 # plan key は --plan を優先し、省略時だけ環境変数 PEERTABLE_PLAN から取る。
 # 証跡を plan key で仕切るのは、task_id が campaign を跨いで再利用される（t1, t2, …）ため。
 # 平置きだと次の campaign の t1 が前の campaign の t1 の監査証跡を上書きで消す（2026-08-08 実測）。
@@ -29,7 +30,7 @@ usage: done.sh <task_id> [--plan <plan_key>] [--evidence-from <隔離worktreeの
 完了処理:
   --plan <plan_key> を指定する。省略時だけ PEERTABLE_PLAN を使う。
   evidence/<plan>/<task>.md を commit 済みにして done.sh <task_id> を実行する。
-  wrapper が証跡から記述子を生成し、lattice todo done を canonical store へ記録する。
+  wrapper が証跡から記述子を生成し、lattice todo doneで同じ本文を最終試験結果として canonical store へ記録する。
   pull run の worktree で作業した場合だけ --evidence-from に同じrepoの絶対pathを渡す。
   未accept の intake がある場合は、先に run intake accept を完了させる。
 USAGE
@@ -332,19 +333,21 @@ if [ "$already_done" = no ]; then
   oid=$(git hash-object -w "$src")
   digest=$(shasum -a 256 "$src" | cut -d' ' -f1)
   tmp=".ev-$t.json"
+  test_result_tmp=".test-result-$plan-$t.md"
   # **失敗しても記述子を残さない。** `set -e` の下で `todo done` が落ちると、後段の `rm` へ
   # 到達せず repo に `.ev-<task>.json` が残る（自分の負側 test で実測。TASK_NOT_FOUND の後に
   # untracked file が残った）。次に `git status` を撮った人が、それを誰かの作業中変更と読む。
-  trap 'rm -f "$tmp"' EXIT
+  trap 'rm -f "$tmp" "$test_result_tmp"' EXIT
   printf '{"evidence_id":"ev-%s","repo_id":"self","path":"%s","git_blob_oid":"%s","content_digest":"%s","media_type":"text/markdown","anchor_digest":null}\n' "$t" "$f" "$oid" "$digest" > "$tmp"
+  cp "$src" "$test_result_tmp"
   # **PATH の `lattice` へ黙って逸れない。** setup が解決した CLI を席 env の `LATTICE_CLI` で受け、
   # 無い時だけ PATH を使う（bridge の `--lattice` / teardown の `LATTICE_CLI` と同じ選択規律）。
   done_output=""
   done_rc=0
-  done_output=$("$done_gate_cli" todo done --plan "$plan" --task "$t" --evidence "$tmp" 2>&1) || done_rc=$?
+  done_output=$("$done_gate_cli" todo done --plan "$plan" --task "$t" --evidence "$tmp" --test-result "$test_result_tmp" 2>&1) || done_rc=$?
   printf '%s\n' "$done_output"
   [ "$done_rc" -eq 0 ] || exit "$done_rc"
-  rm -f "$tmp"
+  rm -f "$tmp" "$test_result_tmp"
 else
   echo "todo done は既に記録済み: $t" >&2
 fi

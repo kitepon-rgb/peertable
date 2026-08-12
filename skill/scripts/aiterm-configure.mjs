@@ -16,7 +16,7 @@ if (!session_id || (!model && !reasoning_effort)) {
 // Aiterm のmanaged session metadataは実行時state root（macOSではTMPDIR）にある。
 // stdio transportの既定環境は親のTMPDIRを落とすため、同じ公開serverへ明示継承する。
 const transport = new StdioClientTransport({ command: 'aiterm-mcp', env: process.env })
-const client = new Client({ name: 'peertable-seat-configure', version: '0.3.9' })
+const client = new Client({ name: 'peertable-seat-configure', version: '0.3.10' })
 await client.connect(transport)
 const result = await client.callTool({
   name: 'agent_configure',
