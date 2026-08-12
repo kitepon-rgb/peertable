@@ -290,6 +290,9 @@ if [ "$vendor" = codex ] \
   echo "SEAT_CODEX_ROOM_MCP_INVALID: Codexのproject設定へseat固有room clientを装備できない（席は立てない）" >&2
   exit 1
 fi
+# Aiterm launcherはsession作成後にtyped failureを返すことがある。ここから先は同名memberが
+# 無いことを確認済みなので、launch試行が作ったtmux/memberをon_exitの対象として先に所有する。
+seat_created=true
 launch_receipt=$(env -u PEERTABLE_POST_TOKEN "${launch_env[@]}" node "$aiterm_launch_helper" "$sess" "$vendor" "$model" "$effort" "$proj" "$brief") || {
   echo "SEAT_AITERM_LAUNCH_FAILED: ${name} をAiterm公開launcherで起動できない（direct CLI fallbackなし）" >&2
   exit 1
@@ -307,7 +310,6 @@ then
   exit 1
 fi
 aiterm_session_id="$sess"
-seat_created=true
 brief_dispatched=true
 seat_tmux=$(tmux -S "$sock" display-message -p -t "$sess" '#{socket_path}')
 

@@ -26,5 +26,4 @@ const receipt = result.structuredContent ?? JSON.parse(result.content?.[0]?.text
 if (receipt?.schema !== 'aiterm.agent-launch-result.v1' || receipt.provider !== vendor || receipt.session_id !== session_name) {
   throw new Error('SEAT_AITERM_LAUNCH_RECEIPT_INVALID')
 }
-if (prompt && receipt.submit_residue !== false) throw new Error('SEAT_AITERM_LAUNCH_PROMPT_UNCONFIRMED')
 console.log(JSON.stringify(receipt))
