@@ -324,6 +324,8 @@ async function runDiagnostics(asJson) {
       'templates/member-standalone.md',
       'templates/tasks.md',
       'templates/mcp.json',
+      'templates/start.sh',
+      'templates/start-event.mjs',
     ]
     const missing = required.filter(f => !existsSync(join(PKG_ROOT, 'skill', f)))
     return missing.length
