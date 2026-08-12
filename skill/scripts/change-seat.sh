@@ -156,6 +156,10 @@ if [ "$effort" != "$old_effort" ]; then
   changes="${changes}effort ${old_effort:-default} → ${effort}"
 fi
 
+credential_file=$(env -u PEERTABLE_POST_TOKEN node "$credential_helper" path "$proj" "$room" "$name") || {
+  echo "SEAT_CHANGE_CREDENTIAL_MISSING: ${name} のroom credentialを特定できない" >&2; exit 1
+}
+
 if [ "$vendor" = "$old_vendor" ]; then
   [ -n "$aiterm_session_id" ] || {
     echo "SEAT_CHANGE_AITERM_SESSION_MISSING: ${name} にAiterm managed session_idが無い" >&2; exit 1
@@ -167,7 +171,8 @@ if [ "$vendor" = "$old_vendor" ]; then
     echo "SEAT_CHANGE_AITERM_CONFIGURE_FAILED: ${name} の設定は変更していない" >&2; exit 1
   }
   identity=$(python3 -c 'import json,sys;print(json.dumps({"name":sys.argv[1],"vendor":sys.argv[2],"model":sys.argv[3],"effort":sys.argv[4],"aiterm_session_id":sys.argv[5]}))' "$name" "$vendor" "$model" "$effort" "$aiterm_session_id")
-  curl -sf -X POST -H 'Content-Type: application/json' "$url/api/$room/members" -d "$identity" >/dev/null || {
+  env -u PEERTABLE_POST_TOKEN node "$credential_helper" request "$credential_file" POST \
+    "$url/api/$room/members" "$identity" >/dev/null || {
     echo "SEAT_CHANGE_CHANGED_BUT_METADATA_FAILED: ${name} は設定済み、room metadataを同期できない" >&2; exit 1
   }
   change_method="同一sessionを維持"
@@ -208,7 +213,6 @@ fi
 body="[席設定変更] ${parent} が ${name} の ${changes} に変更（${change_method}）"
 [ -z "$reason" ] || body="${body}。理由: ${reason}"
 history=$(python3 -c 'import json,sys;print(json.dumps({"from":sys.argv[1],"to":sys.argv[2],"body":sys.argv[3]},ensure_ascii=False))' "$parent" "$name" "$body")
-credential_file=$(env -u PEERTABLE_POST_TOKEN node "$credential_helper" path "$proj" "$room" "$name")
 history_response=$(env -u PEERTABLE_POST_TOKEN node "$credential_helper" request "$credential_file" POST \
   "$url/api/$room/messages" "$history") || {
   echo "SEAT_CHANGE_CHANGED_BUT_HISTORY_FAILED: ${name} は ${changes} で再着席済み、room履歴の記録に失敗" >&2

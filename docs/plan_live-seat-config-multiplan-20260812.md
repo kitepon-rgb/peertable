@@ -45,7 +45,9 @@ Codex席を立てる正規経路が、同じroomの`wakeup-bridge`を冪等にen
 
 ### 2.5 非目標
 
-- Lattice、Aiterm、Claude Code、Codex CLI本体は改造しない。
+- Lattice、Claude Code、Codex CLI本体は改造しない。i1の実席でAiterm公開`agent_configure`自身の
+  長寿命Codex ready誤判定が確定したため、オーナーの明示指示によりAitermの所有repoで根治する。
+  Peertable側へ再描画・再試行・fallbackは置かない。
 - npm version bump、publish、本番deployは行わない。
 - 旧`t4`の修理や監査は行わない。
 - 実証されていない安全装置、追加gate、wrapper、独自launcher再構築は加えない。r1はAiterm公開launchを呼ぶ

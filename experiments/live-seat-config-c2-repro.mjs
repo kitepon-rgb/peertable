@@ -18,5 +18,7 @@ assert.match(change, /\[ -z "\$opt_effort" \] \|\| configure_args\+=\(--effort "
 assert.match(change, /change_method="同一sessionを維持"/)
 assert.match(change, /change_method="席を再起動"/)
 assert.match(change, /if \[ "\$vendor" = "\$old_vendor" \]; then/)
+assert.match(change, /credential_helper" request "\$credential_file" POST \\\n+\s+"\$url\/api\/\$room\/members" "\$identity"/)
+assert.doesNotMatch(change, /curl -sf -X POST[^\n]+\/members/)
 
-console.log('live-seat-config c2 boundary: 9/9 green')
+console.log('live-seat-config c2 boundary: 11/11 green')

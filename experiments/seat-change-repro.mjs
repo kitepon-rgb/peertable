@@ -23,6 +23,7 @@ const bin = join(root, 'bin')
 const data = join(root, 'data')
 const screen = join(root, 'screen.txt')
 const launchLog = join(root, 'launch.log')
+const configureLog = join(root, 'configure.log')
 const failModel = join(root, 'fail-model')
 const credentialHelper = join(root, 'seat-credential.mjs')
 const port = 19200 + Math.floor(Math.random() * 500)
@@ -35,6 +36,12 @@ for (const script of ['change-seat.sh', 'change-effort.sh', 'leave-seat.sh']) {
   await cp(join(REPO, 'skill/scripts', script), join(scripts, script))
   await chmod(join(scripts, script), 0o755)
 }
+await writeFile(join(scripts, 'aiterm-configure.mjs'), `#!/usr/bin/env node
+import { appendFileSync, existsSync, readFileSync } from 'node:fs'
+const args = process.argv.slice(2)
+appendFileSync(process.env.CONFIGURE_LOG, args.join('|') + '\\n')
+if (existsSync(process.env.FAIL_MODEL) && args.includes(readFileSync(process.env.FAIL_MODEL, 'utf8').trim())) process.exit(9)
+`)
 await writeFile(screen, 'idle\n')
 
 await writeFile(join(bin, 'tmux'), `#!/bin/bash
@@ -115,6 +122,7 @@ const env = {
   FAKE_SCREEN: screen,
   LAUNCH_LOG: launchLog,
   FAIL_MODEL: failModel,
+  CONFIGURE_LOG: configureLog,
   SEAT_MISSING: join(root, 'seat-missing'),
 }
 
@@ -131,7 +139,7 @@ assert.equal(ready, true, 'fixture room serverが起動する')
 
 const member = body => api('members', {
   method: 'POST', headers: { 'content-type': 'application/json', 'X-Peertable-Token': token },
-  body: JSON.stringify({ name: 'koharu', observe: { tmux_socket: env.PEERTABLE_TMUX_SOCKET, tmux_target: 'peer-koharu' }, ...body }),
+  body: JSON.stringify({ name: 'koharu', aiterm_session_id: 'peer-koharu', observe: { tmux_socket: env.PEERTABLE_TMUX_SOCKET, tmux_target: 'peer-koharu' }, ...body }),
 })
 const seat = async () => (await api('members')).members.find(x => x.name === 'koharu')
 const run = (args, extra = {}) => spawnSync(join(scripts, 'change-seat.sh'), [project, 'koharu', ...args], {
@@ -142,6 +150,9 @@ const runCompat = (effort) => spawnSync(join(scripts, 'change-effort.sh'), [proj
 })
 const launchLines = async () => {
   try { return (await readFile(launchLog, 'utf8')).trim().split('\n').filter(Boolean) } catch { return [] }
+}
+const configureLines = async () => {
+  try { return (await readFile(configureLog, 'utf8')).trim().split('\n').filter(Boolean) } catch { return [] }
 }
 const messages = async () => (await api('messages')).messages
 let checks = 0
@@ -158,9 +169,10 @@ try {
     assert.doesNotMatch(result.stderr, /REQUEST_REQUIRED/)
   })
   let lines = await launchLines()
-  check('再起動は同じ vendor / model で1回だけ', () => {
-    assert.equal(lines.length, 1)
-    assert.match(lines[0], /\|koharu\|opus\|claude\|max\|/)
+  let configured = await configureLines()
+  check('同じvendorはAitermの同一sessionで変更する', () => {
+    assert.equal(lines.length, 0)
+    assert.equal(configured.at(-1), 'peer-koharu|--effort|max')
   })
   assert.equal((await seat()).effort, 'max', 'member metadata が effort=max を読み返せる')
 
@@ -171,8 +183,8 @@ try {
     assert.match(result.stdout, /SEAT_CHANGE_OK: koharu model opus → sonnet/)
     assert.doesNotMatch(result.stdout, /effort/)
   })
-  lines = await launchLines()
-  assert.match(lines.at(-1), /\|koharu\|sonnet\|claude\|max\|/)
+  configured = await configureLines()
+  assert.equal(configured.at(-1), 'peer-koharu|--model|sonnet')
   assert.equal((await seat()).model, 'sonnet')
   assert.equal((await seat()).effort, 'max')
 
@@ -184,15 +196,19 @@ try {
   })
   assert.equal((await seat()).model, 'opus')
   assert.equal((await seat()).effort, 'high')
+  configured = await configureLines()
+  assert.equal(configured.at(-1), 'peer-koharu|--model|opus|--effort|high')
 
   // 4. 同値 no-op: 席を止めない
   const beforeNoop = (await launchLines()).length
+  const beforeNoopConfigure = (await configureLines()).length
   result = run(['--model', 'opus', '--effort', 'high'])
   check('同値変更は no-op で席を再起動しない', () => {
     assert.equal(result.status, 0, result.stderr)
     assert.match(result.stdout, /SEAT_CHANGE_NOOP/)
   })
   assert.equal((await launchLines()).length, beforeNoop, 'no-op で launch が増えない')
+  assert.equal((await configureLines()).length, beforeNoopConfigure, 'no-op で configure が増えない')
 
   // 5. busy 席は停止しない
   await writeFile(screen, 'Working… esc to interrupt\n')
@@ -286,37 +302,34 @@ try {
   })
   assert.equal((await launchLines()).length, beforePostVendorChecks, 'catalog不明で席を再起動しない')
 
-  // 9. live で起動しない model は、起動失敗→旧設定へ1回だけ rollback（fable-5 と同じ形）
+  // 9. 同一vendorのconfigure失敗は再起動やrollbackへ逃げず、旧metadataを保つ
   await writeFile(failModel, 'fable')
   const beforeRollback = (await launchLines()).length
   result = run(['--model', 'fable'])
-  check('起動しない model は旧設定へ1回だけ rollback される', () => {
+  check('Aiterm configure失敗を再起動で隠さない', () => {
     assert.notEqual(result.status, 0)
-    assert.match(result.stderr, /SEAT_CHANGE_RESTART_FAILED/)
-    assert.match(result.stderr, /SEAT_CHANGE_ROLLED_BACK/)
+    assert.match(result.stderr, /SEAT_CHANGE_AITERM_CONFIGURE_FAILED/)
   })
   lines = await launchLines()
-  assert.equal(lines.length, beforeRollback + 2, '失敗1回 + rollback1回だけ')
-  assert.match(lines.at(-2), /\|koharu\|fable\|claude\|high\|/)
-  assert.match(lines.at(-1), /\|koharu\|opus\|claude\|high\|/)
-  assert.equal((await seat()).model, 'opus', 'rollback 後は旧 model')
+  assert.equal(lines.length, beforeRollback, 'configure失敗で再起動しない')
+  assert.equal((await seat()).model, 'opus', '失敗後も旧 model metadata')
   assert.equal((await seat()).effort, 'high')
 
-  // 10. rollback も失敗したら黙らない
+  // 10. configure失敗でも旧memberを外さない
   await writeFile(failModel, 'opus')
   await member({ vendor: 'claude', model: 'opus', effort: 'high' })
   result = run(['--model', 'opus', '--effort', 'low'])
-  check('rollback 失敗を握りつぶさない', () => {
+  check('configure失敗を握りつぶさない', () => {
     assert.notEqual(result.status, 0)
-    assert.match(result.stderr, /SEAT_CHANGE_ROLLBACK_FAILED/)
+    assert.match(result.stderr, /SEAT_CHANGE_AITERM_CONFIGURE_FAILED/)
   })
-  assert.equal(await seat(), undefined, 'rollback失敗後に旧memberを生存扱いしない')
+  assert.equal((await seat()).model, 'opus', 'configure失敗後も旧memberを保つ')
   await rm(failModel, { force: true })
 
   // 11. metadata の読み返しが target と食い違えば成功にしない
   await member({ vendor: 'claude', model: 'opus', effort: 'high' })
   await rm(join(root, 'seat-missing'), { force: true })
-  result = run(['--effort', 'low'], { STALE_META: 'high' })
+  result = run(['--vendor', 'codex', '--model', 'gpt-5.6-luna', '--effort', 'max'], { STALE_META: 'high' })
   check('metadata が target と違えば成功扱いにしない', () => {
     assert.notEqual(result.status, 0)
     assert.match(result.stderr, /SEAT_CHANGE_CHANGED_BUT_UNVERIFIED/)
@@ -361,7 +374,7 @@ try {
     assert.equal(result.status, 0, result.stderr)
     assert.match((`${result.stdout}`), /model gpt-5\.6-sol → gpt-5\.6-luna \/ effort high → max/)
   })
-  assert.match((await launchLines()).at(-1), /\|gpt-5\.6-luna\|codex\|max\|/)
+  assert.equal((await configureLines()).at(-1), 'peer-koharu|--model|gpt-5.6-luna|--effort|max')
   result = run(['--effort', 'ultra'])
   check('catalog が提供しない effort は codex でも拒否される', () => {
     assert.notEqual(result.status, 0)
@@ -389,13 +402,13 @@ try {
 
   // 16. 互換入口（配布済み change-effort.sh）が DM 無しで動く
   await member({ vendor: 'claude', model: 'opus', effort: 'high' })
-  const beforeCompat = (await launchLines()).length
+  const beforeCompat = (await configureLines()).length
   const compat = runCompat('max')
   check('互換入口 change-effort.sh が依頼DMなしで通る', () => {
     assert.equal(compat.status, 0, compat.stderr)
     assert.match(compat.stdout, /SEAT_CHANGE_OK: koharu effort high → max/)
   })
-  assert.equal((await launchLines()).length, beforeCompat + 1)
+  assert.equal((await configureLines()).length, beforeCompat + 1)
   assert.equal((await seat()).effort, 'max')
 
   // 17. 配布面: diagnostics が両入口の梱包漏れを検出する
