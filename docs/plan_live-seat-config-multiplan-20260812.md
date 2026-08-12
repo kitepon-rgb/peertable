@@ -15,7 +15,8 @@ Peertableの稼働中Claude／Codex席のmodel／effortを、席・vendor sessio
 一つのroomと同じ長寿命メンバー群が、同じLattice store内の複数PLANを完全修飾して選択・着手・監査・
 完了できる状態を正とする。
 
-優先順位は固定する。Phase 1をpeer audit込みで完了するまでPhase 2の製品変更を開始しない。
+優先順位は固定する。c1後は最優先のPhase 1実装c2と、全後続工程の無駄な再監査を止める即時gate m3だけを
+並行可能にする。c2とm3の双方をpeer audit込みで完了してからc3を閉じ、Phase 2へ進む。
 
 ## 2. 設計判断
 
@@ -98,6 +99,18 @@ room member metadataへ`worker`／`auditor`の席役割を機械可読に保持�
 実装worker数、ready reclaim候補、worker縮退候補から除外し、監査capacityとして別に残す。本campaignの
 運用契約はSol監査専任を一席維持することであり、idleであることを理由に実装claimや退席を促さない。
 
+#### 2.8 監査receiptは固定成果SHAへ束縛し、成果証跡を書き換えない
+
+Latticeが`todo done`で要求するのは証跡記述子のpath、blob OID、content digest等であり、証跡本文中の
+監査文ではない。Peertableの`done.sh`が証跡本文を正規表現で走査して`監査`と`DEFECT-FREE`を要求する
+現行gateは廃止する。
+
+完了順序は「実装者が成果と証跡をcommitしてSHA固定 → 別席がそのplan/task/SHAを実測監査 → roomへ
+構造化されたDEFECT-FREE receiptを記録 → 実装者の`done.sh`が別席・完全修飾plan/task・固定SHAの一致を
+検証 → 同じ固定済み証跡の記述子をLatticeへ渡す」とする。監査所見を成果証跡へ追記して新commitを作らず、
+その追記commitを再監査する自己参照ループを作らない。receipt不在、自己監査、別SHA、別plan/taskはtypedに
+拒否し、証跡本文の文言検査へfallbackしない。
+
 ## 3. Lattice工程
 
 ### c1 Aiterm公開面へのPeertable実席接続をfocused testで確定する
@@ -126,7 +139,7 @@ Aiterm失敗、metadata同期失敗を正負で測り、対象sessionとcontext�
 
 ### c3 Phase 1を実Peertable席で往復確認し、案内を同期する
 
-Phase 1。依存: c2。所有: Phase 1実席証跡、`skill/SKILL.md`、`skill/templates/member.md`、
+Phase 1。依存: c2、m3。所有: Phase 1実席証跡、`skill/SKILL.md`、`skill/templates/member.md`、
 `skill/templates/member-standalone.md`、`skill/templates/parent.md`の設定変更節だけ。
 
 破棄可能なClaude席とCodex席で、初期設定→別model／effort→初期設定の往復を同一sessionで行う。
@@ -167,12 +180,16 @@ Sol監査専任一席がidleでもworker向け`reclaim_idle`／`scale_down`を�
 
 ### m3 done・証跡・run操作を呼出しPLANで束縛する
 
-Phase 2。依存: m1。所有: `skill/templates/done.sh`、対応focused harness、必要な診断だけ。
+即時完了gate。依存: c1。所有: `skill/templates/done.sh`、対応focused harness、必要な診断だけ。
 
 `done.sh`へ呼出し単位のplan指定を追加し、明示値を正、`PEERTABLE_PLAN`を互換省略値とする。task show／done、
 evidence path、active pull run、receipt gate、完了イベントのすべてが同じplan keyへ束縛されることを確認する。
+receipt gateはroomの別席DEFECT-FREE receiptを、完全修飾plan/taskと監査対象commit SHAで検証する。証跡本文へ
+監査語を追記させず、監査前に固定した成果SHAと証跡blobを変更しない。
 
 受入条件: 別PLANに同じtask idが存在しても誤完了・誤証跡・誤receipt参照が起きず、旧呼出しも維持される。
+実装者が監査前に固定したSHAのままdoneでき、監査所見追記commitとその再監査を要求しない。receipt不在、
+実装者本人のreceipt、別SHA、別plan/taskは副作用より前に拒否される。
 
 ### m4 複数PLANの案内と運用正典を同期する
 
@@ -210,17 +227,18 @@ publish／deployは行わない。
 
 ```text
 c1 focused境界
-  -> c2 live設定変更実装
-  -> c3 実席往復・Phase 1受入
-  -> m1 単一PLAN負例
-       -> m2 setup/launch/role ─┐
-       -> m3 done/evidence/run ─┴-> m4 案内・正典
+  ├-> c2 live設定変更実装 ─┐
+  └-> m3 done/evidence/run ─┴-> c3 実席往復・Phase 1受入
+                                  -> m1 単一PLAN負例
+                                  -> m2 setup/launch/role
+                                  -> m4 案内・正典
                                   -> i1 同一卓複数PLAN実測
                                   -> g1 最終gate
 ```
 
-Phase 1は同じ設定変更線を触るため直列化する。Phase 2のm2とm3だけは書込pathが分離するので並列候補とし、
-Lattice independenceが非交差と検証した場合だけ同時実行する。m4以降は直列である。
+c1後のc2とm3は書込pathが分離し、一方はlive設定変更、他方は完了gateなので並列候補とする。
+既存dirty worktreeのためLattice independenceを検証済みにできない間は、計画に明記した所有pathをroomで
+相互確認して直接作業し、既存差分をstageしない。c3以降は直列である。
 
 ## 5. F / A / Hと検証
 
