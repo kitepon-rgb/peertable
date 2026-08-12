@@ -192,9 +192,40 @@ body="[席設定変更] ${parent} が ${name} の ${changes} に変更（席を�
 [ -z "$reason" ] || body="${body}。理由: ${reason}"
 history=$(python3 -c 'import json,sys;print(json.dumps({"from":sys.argv[1],"to":sys.argv[2],"body":sys.argv[3]},ensure_ascii=False))' "$parent" "$name" "$body")
 credential_file=$(env -u PEERTABLE_POST_TOKEN node "$credential_helper" path "$proj" "$room" "$name")
-if ! env -u PEERTABLE_POST_TOKEN node "$credential_helper" request "$credential_file" POST \
-  "$url/api/$room/messages" "$history" >/dev/null; then
+history_response=$(env -u PEERTABLE_POST_TOKEN node "$credential_helper" request "$credential_file" POST \
+  "$url/api/$room/messages" "$history") || {
   echo "SEAT_CHANGE_CHANGED_BUT_HISTORY_FAILED: ${name} は ${changes} で再着席済み、room履歴の記録に失敗" >&2
+  exit 1
+}
+history_seq=$(printf '%s' "$history_response" | python3 -c '
+import json,sys
+try:
+    seq=json.load(sys.stdin).get("seq")
+except (ValueError, TypeError):
+    raise SystemExit(1)
+print(seq)
+raise SystemExit(0 if isinstance(seq, int) else 1)
+') || {
+  echo "SEAT_CHANGE_CHANGED_BUT_HISTORY_FAILED: ${name} は ${changes} で再着席済み、room履歴POST応答のseqを読めない" >&2
+  exit 1
+}
+
+messages_after=$(env -u PEERTABLE_POST_TOKEN node "$credential_helper" request "$credential_file" GET \
+  "$url/api/$room/messages") || {
+  echo "SEAT_CHANGE_CHANGED_BUT_HISTORY_FAILED: ${name} は ${changes} で再着席済み、room履歴を読み返せない" >&2
+  exit 1
+}
+if ! printf '%s' "$messages_after" | python3 -c '
+import json,sys
+seq,parent,name,body=sys.argv[1:5]
+try:
+    messages=json.load(sys.stdin).get("messages",[])
+except (ValueError, TypeError):
+    raise SystemExit(1)
+matched=next((m for m in messages if str(m.get("seq")) == seq), None)
+raise SystemExit(0 if matched and matched.get("from") == parent and matched.get("to") == name and matched.get("body") == body else 1)
+' "$history_seq" "$parent" "$name" "$body"; then
+  echo "SEAT_CHANGE_CHANGED_BUT_HISTORY_FAILED: ${name} は ${changes} で再着席済み、room履歴の読返しがtargetと一致しない" >&2
   exit 1
 fi
 

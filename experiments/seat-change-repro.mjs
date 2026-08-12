@@ -86,7 +86,16 @@ else if (action === 'prepare') process.stdout.write(args[0] + '/.team/fixture.to
 else if (action === 'remove') process.exit(0)
 else if (action === 'request') {
   const response = await fetch(args[2], { method: args[1], headers: { 'content-type': 'application/json', 'X-Peertable-Token': ${JSON.stringify(token)} }, ...(args[3] ? { body: args[3] } : {}) })
+  const responseBody = await response.text()
   if (!response.ok) process.exit(1)
+  if (process.env.HISTORY_READBACK_BROKEN === '1' && args[1] === 'GET' && args[2].endsWith('/messages')) {
+    const payload = JSON.parse(responseBody)
+    const latest = payload.messages && payload.messages[payload.messages.length - 1]
+    if (latest) latest.body = 'readback-mismatch'
+    process.stdout.write(JSON.stringify(payload))
+  } else {
+    process.stdout.write(responseBody)
+  }
 } else process.exit(2)
 `)
 await Promise.all(['tmux', 'claude', 'codex'].map(name => chmod(join(bin, name), 0o755)))
@@ -335,7 +344,17 @@ try {
     assert.match(changed.body, /理由: 判断が軽い工程へ移ったため/)
   })
 
-  // 14. codex 席は catalog が model / effort の両方を検証する
+  // 14. room履歴の読返し不一致は、履歴が存在していても成功扱いにしない
+  await member({ vendor: 'claude', model: 'opus', effort: 'high' })
+  result = run(['--effort', 'max'], { HISTORY_READBACK_BROKEN: '1' })
+  check('room履歴の読返し不一致を成功扱いにしない', () => {
+    assert.notEqual(result.status, 0)
+    assert.match(result.stderr, /SEAT_CHANGE_CHANGED_BUT_HISTORY_FAILED/)
+    assert.match(result.stderr, /読返しがtargetと一致しない/)
+  })
+  assert.equal((await seat()).effort, 'max', '履歴読返し不一致でも実席の変更自体は維持される')
+
+  // 15. codex 席は catalog が model / effort の両方を検証する
   await member({ vendor: 'codex', model: 'gpt-5.6-sol', effort: 'high' })
   result = run(['--model', 'gpt-5.6-luna', '--effort', 'max'])
   check('codex の model + effort 同時変更が catalog 検証を通る', () => {

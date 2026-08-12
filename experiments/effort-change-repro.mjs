@@ -62,7 +62,9 @@ const [action, ...args] = process.argv.slice(2)
 if (action === 'path') process.stdout.write(args[0] + '/.team/fixture.token\\n')
 else if (action === 'request') {
   const response = await fetch(args[2], { method: args[1], headers: { 'content-type': 'application/json', 'X-Peertable-Token': ${JSON.stringify(token)} }, ...(args[3] ? { body: args[3] } : {}) })
+  const responseBody = await response.text()
   if (!response.ok) process.exit(1)
+  process.stdout.write(responseBody)
 } else process.exit(2)
 `)
 await Promise.all(['tmux', 'claude'].map(name => chmod(join(bin, name), 0o755)))
@@ -131,7 +133,7 @@ try {
     const source = await readFile(join(REPO, 'skill/scripts', script), 'utf8')
     // コメントは「昔こうだった」を書き残す面なので除く。見るのは実際に走る行だけ
     const code = source.split('\n').filter(line => !/^\s*#/.test(line)).join('\n')
-    // 履歴の POST は残す。禁じているのは**読み直して依頼を再検証する**形（GET /messages）だけ
+    // 履歴の POST 後に GET で保存結果を検証するのは許す。禁じているのは依頼文面を再解釈・再検証する形
     assert.doesNotMatch(code, /curl -sf "\$url\/api\/\$room\/messages"/, `${script} が room の発言を読み直さない`)
     assert.doesNotMatch(code, /effort変更依頼/, `${script} が依頼文面の完全一致を検査しない`)
   }
