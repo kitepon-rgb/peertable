@@ -13,6 +13,8 @@
 # 工程の記録は、卓そのものより寿命が長い**。ゲスト project を汚さない不可侵原則は `--purge` が持つ。
 set -e
 proj="$1"
+script_dir=$(cd "$(dirname "$0")" && pwd -P)
+peertable_repo=$(cd "$script_dir/../.." && pwd -P)
 mode=archive
 for arg in "${@:2}"; do
   case "$arg" in
@@ -298,6 +300,12 @@ if yes_ "$ext"; then
   fi
 else
   skip "外部ペイン（登録なし）"
+fi
+
+if node "$script_dir/ensure-codex-room-mcp.mjs" remove "$proj" "$peertable_repo"; then
+  did "Codex project設定からPeertable room MCPを撤去"
+else
+  miss "Codex project設定のPeertable room MCPを撤去できない"
 fi
 
 rm -rf "$proj/.team"

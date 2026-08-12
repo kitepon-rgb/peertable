@@ -31,6 +31,7 @@ fi
 unset PEERTABLE_POST_TOKEN
 credential_helper="${PEERTABLE_CREDENTIAL_HELPER:-$(dirname "$0")/seat-credential.mjs}"
 room_mcp_helper="${PEERTABLE_ROOM_MCP_HELPER:-$(dirname "$0")/ensure-room-mcp.mjs}"
+codex_room_mcp_helper="${PEERTABLE_CODEX_ROOM_MCP_HELPER:-$(dirname "$0")/ensure-codex-room-mcp.mjs}"
 aiterm_launch_helper="${PEERTABLE_AITERM_LAUNCH_HELPER:-$(dirname "$0")/aiterm-launch.mjs}"
 peertable_repo=$(cd "$(dirname "$0")/../.." && pwd -P)
 peertable_client="$peertable_repo/room/client.mjs"
@@ -225,6 +226,10 @@ fi
 mcp_ownership=$(python3 -c "import json;d=json.load(open('$state'));print('managed' if d.get('added_root_mcp', d.get('root_mcp_json_fallback', False)) else 'preexisting')")
 if ! node "$room_mcp_helper" "$proj" "$peertable_repo" "$mcp_ownership"; then
   echo "SEAT_ROOM_MCP_INVALID: Aiterm席のroom clientをcurrent treeへ束縛できない（席は立てない）" >&2
+  exit 1
+fi
+if [ "$vendor" = codex ] && ! node "$codex_room_mcp_helper" ensure "$proj" "$peertable_repo"; then
+  echo "SEAT_CODEX_ROOM_MCP_INVALID: Codexのproject設定へroom clientを装備できない（席は立てない）" >&2
   exit 1
 fi
 
