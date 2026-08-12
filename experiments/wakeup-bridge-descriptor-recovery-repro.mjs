@@ -2,15 +2,15 @@
 // k1 focused harness:
 //   current member name -> observe descriptor のみを配送経路にすること、
 //   descriptor/注入失敗を pending と cursor に保持して復旧後一度だけ届けること、
-//   parent-join 経由の Bell 外部席を実席で起こせることを測る。
+//   descriptor欠損と注入失敗を、通常席のcurrent descriptor復旧後に一度だけ届けることを測る。
 //
 // 修正前は次のどれかで RED になる。
 //   - 起動引数に無い Claude 席を Codex 限定の reconcile が落とす
-//   - descriptor の無い Bell を static seat + 既定 socket へ送る
+//   - descriptor の無い通常席を static seat + 既定 socket へ送る
 //   - 注入失敗後に pending と lastSeq を先に確定し、descriptor 復旧後に再送しない
 import { execFileSync, spawn } from 'node:child_process'
 import { once } from 'node:events'
-import { copyFile, chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -19,11 +19,10 @@ import { fileURLToPath } from 'node:url'
 const REPO = dirname(dirname(fileURLToPath(import.meta.url)))
 const ROOM_SERVER = join(REPO, 'room', 'server.mjs')
 const BRIDGE = join(REPO, 'skill', 'scripts', 'wakeup-bridge.mjs')
-const PARENT_JOIN = join(REPO, 'skill', 'scripts', 'parent-join.sh')
 const ROOM = 'wakeup-bridge-descriptor-recovery'
 const STATIC_SEAT = 'old-codex'
 const ADDED_SEAT = 'added-claude'
-const BELL = 'bell'
+const MISSING_DESCRIPTOR_SEAT = 'missing-descriptor-seat'
 const FAILED_SEAT = 'recover-seat'
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
@@ -55,17 +54,12 @@ const project = join(root, 'project')
 const data = join(root, 'room-data')
 const socket = join(root, 'tmux.sock')
 const capture = join(root, 'wake.txt')
-const adapterDir = join(root, 'external-adapter')
-const adapterParentJoin = join(adapterDir, 'parent-join.sh')
-const adapterEnsure = join(adapterDir, 'ensure-bridge.sh')
-const ensureLog = join(root, 'ensure.log')
 const port = await freePort()
 const baseUrl = `http://127.0.0.1:${port}`
 const base = `${baseUrl}/api/${ROOM}`
 
 let server = null
 let bridge = null
-let parentSessionReady = false
 let serverError = ''
 const bridgeLog = []
 let good = true
@@ -101,7 +95,6 @@ const descriptor = target => ({ tmux_socket: socket, tmux_target: target })
 
 try {
   await mkdir(join(project, '.team'), { recursive: true })
-  await mkdir(adapterDir, { recursive: true })
   await mkdir(data, { recursive: true })
   await writeFile(capture, '')
   await writeFile(join(project, '.team', 'setup-state.json'), JSON.stringify({
@@ -110,17 +103,10 @@ try {
     mode: 'standalone',
   }) + '\n')
 
-  // parent-join の本体はそのまま使う。capacity の副作用だけは fixture の薄い stub へ隔離する。
-  await copyFile(PARENT_JOIN, adapterParentJoin)
-  await writeFile(ensureLog, '')
-  await writeFile(adapterEnsure, `#!/bin/bash
-printf '%s\\n' "$*" >> ${shellQuote(ensureLog)}
-`)
-  await chmod(adapterParentJoin, 0o755)
-  await chmod(adapterEnsure, 0o755)
-
+  const serverEnv = { ...process.env, PEERTABLE_PORT: String(port), PEERTABLE_DATA: data }
+  delete serverEnv.PEERTABLE_POST_TOKEN
   server = spawn(process.execPath, [ROOM_SERVER], {
-    env: { ...process.env, PEERTABLE_PORT: String(port), PEERTABLE_DATA: data },
+    env: serverEnv,
     stdio: ['ignore', 'ignore', 'pipe'],
   })
   server.stderr.on('data', chunk => { serverError += chunk.toString('utf8') })
@@ -133,7 +119,7 @@ printf '%s\\n' "$*" >> ${shellQuote(ensureLog)}
   startPane(`peer-${STATIC_SEAT}`)
   await member(STATIC_SEAT, { vendor: 'codex', observe: descriptor(`peer-${STATIC_SEAT}`) })
 
-  bridge = spawn(process.execPath, [BRIDGE, project, STATIC_SEAT, BELL, FAILED_SEAT], {
+  bridge = spawn(process.execPath, [BRIDGE, project, STATIC_SEAT, MISSING_DESCRIPTOR_SEAT, FAILED_SEAT], {
     env: { ...process.env, PEERTABLE_TMUX_SOCKET: socket },
     stdio: ['ignore', 'pipe', 'pipe'],
   })
@@ -157,38 +143,24 @@ printf '%s\\n' "$*" >> ${shellQuote(ensureLog)}
   await sleep(2_500)
   check('追加Claude席のwakeが重複しない', (await linesFor(addedWake)).length === 1, JSON.stringify(await linesFor(addedWake)))
 
-  // 2. static引数と既定socketだけではBellを起こさない。descriptor無しのままは失敗を保持する。
-  startPane(`peer-${BELL}`)
-  await member(BELL)
+  // 2. static引数と既定socketだけでは通常席を起こさない。descriptor無しのままは失敗を保持する。
+  startPane(`peer-${MISSING_DESCRIPTOR_SEAT}`)
+  await member(MISSING_DESCRIPTOR_SEAT, { vendor: 'codex' })
   await sleep(2_500)
   await writeFile(capture, '')
-  await message('asahi', BELL, 'bell waits for external descriptor')
-  const bellWake = `asahi → ${BELL}`
+  await message('asahi', MISSING_DESCRIPTOR_SEAT, 'seat waits for current descriptor')
+  const missingDescriptorWake = `asahi → ${MISSING_DESCRIPTOR_SEAT}`
   await sleep(2_500)
-  check('Bell descriptor不在ではstatic seat/legacy socketへ送らない', (await linesFor(bellWake)).length === 0, JSON.stringify(await linesFor(bellWake)))
-  check('Bell descriptor不在がtyped failureとして記録される', bridgeLog.join('').includes('WAKEUP_BRIDGE_DELIVERY_FAILURE') && bridgeLog.join('').includes('DESCRIPTOR_MISSING'), bridgeLog.join('').slice(-800))
+  check('descriptor不在ではstatic seat/legacy socketへ送らない', (await linesFor(missingDescriptorWake)).length === 0, JSON.stringify(await linesFor(missingDescriptorWake)))
+  check('descriptor不在がtyped failureとして記録される', bridgeLog.join('').includes('WAKEUP_BRIDGE_DELIVERY_FAILURE') && bridgeLog.join('').includes('DESCRIPTOR_MISSING'), bridgeLog.join('').slice(-800))
 
-  // parent-join.sh を実際のtmux外部席で実行し、同じBell identityへdescriptorを登録する。
-  // 親paneはjoin後も cat で生かし、bridgeのsend-keysを実際に受ける。
-  const parentCommand = `${adapterParentJoin} ${project} ${BELL} '' '' claude; exec cat >> ${capture}`
-  tmux('new-session', '-d', '-s', 'bell-external', '-x', '120', '-y', '30', `bash -lc ${shellQuote(parentCommand)}`)
-  parentSessionReady = true
-  check('Bell external adapter が同じnameへlive descriptorを登録する', await waitFor(async () => {
-    const members = (await request('members')).data?.members ?? []
-    return members.some(item => item.name === BELL && item.observe?.tmux_target)
-  }), bridgeLog.join('').slice(-600))
-  const ensureOrderReady = await waitFor(async () => {
-    const calls = (await readFile(ensureLog, 'utf8')).split(/\r?\n/).filter(Boolean)
-    return calls.length >= 2
-  })
-  const ensureCalls = (await readFile(ensureLog, 'utf8')).split(/\r?\n/).filter(Boolean)
-  check('Bell external adapter はwakeup ready後にcapacityを登録する', ensureOrderReady && ensureCalls[0]?.endsWith(`wakeup ${BELL}`) && ensureCalls[1]?.endsWith('capacity'), JSON.stringify(ensureCalls))
-  check('Bell descriptor復旧後、保留DMを一度だけwakeする', await waitFor(async () => (await linesFor(bellWake)).length === 1), bridgeLog.join('').slice(-900))
+  await member(MISSING_DESCRIPTOR_SEAT, { vendor: 'codex', observe: descriptor(`peer-${MISSING_DESCRIPTOR_SEAT}`) })
+  check('current descriptor復旧後、保留DMを一度だけwakeする', await waitFor(async () => (await linesFor(missingDescriptorWake)).length === 1), bridgeLog.join('').slice(-900))
 
-  await message('asahi', BELL, 'bell external descriptor live')
-  check('Bell external adapterへの新規DMも同じdescriptor経路で届く', await waitFor(async () => (await linesFor(bellWake)).length === 2), bridgeLog.join('').slice(-900))
+  await message('asahi', MISSING_DESCRIPTOR_SEAT, 'current descriptor live')
+  check('復旧後の新規DMも同じdescriptor経路で届く', await waitFor(async () => (await linesFor(missingDescriptorWake)).length === 2), bridgeLog.join('').slice(-900))
   await sleep(2_500)
-  check('Bell external adapterへのDMがexactly-once', (await linesFor(bellWake)).length === 2, JSON.stringify(await linesFor(bellWake)))
+  check('descriptor復旧後のDMがexactly-once', (await linesFor(missingDescriptorWake)).length === 2, JSON.stringify(await linesFor(missingDescriptorWake)))
 
   // 3. 注入先が死んでいる間にcursorを進めず、descriptor/PTY復旧後に同じseqを一度だけ再送する。
   await member(FAILED_SEAT, { vendor: 'codex', observe: descriptor(`peer-${FAILED_SEAT}`) })
@@ -215,9 +187,8 @@ printf '%s\\n' "$*" >> ${shellQuote(ensureLog)}
   await stop(bridge)
   killPane(`peer-${STATIC_SEAT}`)
   killPane(`peer-${ADDED_SEAT}`)
-  killPane(`peer-${BELL}`)
+  killPane(`peer-${MISSING_DESCRIPTOR_SEAT}`)
   killPane(`peer-${FAILED_SEAT}`)
-  if (parentSessionReady) killPane('bell-external')
   await stop(server)
   await rm(root, { recursive: true, force: true })
 }
