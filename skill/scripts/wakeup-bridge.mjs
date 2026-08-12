@@ -233,6 +233,7 @@ async function wake(seat, msgs) {
 function dispatch(msg) {
   if (deliveryStates.has(msg.seq)) return
   const targets = recipientNames(msg).filter(seat => seat !== msg.from
+    && members.has(seat)
     && members.get(seat)?.delivery?.kind !== 'parent_watch')
   const state = { message: msg, targets: new Set(targets), delivered: new Set() }
   for (const seat of targets) {

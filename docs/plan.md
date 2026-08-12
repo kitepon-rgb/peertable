@@ -809,6 +809,8 @@ Peertable が Lattice のどの面をどう消費するか（consumer contract �
 
   cursorはwatcher不在中も進めないため、親のcontext圧縮・task交代・一時切断後に未達DMを回収できる。
   世代は各親1本だけとし、ClaudeはTaskStop、Codexはbackground task停止後に張り替える。
+  通常席bridgeは配送時点のmember ledgerにいない退席済み宛先を起床対象へ積まない。履歴はroomに残る一方、
+  起床先の無い古い宛先が全配送cursorを永久に塞ぐためである（2026-08-12本番再起動でseq 415停止を実測）。
 
 ---
 

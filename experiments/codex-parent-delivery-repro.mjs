@@ -81,6 +81,10 @@ try {
 
   const next = run(watcher, [project, 'bell', '--next'], { PEERTABLE_PARENT_WATCH_WINDOW_MS: '3000' })
   await sleep(100)
+  await fetch(`${api}/messages`, {
+    method: 'POST', headers,
+    body: JSON.stringify({ from: 'hinata', to: 'departed-seat', body: '退席済み宛は起床不能なので履歴だけ残す' }),
+  })
   const body = '[メンバーturn完了] hinata'
   const posted = await (await fetch(`${api}/messages`, {
     method: 'POST', headers,
@@ -92,9 +96,12 @@ try {
     && event.type === 'parent_dm' && event.seq === posted.seq && event.body === body, delivered.stdout || delivered.stderr)
 
   await sleep(500)
+  const bridgeState = JSON.parse(await readFile(join(project, '.team/wakeup-bridge-delivery.json'), 'utf8'))
   check('通常席wakeup-bridgeはparent_watchを配送対象にしない',
     !bridgeOutput.includes('WAKEUP_BRIDGE_DELIVERY_FAILURE')
     && !bridgeOutput.includes('Codex親taskを起こした'), bridgeOutput)
+  check('退席済み宛DMで通常席cursorを永久に塞がない', bridgeState.last_seq === posted.seq,
+    JSON.stringify(bridgeState))
 } catch (error) {
   console.error(`HARNESS ERROR: ${error.stack}`)
   good = false
