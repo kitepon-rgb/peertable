@@ -151,8 +151,9 @@ printf '%s\\n' "$*" >> ${shellQuote(ensureLog)}
   await sleep(2_500)
   await writeFile(capture, '')
   await message('bell', ADDED_SEAT, 'added Claude seat')
-  const addedWake = `room に新着あり（bell → ${ADDED_SEAT}）`
+  const addedWake = `[Peertable DM #`
   check('追加Claude席へ current descriptor 経由で一度だけwakeする', await waitFor(async () => (await linesFor(addedWake)).length >= 1), bridgeLog.join('').slice(-500))
+  check('wakeだけで本文が届く', (await linesFor('added Claude seat')).length === 1, JSON.stringify(await linesFor('added Claude seat')))
   await sleep(2_500)
   check('追加Claude席のwakeが重複しない', (await linesFor(addedWake)).length === 1, JSON.stringify(await linesFor(addedWake)))
 

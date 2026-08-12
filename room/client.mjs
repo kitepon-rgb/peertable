@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Peertable セッション側クライアント。channel（新着の一行通知）と room ツールを 1 プロセスに統合する。
+// Peertable セッション側クライアント。room の読み書きツールを提供する。
 // .mcp.json 登録: {"command":"node","args":["client.mjs"],"env":{"PEERTABLE_URL":"http://192.168.1.2:8790","PEERTABLE_ROOM":"myproject","PEERTABLE_MEMBER":"hinata"}}
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
@@ -56,10 +56,12 @@ let cursor = 0 // read_unread 用。参加時点から数える
 const mcp = new Server(
   { name: 'room', version: MCP_VERSION },
   {
+    // Claude起動時の既存channel選択契約は維持するが、通知は送らない。実配送はwakeup-bridge一系統。
     capabilities: { experimental: { 'claude/channel': {} }, tools: {} },
     instructions:
       `あなたは Peertable room「${ROOM}」のメンバー「${ME}」である。` +
-      '<channel source="room"> の通知は「新着あり」の合図であり、本文は read_unread ツールで読む。' +
+      '個人DM本文は wakeup-bridge から直接届く。room全体更新では read_log で状況を取り直す。' +
+      'read_unread は任意の履歴確認に使う。' +
       '発言は post ツールを使う。to: "all" はroom全体、メンバー名はDM、配列は複数人宛である。',
   },
 )
@@ -169,45 +171,6 @@ const IDENTITY = Object.fromEntries(Object.entries({
   observe,
 }).filter(([, v]) => v))
 await fetch(api('members'), { method: 'POST', headers, body: JSON.stringify({ name: ME, ...IDENTITY }) })
-
-// SSE 購読 → 自分に関係する新着だけ一行通知へ変換。切断は外部境界なので再接続する
-const actionHint = 'read_unread で本文を読み、本文に具体的な依頼・行動要求があればそれをこのturnで実行し、完了または具体的なblockerをroomへ報告してから入力待ちに戻ること。情報通知だけなら追加の外部行動を起こさず読了で戻ること。'
-async function subscribe() {
-  for (;;) {
-    try {
-      const res = await fetch(api(`events`))
-      let buf = ''
-      for await (const chunk of res.body) {
-        buf += Buffer.from(chunk).toString('utf8')
-        let i
-        while ((i = buf.indexOf('\n\n')) >= 0) {
-          const frame = buf.slice(0, i)
-          buf = buf.slice(i + 2)
-          const lines = frame.split('\n')
-          // 名前付きイベント（ping/member等）はチャット発言ではない。明示的に読み飛ばす——
-          // 現状は relevant() が宛先無しの payload を弾いて偶然安全なだけで、将来のイベント追加が
-          // 席を起こす経路を open のままにしない
-          if (lines.some(l => l.startsWith('event: '))) continue
-          const data = lines.filter(l => l.startsWith('data: ')).map(l => l.slice(6)).join('')
-          if (!data) continue
-          const m = JSON.parse(data)
-          if (!relevant(m)) continue
-          await mcp.notification({
-            method: 'notifications/claude/channel',
-            params: {
-              content: `room に新着あり（${m.from} → ${Array.isArray(m.to_names) ? m.to_names.join(', ') : m.to}）。${actionHint}`,
-              meta: { from: m.from, to: Array.isArray(m.to_names) ? m.to_names.join(',') : m.to, seq: String(m.seq) },
-            },
-          })
-        }
-      }
-    } catch {
-      // サーバー断。少し待って再接続（会話は止まるが工程はローカル Lattice で続く）
-    }
-    await new Promise(r => setTimeout(r, 3000))
-  }
-}
-subscribe()
 
 // --- diagnostics（決定45 の契約。read-only。呼ばれた時だけ走る）-------------------------
 // 関数宣言なので巻き上げられ、ファイル冒頭のサブコマンド分岐から呼べる。

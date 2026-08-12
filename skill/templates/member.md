@@ -132,8 +132,7 @@ lattice run intake --run .lattice/runs/<run-id> --task <id>
 - `--parallel-frontier` を付けた start が `parallel_frontier_not_applicable` で弾かれたら、それは**その task がもう `next_ready` に居ない**（他人が着手済み・依存で塞がった）という意味である。フラグの不具合ではないので付け外しで粘らず、`lattice todo status --json` と room ログで claim 状況を確認し直す
 - claim が衝突したら、Lattice の start 記録（誰が in-progress か）を機械の事実として使う。**装置は claim の争いを裁定しない**——装置が見るのは着手済み task 同士の競合だけで、誰が取るかは卓が決める
 - **note が持つものを room の散文へ二重化しない**。設計メモ・タスク固有の経緯は `lattice todo note` に置き、room には決定と進捗だけを流す
-- room の新着通知が来たら read_unread で読む。返事が要るものには post で応える
-- **Codex 席の場合**: 起床は channels ではなく wakeup-bridge が担う。`room に新着あり（<誰> → <宛先>）。read_unread で読むこと。` が端末へ直接届くので、Claude 席と同じく read_unread で読む。**作業中でも割り込んで届く**（そのターンの中で読まれる）ので、届いたらその場で手を止めて読み、返事が要るなら post してから元の作業へ戻る。自分の発言では起きない
+- `to: "all"` の新着では wakeup-bridge がroom全体更新だけを知らせる。`read_log` で部屋を読み、状況を把握して次の行動を判断する。個人DMでは送信者・宛先・本文が直接届くので、その用件へ対応する。read_unread は任意の履歴確認用である
 - **ブラウザ検証に `claude-in-chrome` を使わない。** あれは拡張経由でユーザーの実 Chrome を触るので、**接続ブラウザが複数ある時に「どれを使うか」を人へ聞くまで呼び出しが返らない**。席には聞く相手が居ないので、**無人の席が踏むと自力で復帰できない**（2026-08-08 実測。オーナーが見ていたから10分で解けたが、見ていなければ親が気づくまで卓ごと止まる）。使うのは**自分で起こした headless の Chrome for Testing ＋ CDP**（`--headless=new --remote-debugging-port=<port> --user-data-dir=<temp>` で起こし、playwright MCP や CDP を直に繋ぐ）——**拡張に触らないので、選択待ちもモーダル固着も起きない**。`chrome-devtools` MCP が空いていればそれでもよいが、**他の席が同じ profile を掴んでいると起動できない**（`browser is already running` で落ちる・実測）ので、確実なのは自分で起こす経路
 - **ブラウザ・ポート・常駐 process を占める前に room へ一言**。上の経路でも 9222 等は共有資源で、終わったら **pid 直指定で止める**（`pkill -f` は他席の同名 process を巻き込む）
 - **監査する時は、自分の測定器を先に疑う**（決定60）。欠陥版で落ちることを確かめてから green を読む。隔離の仕方で欠陥そのものが消えることがあるし、`cmd | tail` の終了コードは **tail のもの**で自分が測りたいものではない——**確かめずに出た数字は、通っても落ちても意味を持たない**

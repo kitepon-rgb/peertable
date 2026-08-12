@@ -85,9 +85,9 @@ try {
   for (let i = 0; i < 20; i += 1) {
     await new Promise((r) => setTimeout(r, 500));
     const pane = execFileSync('tmux', ['-S', socket, 'capture-pane', '-t', session, '-p'], { encoding: 'utf8' });
-    if (pane.includes('room に新着あり')) { delivered = pane; break; }
+    if (pane.includes('[Peertable DM #')) { delivered = pane; break; }
   }
-  check('親宛メッセージが実際にpaneへsend-keysで届く（wakeup-bridge経由）', delivered !== null, delivered ? delivered.split('\n').filter((l) => l.includes('room に新着あり')).pop() : bridgeOut.trim().slice(-300));
+  check('親宛メッセージが実際にpaneへsend-keysで届く（wakeup-bridge経由）', delivered !== null, delivered ? delivered.split('\n').filter((l) => l.includes('[Peertable DM #')).pop() : bridgeOut.trim().slice(-300));
 } finally {
   if (bridge) { bridge.kill(); }
   try { execFileSync('tmux', ['-S', socket, 'kill-session', '-t', session]); } catch { /* already gone */ }

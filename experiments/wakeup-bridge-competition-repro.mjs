@@ -145,13 +145,14 @@ try {
     body: JSON.stringify({ from: FROM, to: SEAT, body: '[competition] exactly once' }),
   })
   check('競合fixtureのDMがroomへ保存される', response.ok)
-  const wakeText = `room に新着あり（${FROM} → ${SEAT}）`
+  const wakeText = `[Peertable DM #`
   await waitFor(async () => (await readFile(capture, 'utf8')).includes(wakeText), '単一bridgeのwake')
   await sleep(500)
   const delivered = await readFile(capture, 'utf8')
   const wakeLines = delivered.split('\n').filter(line => line.includes(wakeText))
   check('最終bridgeがDMをwakeする', wakeLines.length >= 1, delivered.trim())
   check('競合しても一つのDMを一回だけwakeする', wakeLines.length === 1, JSON.stringify(wakeLines))
+  check('wake本文がDM本文を含む', delivered.includes('[competition] exactly once'), delivered.trim())
   const allLogs = bridges.flatMap(({ logs }) => logs).join('')
   check('bridgeログの配達も一回だけ', (allLogs.match(new RegExp(`起こした: ${SEAT} ← 1 件`, 'g')) ?? []).length === 1, allLogs.split('\n').filter(line => line.includes('起こした:')).join('\n'))
 } catch (error) {

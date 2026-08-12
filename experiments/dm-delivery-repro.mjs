@@ -243,11 +243,12 @@ try {
   const sent = await message('bell', NEW_SEAT, body)
   check('DMがroomへ保存される', sent.response.ok && sent.data?.to === NEW_SEAT)
 
-  const wakeText = `room に新着あり（bell → ${NEW_SEAT}）`
+  const wakeText = `[Peertable DM #${sent.data.seq}] bell → ${NEW_SEAT}: ${body}`
   await waitFor(async () => (await readFile(capture, 'utf8')).includes(wakeText), '追加席へのwake', 12_000)
   const wakeLines = (await readFile(capture, 'utf8')).split('\n').filter(Boolean)
   check('固定args外の追加Codex席がwakeされる', wakeLines.some(line => line.includes(wakeText)), (await readFile(capture, 'utf8')).trim())
   check('一つのDMが一回だけwakeされる', wakeLines.filter(line => line.includes(wakeText)).length === 1, JSON.stringify(wakeLines))
+  check('wakeだけでDM本文が届く', wakeLines.some(line => line.includes(wakeText)), JSON.stringify(wakeLines))
 
   const unread = await client.call('tools/call', { name: 'read_unread', arguments: {} })
   const unreadText = unread.result?.content?.[0]?.text ?? ''

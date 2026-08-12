@@ -187,7 +187,7 @@ try {
       const before = capturePane(socket, session)
       const beforeTurns = count(before, 'esc to interrupt')
       const beforeRoomCalls = count(before, 'Called room')
-      const beforeNotifications = count(before, 'room に新着あり')
+      const beforeNotifications = count(before, '[Peertable DM #')
       const marker = `[k1-real-${item.vendor}-${process.pid}]`
       const actionReply = `[k1-action-loop-reply-${process.pid}]`
       const body = actionLoop && item.vendor === 'codex'
@@ -217,8 +217,8 @@ try {
         }
         check(`${item.vendor} bridgeがDMを一回だけwakeする`, count(deliveredBridgeLogs, `起こした: ${seat} ← 1 件`) === 1, deliveredBridgeLogs.split('\n').filter(line => line.includes('起こした:')).join('\n'))
       } else {
-        await waitFor(() => count(capturePane(socket, session), 'room に新着あり') > beforeNotifications, `${item.vendor} channels wake`, 30_000)
-        check(`${item.vendor} channelsがDMを一回だけ通知する`, count(capturePane(socket, session), 'room に新着あり') === beforeNotifications + 1)
+        await waitFor(() => count(capturePane(socket, session), '[Peertable DM #') > beforeNotifications, `${item.vendor} bridge wake`, 30_000)
+        check(`${item.vendor} bridgeがDM本文を一回だけ通知する`, count(capturePane(socket, session), '[Peertable DM #') === beforeNotifications + 1)
       }
 
       await waitFor(() => {

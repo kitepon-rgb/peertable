@@ -204,11 +204,14 @@ function advanceLastSeq() {
 
 async function wake(seat, msgs) {
   const last = msgs[msgs.length - 1]
-  const audience = Array.isArray(last.to_names) ? last.to_names.join(', ') : last.to
-  const actionHint = 'read_unread で本文を読み、本文に具体的な依頼・行動要求があればそれをこのturnで実行し、完了または具体的なblockerをroomへ報告してから入力待ちに戻ること。情報通知だけなら追加の外部行動を起こさず読了で戻ること。'
-  const text = msgs.length === 1
-    ? `room に新着あり（${last.from} → ${audience}）。${actionHint}`
-    : `room に新着 ${msgs.length} 件（最新: ${last.from} → ${audience}）。${actionHint}`
+  const text = msgs.map(msg => {
+    const audience = Array.isArray(msg.to_names) ? msg.to_names.join(', ') : msg.to
+    if (msg.to === BROADCAST_RECIPIENT) {
+      return `[Peertable #${msg.seq}] room全体の状況が更新された。room.read_logで部屋を読み、状況を把握して次の行動を判断する。`
+    }
+    const body = String(msg.body).replace(/\s*\n+\s*/gu, ' / ')
+    return `[Peertable DM #${msg.seq}] ${msg.from} → ${audience}: ${body}`
+  }).join(' || ')
   // 配送直前に member ledger を取り直し、current name -> descriptor の一経路だけを使う。
   await refreshMembers()
   const member = members.get(seat)

@@ -117,7 +117,7 @@ try {
   const dm = { seq: 1, ts: new Date().toISOString(), from: SENDER, to_names: [GOOD, BAD], body: 'partial success' }
   messages.push(dm)
   emit(dm)
-  const wakeText = `room に新着あり（${SENDER} → ${GOOD}, ${BAD}）`
+  const wakeText = `[Peertable DM #${dm.seq}] ${SENDER} → ${GOOD}, ${BAD}: ${dm.body}`
   await waitFor(async () => (await captureLines(goodCapture)).some(line => line.includes(wakeText)), '正常席の初回wake')
   await sleep(2_500)
   check('partial-successの正常席は一度wakeする', (await captureLines(goodCapture)).filter(line => line.includes(wakeText)).length === 1)

@@ -135,7 +135,7 @@ try {
   })
   const saved = await sent.json()
   check('展開版roomへDMを保存できる', sent.ok && saved.seq > 0, JSON.stringify(saved))
-  const wakeText = `room に新着あり（bell → ${SEAT}）`
+  const wakeText = `[Peertable DM #`
   await waitFor(async () => (await readFile(capture, 'utf8')).includes(wakeText), '展開版bridge wake')
   const delivered = await readFile(capture, 'utf8')
   const wakeCount = delivered.split('\n').filter(line => line.includes(wakeText)).length

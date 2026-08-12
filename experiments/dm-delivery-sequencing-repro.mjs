@@ -111,11 +111,29 @@ try {
     stream.write(`event: message\ndata: ${JSON.stringify(message)}\n\n`)
   }
 
-  await waitFor(async () => (await readFile(capture, 'utf8')).includes('room に新着'), 'wake')
+  await waitFor(async () => (await readFile(capture, 'utf8')).includes('[Peertable DM #1]'), 'wake')
   const delivered = await readFile(capture, 'utf8')
-  check('SSE本文とcatch-upが同時でもwakeする', delivered.includes('room に新着'))
-  check('同じDMを二重dispatchしない', delivered.includes('room に新着あり') && !delivered.includes('新着 2 件'), delivered.trim())
+  check('SSE本文とcatch-upが同時でもwakeする', delivered.includes('[Peertable DM #1]'))
+  check('同じDMを二重dispatchしない', (delivered.match(/\[Peertable DM #1\]/gu) ?? []).length === 1, delivered.trim())
+  check('wakeだけで本文が届く', delivered.includes('[sequencing] exactly once'), delivered.trim())
   check('bridgeログも1件配達を記録する', logs.join('').includes('起こした: ' + SEAT + ' ← 1 件'), logs.join('').split('\n').slice(-8).join('\n'))
+
+  const broadcast = {
+    seq: 2,
+    ts: new Date().toISOString(),
+    from: 'bell-sequencing',
+    to: 'all',
+    body: '[broadcast body must stay in room]',
+  }
+  serverMessages.push(broadcast)
+  head = broadcast.seq
+  for (const stream of streams) {
+    stream.write(`event: message\ndata: ${JSON.stringify(broadcast)}\n\n`)
+  }
+  await waitFor(async () => (await readFile(capture, 'utf8')).includes('[Peertable #2] room全体の状況が更新された'), 'all wake')
+  const afterBroadcast = await readFile(capture, 'utf8')
+  check('allは本文を注入せずroomの再読だけを促す', !afterBroadcast.includes(broadcast.body)
+    && afterBroadcast.includes('room.read_logで部屋を読み、状況を把握して次の行動を判断する。'), afterBroadcast.trim())
 } catch (error) {
   console.error(`HARNESS ERROR: ${error.message}`)
   good = false
