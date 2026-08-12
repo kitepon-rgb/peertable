@@ -10,6 +10,10 @@
 
 `PEERTABLE_MEMBER` を継承した環境から `launch-seat.sh` を呼ぶと、`SEAT_LAUNCH_DELEGATED_CHILD_FORBIDDEN` で副作用より前に拒否される。親による正式増員は `PEERTABLE_MEMBER` の無い入口から既存手順で行う。
 
+## 工程の着手・終了を全員へ知らせる
+
+`lattice todo start` が成功した本人は直後に `room.task_event(started)`、`lattice todo done` が成功した本人は直後に `room.task_event(completed)` を発射する。`transition_id` は各Lattice receiptの `event_digest` を使う。roomが本文と全員分の宛先を作り、`sent` または `already sent` が返るまで着手・終了操作は完了していない。
+
 ## 工程イベントを受けた時
 
 room の task event（`started` / `completed`）は、自律ループへ戻るための合図であり、仕事の割当・完了受理・会話の依頼ではない。受信しても「了解」「受け取った」「追認」などの定型返信を room へ投稿しない。
