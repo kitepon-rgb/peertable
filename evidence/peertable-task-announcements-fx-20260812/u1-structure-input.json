@@ -1,0 +1,156 @@
+{
+  "schema": "lattice.todo_structure_set.v1",
+  "project_id": "peertable",
+  "plan_key": "peertable-task-announcements-fx-20260812",
+  "plan_version": "v1",
+  "topology_digest": "fb65fc35c79687a76bbf9edfd659f41155ee616999189dfed46dbe9641acef51",
+  "profile": "code-dataflow",
+  "baseline_sha": "075e703435e0223e7ec3e10e5883806c3f5ca4d1",
+  "external_contracts": [
+    {
+      "contract_id": "setup-state",
+      "description": "既存卓を表す Peertable setup-state JSON",
+      "contract": {
+        "shape_id": "peertable-setup-state-v1",
+        "schema_ref": null,
+        "identity_fields": ["mode", "plan_key", "room"],
+        "lifecycle": "snapshot",
+        "cardinality": "one",
+        "compatible_shape_ids": []
+      }
+    },
+    {
+      "contract_id": "start-event-template",
+      "description": "started event helper の配布元 template",
+      "contract": {
+        "shape_id": "peertable-generated-template-v1",
+        "schema_ref": null,
+        "identity_fields": ["path", "sha256"],
+        "lifecycle": "immutable_artifact",
+        "cardinality": "one",
+        "compatible_shape_ids": []
+      }
+    },
+    {
+      "contract_id": "start-template",
+      "description": "正規着手入口の配布元 template",
+      "contract": {
+        "shape_id": "peertable-generated-template-v1",
+        "schema_ref": null,
+        "identity_fields": ["path", "sha256"],
+        "lifecycle": "immutable_artifact",
+        "cardinality": "one",
+        "compatible_shape_ids": []
+      }
+    }
+  ],
+  "tasks": [
+    {
+      "task_id": "u1",
+      "applicability": "graph",
+      "planned": {
+        "outcome": "既存卓へPeertable管理の着手入口2本だけを安全に配布し、他資産を変更しない",
+        "inputs": [
+          {
+            "port_id": "setup-state",
+            "source": {"kind": "external", "contract_id": "setup-state"},
+            "access": "observe",
+            "contract": {
+              "shape_id": "peertable-setup-state-v1",
+              "schema_ref": null,
+              "identity_fields": ["mode", "plan_key", "room"],
+              "lifecycle": "snapshot",
+              "cardinality": "one",
+              "compatible_shape_ids": []
+            }
+          },
+          {
+            "port_id": "start-event-template",
+            "source": {"kind": "external", "contract_id": "start-event-template"},
+            "access": "consume",
+            "contract": {
+              "shape_id": "peertable-generated-template-v1",
+              "schema_ref": null,
+              "identity_fields": ["path", "sha256"],
+              "lifecycle": "immutable_artifact",
+              "cardinality": "one",
+              "compatible_shape_ids": []
+            }
+          },
+          {
+            "port_id": "start-template",
+            "source": {"kind": "external", "contract_id": "start-template"},
+            "access": "consume",
+            "contract": {
+              "shape_id": "peertable-generated-template-v1",
+              "schema_ref": null,
+              "identity_fields": ["path", "sha256"],
+              "lifecycle": "immutable_artifact",
+              "cardinality": "one",
+              "compatible_shape_ids": []
+            }
+          }
+        ],
+        "operations": [
+          {
+            "operation_id": "verify-and-sync-start-assets",
+            "input_port_ids": ["setup-state", "start-event-template", "start-template"],
+            "output_port_ids": ["generated-start-assets"],
+            "summary": "setup-stateと2本のtemplateを検証し、欠落時だけ管理対象入口を生成する"
+          }
+        ],
+        "outputs": [
+          {
+            "port_id": "generated-start-assets",
+            "data_id": "generated-start-assets",
+            "contract": {
+              "shape_id": "peertable-generated-assets-v1",
+              "schema_ref": null,
+              "identity_fields": ["paths", "sha256"],
+              "lifecycle": "snapshot",
+              "cardinality": "one",
+              "compatible_shape_ids": []
+            },
+            "sinks": [
+              {"kind": "code", "anchor_id": "u1-upgrade"}
+            ]
+          }
+        ],
+        "code_anchors": [
+          {
+            "anchor_id": "u1-event-template",
+            "effect": "read",
+            "path": "skill/templates/start-event.mjs",
+            "symbol": null,
+            "expected_at": "current"
+          },
+          {
+            "anchor_id": "u1-fixture",
+            "effect": "modify",
+            "path": "experiments/team-generated-assets-upgrade-repro.mjs",
+            "symbol": null,
+            "expected_at": "after_task"
+          },
+          {
+            "anchor_id": "u1-start-template",
+            "effect": "read",
+            "path": "skill/templates/start.sh",
+            "symbol": null,
+            "expected_at": "current"
+          },
+          {
+            "anchor_id": "u1-upgrade",
+            "effect": "modify",
+            "path": "skill/scripts/upgrade-team-assets.sh",
+            "symbol": null,
+            "expected_at": "after_task"
+          }
+        ],
+        "failures": ["既存不一致asset、壊れたsetup-state、対象外asset書込では副作用前にtyped rejectする"],
+        "first_live_e2e": "欠落assetの生成、一致assetのno-op、不一致assetの拒否、対象外資産不変をfixtureと既存卓で確認する",
+        "non_goals": ["a6 deploy before upgrade", "既存credentialとuser assetの変更"]
+      }
+    }
+  ],
+  "structure_set_digest": "782ef3c1b68ae1fe37dfadd91b55ccc0adeaf6100dc57788760d810671cc6b7f"
+}
