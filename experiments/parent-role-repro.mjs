@@ -123,7 +123,7 @@ try {
     check('vendor=codex が member 登録へ反映される', registered.some((m) => m.vendor === 'codex'));
     const codexMember = registered.find((m) => m.name === 'nagi-test');
     check('Codex親はtmux observeでなくthread記述子を自己申告する',
-      codexMember?.observe === undefined
+      codexMember?.observe === null
       && codexMember?.delivery?.kind === 'codex_thread'
       && codexMember?.delivery?.thread_id === parentThreadId,
       JSON.stringify(codexMember));

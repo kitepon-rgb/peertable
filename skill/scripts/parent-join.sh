@@ -44,6 +44,7 @@ if effort:
 if observe_socket and observe_target:
     body['observe'] = {'tmux_socket': observe_socket, 'tmux_target': observe_target}
 if thread_id:
+    body['observe'] = None
     body['delivery'] = {'kind': 'codex_thread', 'thread_id': thread_id}
 print(json.dumps(body))
 PY
