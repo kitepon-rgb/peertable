@@ -78,6 +78,26 @@ roomでのオーナー裁定とLattice正本から選び、別のPLAN一覧状�
 - npm version bump、publish、本番deployは本campaignに含めない。
 - 旧`t4`のハーネス修理と監査は本campaignに含めない。
 
+#### 2.6 Codex席の起床bridgeは着席時の機械装備にする
+
+Codex席を一席でも含む卓では、`wakeup-bridge`をAIの判断や親の手動復旧に委ねない。
+`launch-seat.sh`がCodex席の着席を成功として返す前に、同じroomを監視するbridgeを冪等にensureし、
+`.team/wakeup-bridge.json`のlive pidと`ready_at`を確認する。bridgeを準備できなければ、Codex席を
+「room新着で起床可能な着席済み席」として成功扱いしない。
+
+setup直後、席の増員後、同じroomへの再着席後のいずれも同じ機械契約を通る。通常運用で親や席が
+`ensure-bridge.sh ... wakeup`を思い出して補う手順は持たない。外部process境界のtyped failureと
+teardownによる停止は既存契約を維持する。
+
+#### 2.7 監査専任席は機械可読な席役割にする
+
+監査専任を着任briefやroomの口頭裁定だけで表現しない。席の正規launch入力、`.team/seats/<name>.json`、
+room member metadataへ`worker`／`auditor`の席役割を機械可読に保持し、省略時は既存互換の`worker`とする。
+
+`auditor`は実装・調査ToDoをclaimせず、具体的に依頼された完成候補の独立監査だけを担う。capacity投影では
+実装worker数、ready reclaim候補、worker縮退候補から除外し、監査capacityとして別に残す。本campaignの
+運用契約はSol監査専任を一席維持することであり、idleであることを理由に実装claimや退席を促さない。
+
 ## 3. Lattice工程
 
 ### c1 Aiterm公開面へのPeertable実席接続をfocused testで確定する
@@ -129,13 +149,21 @@ REDになり、修正対象がsetup・role・done・launch・案内のどこか�
 ### m2 setup・launch・roleを複数PLAN対応へする
 
 Phase 2。依存: m1。所有: `skill/scripts/setup.sh`、`skill/scripts/launch-seat.sh`、
-`skill/templates/member.md`、必要なrole生成focused harness。
+`skill/scripts/ensure-bridge.sh`、`skill/scripts/capacity-advisor.mjs`、`room/client.mjs`の席役割投影、
+`skill/templates/member.md`、必要なrole生成・wakeup bridge・capacity focused harness。
 
 単数planを既定値へ格下げし、作業ループを全PLAN横断statusと完全修飾taskへ変更する。生成済み席がsetupの
 やり直しなしで新PLANを扱えること、phase制限がplan/phaseの組としてだけ効くこと、旧setup呼出しが引き続き
-成立することを測る。
+成立することを測る。加えてCodex席のlaunchがwakeup bridgeを必ず機械装備し、live pidと`ready_at`を
+確認するまで着席成功を返さないこと、繰返しlaunch／増員でbridgeが一世代だけ維持されることを測る。
+監査専任席はlaunchからroom metadata、seat identity、capacity投影まで同じ`auditor`役割を保持し、
+実装claim・worker reclaim・worker縮退の対象に入らないことも正負で測る。
 
 受入条件: 新PLAN追加にteardown、setup、席再起動、`setup-state.json.plan_key`の破壊的書換えを要求しない。
+Codex席の着席成功後は`.team/wakeup-bridge.json`が必ず存在し、記録pidがlive、`ready_at`があり、roomの
+明示宛DMで対象席が起床する。親や席による手動`ensure-bridge`を正常系の一部にしない。
+Sol監査専任一席がidleでもworker向け`reclaim_idle`／`scale_down`を受けず、実装workerの必要数とは別に
+監査capacityとして維持される。役割未指定の既存launchは`worker`として互換動作する。
 
 ### m3 done・証跡・run操作を呼出しPLANで束縛する
 
