@@ -1,0 +1,43 @@
+{
+  "schema": "peertable.u1_rebind_input_snapshot.v1",
+  "captured_at": "2026-08-12T04:17:08.705Z",
+  "capture_scope": "公開Lattice CLIとroom read APIの読取結果のみ。Lattice store、既存u1実装、structure inputは変更していない。",
+  "store_observation": {
+    "command": "lattice status --json",
+    "cli_version": "0.58.4",
+    "git_head": "87045403309cd51a5ea47ae1c425de64e424c44b",
+    "state": "invalid",
+    "next_action": {
+      "command": "lattice todo verify",
+      "reason": "STORE_INCONSISTENT:binding_stale"
+    },
+    "result_digest": "751b5f9e1fe34aaaa8b7fcdcb9e67f6f76eae2da2d0138c25ce4098b14cce3cd"
+  },
+  "binding_stale": {
+    "consumer": {
+      "plan_key": "peertable-task-announcements-20260811",
+      "task_id": "a6",
+      "plan_scoped_event_digest": "9224f85fee0edb7bc55fb2b41aed54c26c18f0008741b30358458f19f0a8da6",
+      "topology_digest": "f416f8751d31e9cbec482ef10f556a656b7ffe7b5d7b20b82cff125f9b5a2b43"
+    },
+    "producer": {
+      "plan_key": "peertable-task-announcements-fx-20260812",
+      "task_id": "u1",
+      "plan_version": "rev-1fa4743088866f37c40f106b",
+      "expected_topology_digest": "fb65fc35c79687a76bbf9edfd659f41155ee616999189dfed46dbe9641acef51",
+      "current_source_topology_digest": "16cd9906a4c6a588df1b358cc0a62cec17cc3fb986e307aad0151d91019f4654",
+      "structure_input": "evidence/peertable-task-announcements-fx-20260812/u1-structure-input.json",
+      "structure_input_sha256": "00aef4331e8d2c6cd1501757fa15b9b54b79bdcc57979801390a4910a65bd673"
+    }
+  },
+  "room_evidence": {
+    "room": "peertable-autonomy-runtime-20260811",
+    "messages": [956, 957],
+    "instruction": "Peertable側fixture/evidenceだけを所有し、新CLI deploy後にrebind receiptを実測してu1→a6連続smokeへ進む。"
+  },
+  "non_goals": [
+    "Lattice製品コードまたは.lattice storeの変更",
+    "既存u1実装またはu1 structure inputの変更",
+    "credential、room設定、seat identity、a3・別工程の変更"
+  ]
+}
