@@ -4,6 +4,8 @@
 
 ### k1 DMを在席中の宛先へ一度だけ届け、turn開始と既読まで保証する
 
+- [x] k1の実装・試験・証跡化を完了した。後続の現行実装方針を正とする。
+
 2026-08-11 の実円卓で、room API の DM 自体は保存される一方、Peertable repo の
 `.team/wakeup-bridge.json` は初期席 `tsubaki` だけを監視し、後から追加した `kanade`、`nagi`、
 `asahi` を追従していなかった。Lattice repo には wakeup bridge の状態ファイル自体がなく、room に

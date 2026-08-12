@@ -70,6 +70,8 @@ peer audit 前、Lattice `todo done` だけが先行した時、pull run の rec
 
 ### a1 typed task event の room transport を作る
 
+- [x] a1の実装・試験・証跡化を完了した。後続の現行実装方針を正とする。
+
 所有: `room/server.mjs`、`room/client.mjs`、task event transport を測る `room/` または `experiments/` の
 focused harness。通常 message の宛先契約と role / setup script は触らない。
 
@@ -80,6 +82,8 @@ recipient set を生成し、送信者以外の全席・親へ一行注入する
 
 ### a2 着手操作へ自動アナウンスを組み込む
 
+- [x] a2の実装・試験・証跡化を完了した。後続の現行実装方針を正とする。
+
 依存: a1、および main campaign t3。所有: `skill/scripts/setup.sh`、着手用の template / generated script、
 対応する新規 harness。終了 script と role 本文は触らない。
 
@@ -89,6 +93,8 @@ Lattice / standalone の正規着手入口を作り、着手成功後だけ `sta
 
 ### a3 本当の終了へ自動アナウンスを組み込む
 
+- [x] a3の実装・試験・証跡化を完了した。後続の現行実装方針を正とする。
+
 依存: a1、および companion fix campaign 2 の f6。所有: `skill/templates/done.sh` と生成物、task event
 連携の focused harness。着手 script と role 本文は触らない。
 
@@ -97,6 +103,8 @@ peer audit / evidence / done、実行層利用時の accepted receipt / canonica
 本当の完了後だけ一度送る。再試行・再open後の新しい完了は別 transition として一度送れることを測る。
 
 ### a4 受信後に返信せず自律ループへ戻る role を生成する
+
+- [x] a4の実装・試験・証跡化を完了した。後続の現行実装方針を正とする。
 
 依存: a1、および main campaign t3。所有: `skill/templates/member.md`、
 `skill/templates/member-standalone.md`、`skill/templates/parent.md`、必要な role harness。transport / script は
@@ -108,6 +116,8 @@ completed でだけ黙った工程完了後照合へ入る。三 role の生成�
 
 ### a5 Wave 1 を MS-A2 へ deploy し transport を実動確認する
 
+- [x] a5の実装・試験・証跡化を完了した。後続の現行実装方針を正とする。
+
 依存: a1、および既存 companion fix campaign の f2 / f3。所有: この task の evidence と、実動で見つけた
 欠陥を工程化するための新規 companion planだけ。先行 task の product code は直接直さない。
 
@@ -116,6 +126,8 @@ completed でだけ黙った工程完了後照合へ入る。三 role の生成�
 修理ToDo化し、a6の前提へ接続する。npm publishは行わない。
 
 ### a6 実円卓の着手・終了ループを統合し Wave 2 を deploy する
+
+- [x] a6の実装・試験・証跡化を完了した。後続の現行実装方針を正とする。
 
 依存: a2 / a3 / a4 / a5。所有: 本task用の `experiments/`、evidence、必要なdeploy smoke記録。
 
