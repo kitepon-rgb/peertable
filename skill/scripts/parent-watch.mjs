@@ -169,7 +169,7 @@ async function acceptLatticeState(next) {
     return true
   }
   const changed = Number.isSafeInteger(previous?.ready) && Number.isSafeInteger(previous?.active)
-    && (previous.ready !== next.ready || previous.active !== next.active)
+    && previous.ready + previous.active !== next.ready + next.active
   state = { ...state, lattice: next, last_event_at: now() }
   saveState(state)
   if (!changed) return false

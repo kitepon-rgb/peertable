@@ -130,18 +130,24 @@ try {
   check('再起動しても配達済みDMを重複させない', duplicate.status === 0 && duplicate.stdout === '', duplicate.stdout || duplicate.stderr)
 
   const roomSeqBeforeLattice = (await (await fetch(`${api}/summary`)).json()).seq
+  await writeFile(latticeStatus, `${JSON.stringify({ next_ready: [{}, {}], active_set: [{}] })}\n`)
+  const latticeBreakdownChanged = await run(['--poll'])
+  check('ready/activeの内訳が入れ替わってもX＋Yが同値なら通知しない',
+    latticeBreakdownChanged.status === 0 && latticeBreakdownChanged.stdout === '',
+    latticeBreakdownChanged.stdout || latticeBreakdownChanged.stderr)
+
   await writeFile(latticeStatus, `${JSON.stringify({ next_ready: [{}, {}], active_set: [{}, {}] })}\n`)
-  const latticeReadyChanged = await run(['--poll'])
-  const latticeReadyEvent = JSON.parse(latticeReadyChanged.stdout.trim())
-  check('着手可能工程数の変化だけを親向けeventへ返す', latticeReadyChanged.status === 0
-    && latticeReadyEvent.type === 'parent_lattice_update'
-    && latticeReadyEvent.ready === 2
-    && latticeReadyEvent.active === 2
-    && latticeReadyEvent.standard_worker_count === 4
-    && latticeReadyEvent.body === '現在、着手可能工程は 2 件、着手中工程は 2 件になりました。標準は 4＋監査担当数です。円卓メンバー数を検討してください。',
-  latticeReadyChanged.stdout || latticeReadyChanged.stderr)
+  const latticeTotalChanged = await run(['--poll'])
+  const latticeTotalEvent = JSON.parse(latticeTotalChanged.stdout.trim())
+  check('X＋Yが変化した時だけ親向けeventを一件返す', latticeTotalChanged.status === 0
+    && latticeTotalEvent.type === 'parent_lattice_update'
+    && latticeTotalEvent.ready === 2
+    && latticeTotalEvent.active === 2
+    && latticeTotalEvent.standard_worker_count === 4
+    && latticeTotalEvent.body === '現在、着手可能工程は 2 件、着手中工程は 2 件になりました。標準は 4＋監査担当数です。円卓メンバー数を検討してください。',
+  latticeTotalChanged.stdout || latticeTotalChanged.stderr)
   const latticeDuplicate = await run(['--poll'])
-  check('Lattice工程数が同値なら反復通知しない',
+  check('同じLattice状態のpollでは反復通知しない',
     latticeDuplicate.status === 0 && latticeDuplicate.stdout === '', latticeDuplicate.stdout || latticeDuplicate.stderr)
 
   await writeFile(latticeStatus, `${JSON.stringify({ next_ready: [{}, {}], active_set: [{}, {}, {}] })}\n`)
