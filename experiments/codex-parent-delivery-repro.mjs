@@ -43,7 +43,7 @@ try {
   const base = `http://127.0.0.1:${port}`
   await writeFile(join(project, '.team', 'setup-state.json'), JSON.stringify({ room: roomName, server_url: base }) + '\n')
   await writeFile(join(project, '.team', 'post-token'), `${token}\n`, { mode: 0o600 })
-  await writeFile(fakeCodex, `#!/bin/sh\nprintf '%s\\n' "$*" >> '${calls}'\nprintf '%s\\n' '{"type":"thread.started"}' '{"type":"turn.completed"}'\n`)
+  await writeFile(fakeCodex, `#!/usr/bin/env node\nimport { appendFileSync } from 'node:fs'\nappendFileSync('${calls}', JSON.stringify(process.argv.slice(2)) + '\\n')\nconsole.log('{"type":"thread.started"}')\nconsole.log('{"type":"turn.completed"}')\n`)
   await chmod(fakeCodex, 0o755)
   room = spawn(process.execPath, [join(REPO, 'room/server.mjs')], { env: { ...process.env, PEERTABLE_PORT: String(port), PEERTABLE_DATA: data, PEERTABLE_POST_TOKEN: token }, stdio: 'ignore' })
   check('room起動', await waitFor(async () => { try { return (await fetch(`${base}/api/${roomName}/members`)).ok } catch { return false } }))
@@ -55,10 +55,13 @@ try {
   await fetch(`${base}/api/${roomName}/messages`, { method: 'POST', headers, body: JSON.stringify({ from: 'hinata', to: 'bell', body: '[メンバーturn完了] hinata' }) })
   check('Codex親task配送を一度だけ実行', await waitFor(async () => (await readFile(calls, 'utf8').catch(() => '')).includes(threadId)))
   const lines = (await readFile(calls, 'utf8')).trim().split('\n')
+  const args = JSON.parse(lines[0])
   check('同じDMを重複配送しない', lines.length === 1, JSON.stringify(lines))
-  check('resumeへ正しいthread IDとDM本文を渡す', lines[0]?.includes(`exec resume ${threadId}`)
-    && lines[0]?.includes('hinata → bell')
-    && lines[0]?.includes('[メンバーturn完了] hinata'), lines[0])
+  check('resumeへ正しいthread IDとDM本文を渡す', args[0] === 'exec'
+    && args[1] === 'resume'
+    && args[2] === threadId
+    && args[3]?.includes('hinata → bell')
+    && args[3]?.includes('[メンバーturn完了] hinata'), JSON.stringify(args))
   const state = JSON.parse(await readFile(join(project, '.team/wakeup-bridge-delivery.json'), 'utf8'))
   check('turn完了後だけreceiptを確定', state.delivered?.includes('2:bell') === true, JSON.stringify(state))
 } finally {
