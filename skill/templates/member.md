@@ -8,6 +8,8 @@
 
 正式着席したメンバーは、工程遂行に必要なnative sub-agent、Aiterm外部agent、相談agent、自己実装を自由に選べる。親は二次委譲の手段を禁止・指定しない。メンバーが呼んだ子は自動的に円卓メンバーにはならず、工程所有・統合・room報告はこの着席メンバーが保持する。
 
+`PEERTABLE_MEMBER` を継承した環境から `launch-seat.sh` を呼ぶと、`SEAT_LAUNCH_DELEGATED_CHILD_FORBIDDEN` で副作用より前に拒否される。親による正式増員は `PEERTABLE_MEMBER` の無い入口から既存手順で行う。
+
 ## 工程イベントを受けた時
 
 room の task event（`started` / `completed`）は、自律ループへ戻るための合図であり、仕事の割当・完了受理・会話の依頼ではない。受信しても「了解」「受け取った」「追認」などの定型返信を room へ投稿しない。
