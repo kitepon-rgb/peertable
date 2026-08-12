@@ -48,7 +48,8 @@ Codex席を立てる正規経路が、同じroomの`wakeup-bridge`を冪等にen
 - Lattice、Aiterm、Claude Code、Codex CLI本体は改造しない。
 - npm version bump、publish、本番deployは行わない。
 - 旧`t4`の修理や監査は行わない。
-- 実証されていない安全装置、追加gate、wrapper、launcher再構築は加えない。
+- 実証されていない安全装置、追加gate、wrapper、独自launcher再構築は加えない。r1はAiterm公開launchを呼ぶ
+  最小配線だけを対象とする。
 
 ## 3. Lattice工程
 
@@ -95,11 +96,29 @@ model／effortと履歴を同期し、同一sessionとcontextが維持される�
 
 - [ ] i1を完了する。
 
-依存: m2。所有: 本campaignの統合証跡だけ。旧`t4`所有fileは変更しない。
+依存: r1。所有: 本campaignの統合証跡だけ。旧`t4`所有fileは変更しない。
 
 旧`t4`をin-progressのまま、同じroom・同じ席で本PLANへ到達できることを実測する。途中で一席のmodel／effortを
-Aiterm経由で変更し、同一contextのまま作業を続ける。片方のPLAN操作が他方のtask、run、evidence、未commit差分を
-変更しないことを確認する。
+親だけがPeertableの入口からAiterm経由で変更し、対象メンバーは変更操作をせず、同一contextのまま作業を続けた
+ことを返す。本件の実席E2E動作確認は親が所有する。片方のPLAN操作が他方のtask、run、evidence、未commit差分を
+変更しないことも親が確認する。
+
+### r1 Aiterm管理sessionを正規着席へ結線する
+
+- [ ] r1を完了する。
+
+前提のm2は完了済み。所有: 正規launchとroom member登録の最小配線、対応focused harness、必要な案内同期。
+
+現行の正規launchはCodex CLIを直接起動するため、room memberにAiterm managed `session_id`がなく、
+`change-seat.sh`は`SEAT_CHANGE_AITERM_SESSION_MISSING`で変更前に停止する。正規launchをAitermの公開agent launchへ
+結線し、返された`session_id`を同じroom memberの`aiterm_session_id`として保持する。PeertableはAiterm本体や
+model変更ロジックを実装せず、direct CLI launchへのfallbackも持たない。room MCP、model／effort、role、brief、
+wakeup bridgeの既存契約を維持する。
+
+作業者は配線のfocused testと自己監査までを行い、実席の変更操作は行わない。修正後のlive操作は親が所有し、
+room `peertable-autonomy-runtime-20260811`をteardown／再setupせず、AkariとAsahiをTerra/highの`worker`、
+ReiをSol/highの`auditor`として最新規範で再着席する。親が全席のroom metadataに`aiterm_session_id`とroleが載る
+ことを確認し、Reiは実装taskをclaimしない。
 
 ### g1 関連回帰・Lattice整合・pushを閉じる
 
@@ -113,17 +132,18 @@ Aiterm経由で変更し、同一contextのまま作業を続ける。片方のP
 ## 4. 依存グラフ
 
 ```text
-c1（done） -> c2 -> m2 -> i1 -> g1
-                    ^
-m3（done） ----------┘
+c1（done） -> c2 -> m2（done） -----> i1 -> g1
+                    ^                 ^
+m3（done） ----------┘                 |
+r1 -----------------------------------┘
 ```
 
 未着手だった`c3`、`m1`、`m4`は、必要な内容をそれぞれ`c2`と`m2`へ吸収して廃止する。
 
 ## 5. 完了条件
 
-1. c1、c2、m3、m2、i1、g1がLatticeでdoneである。
-2. Claude／Codex席のmodel／effort変更がAiterm公開面で同一session・contextを維持して実測済みである。
+1. c1、c2、m3、m2、r1、i1、g1がLatticeでdoneである。
+2. 親がClaude／Codex席のmodel／effort変更をAiterm公開面で行い、同一session・contextの維持を実測済みである。
 3. room memberのmodel／effortと変更履歴が実設定に一致する。
 4. 同じroom・席・Lattice storeが複数PLANを扱い、setupや再起動を要求しない。
 5. Codex席の着席でwakeup bridgeが自動装備され、Sol監査専任席がworkerと区別される。
