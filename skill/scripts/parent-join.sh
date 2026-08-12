@@ -68,9 +68,9 @@ if PEERTABLE_PARENT_HOST="$parent_vendor" node "$here/parent-watch.mjs" "$proj" 
   capacity_delivery_ready=1
   echo "parent-watch cursor ready: ${name}（host=${parent_vendor}）"
   if [ "$parent_vendor" = "codex" ]; then
-    echo "PARENT_WATCH_START_REQUIRED: Codex親のbackground taskで ${here}/parent-watch.mjs ${proj} ${name} --next を反復し、stdout eventを親turnへnotifyすること"
+    echo "PARENT_WATCH_START_REQUIRED: Codex親の長寿命background taskで ${here}/parent-watch.mjs ${proj} ${name} --follow を1回だけ起動し、DMごとのstdout eventを親turnへnotifyした後も同じtaskで待機を続けること"
   else
-    echo "PARENT_WATCH_START_REQUIRED: Claude Monitor（persistent）で ${here}/parent-watch.mjs ${proj} ${name} --follow を起動すること"
+    echo "PARENT_WATCH_START_REQUIRED: Claude Monitor（persistent）で ${here}/parent-watch.mjs ${proj} ${name} --follow を1回だけ起動し、通知後も同じMonitorで待機を続けること"
   fi
 else
   echo "WARN: PARENT_WATCH_PRIME_FAILED: 親（${name}）のDM cursorを準備できない" >&2

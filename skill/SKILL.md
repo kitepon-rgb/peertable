@@ -197,9 +197,10 @@ witness をどう生成するかは**対象 project 側の作法に従う**（La
 - **親宛DM番犬の仕様**（決定76）: room追従は`parent-watch.mjs`一つが所有する。`parent-join.sh`が
   `.team/parent-watch.json`をprimeし、room SSE・heartbeat・再接続catch-up・`to`/`to_names`判定・
   永続cursorをscript内で処理する。stdoutの`peertable.parent-watch-event.v1`はDM本文そのもの。
-  - **Claude**はpersistent Monitorで`node scripts/parent-watch.mjs <project> <親名> --follow`を実行し、
-    出力を親へ通知する。**Codex**はyieldしたbackground tool taskで`--next`を反復し、空でないstdoutを
-    `notify`して`yield_control`する。通常席用wakeup-bridge、tmux、`codex exec resume`を親へ流用しない
+  - **Claude**はpersistent Monitorで`node scripts/parent-watch.mjs <project> <親名> --follow`を1回だけ実行し、
+    出力を親へ通知した後も同じMonitorで待機を続ける。**Codex**もyieldした長寿命background tool taskで
+    `--follow`を1回だけ実行し、DMごとのstdoutを`notify`して`yield_control`した後、同じprocess/sessionの
+    待機へ戻る。通知1件でtaskを終了・再生成しない。通常席用wakeup-bridge、tmux、`codex exec resume`を親へ流用しない
   - 親以外宛・ping・親自身の発言は捨てる。watcher不在中のDMは永続cursorから次回起動時にcatch-upする
   - **世代は常に1匹**。Claudeは旧MonitorをTaskStop、Codexは旧background taskを停止してから張り替える。
     `watch_error`は親へ通知し、沈黙死させない
@@ -216,7 +217,7 @@ witness をどう生成するかは**対象 project 側の作法に従う**（La
   1. **room ログを読む**——`curl -s "$URL/api/$ROOM/messages?since=<最後に読んだ seq>"`。`since` を持っていなければ 0 から。**会話が卓の正本**なので、まずここで現在地（誰が何を claim し、どこまで done か）を作る
   2. **工程正本で照合する**——`lattice todo status --json`（Lattice 併用）。room の宣言と `active` / `next_ready` / `audit_pending` が食い違ったら**工程正本が正**で、食い違い自体を room へ出す（単独円卓モードは `.team/tasks.md` と room ログの突き合わせ）
   3. **member 登録は残っている**ので `parent-join.sh` を再実行しない。`curl -s $URL/api/$ROOM/members` で自分の名前を確認するだけでよい（実測: 親の登録はセッションを跨いで残る）。**再実行しても `<名前> が参加した` は流れない**——`POST /members` は本当に新規追加の時だけ本人宛のsystem発言を出す
-  4. **番犬を張り直す**——Claudeは`--follow`、Codexは`--next`反復。生きた旧世代が残っていれば先に止める（世代は常に1匹）。永続cursorが不在時間のDMを回収する
+  4. **番犬を張り直す**——Claude/Codexとも`--follow`を1回だけ起動し、通知後も同じ世代で待機を続ける。生きた旧世代が残っていれば先に止める（世代は常に1匹）。永続cursorが不在時間のDMを回収する
   - **再着卓の契機は番犬taskの終了通知または`watch_error`**。親の側には「途絶した」と教える別経路が無いので、届いたら再着卓の手順に入る
   - **順序の要点は「room と工程正本を読み終えるまで発言しない」**。読む前に喋ると、自分が行き違いを作る側になる（実例あり）
   - **やらないこと**: 復帰の挨拶で席を起こさない。作業の再確認を席へ聞いて回らない——**現在地は上の1〜2で取れる**ので、聞くのは席の時間を奪うだけである

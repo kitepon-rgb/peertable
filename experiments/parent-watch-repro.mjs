@@ -103,6 +103,28 @@ try {
   const duplicate = await run(['--next'], { PEERTABLE_PARENT_WATCH_WINDOW_MS: '250' })
   check('再起動しても配達済みDMを重複させない', duplicate.status === 0 && duplicate.stdout === '', duplicate.stdout || duplicate.stderr)
 
+  const persistent = start(['--follow'])
+  await sleep(80)
+  for (const [from, body] of [['hinata', '常駐一件目'], ['asahi', '常駐二件目']]) {
+    await fetch(`${api}/messages`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ from, to: parent, body }),
+    })
+  }
+  for (let i = 0; i < 40; i += 1) {
+    const cursor = JSON.parse(await readFile(join(project, '.team/parent-watch.json'), 'utf8')).last_seq
+    if (cursor >= 7) break
+    await sleep(25)
+  }
+  persistent.child.kill('SIGTERM')
+  const persistentResult = await persistent.result
+  const persistentEvents = persistentResult.stdout.trim().split('\n').filter(Boolean).map(line => JSON.parse(line))
+  check('常駐世代は一件返した後も終了せず次のDMを同じprocessで返す',
+    persistentEvents.length === 2
+    && persistentEvents[0].body === '常駐一件目'
+    && persistentEvents[1].body === '常駐二件目',
+    persistentResult.stdout || persistentResult.stderr)
+
   const held = start(['--next'], { PEERTABLE_PARENT_WATCH_WINDOW_MS: '1000' })
   await sleep(80)
   const competing = await run(['--next'], { PEERTABLE_PARENT_WATCH_WINDOW_MS: '200' })

@@ -804,7 +804,8 @@ Peertable が Lattice のどの面をどう消費するか（consumer contract �
   **room追従は`parent-watch.mjs`一つが所有する。** `parent-join.sh`が現在headを永続cursorへprimeし、
   watcherがSSE/heartbeat、切断後のHTTP catch-up、`to`/`to_names`、親自身の発言除外を処理する。
   stdoutはDM本文を含むversioned JSON eventであり、Claudeはpersistent Monitor、Codexはyieldした
-  background tool taskから同じ出力を現在の親sessionへ返す。通常席のwakeup-bridgeは
+  長寿命background tool taskで、どちらも`--follow`を1回だけ起動する。DMごとの出力を現在の親sessionへ
+  返した後も同じprocess/sessionで待機へ戻り、通知1件で終了・再生成しない。通常席のwakeup-bridgeは
   `delivery.kind=parent_watch`を対象外にし、親へtmux・thread ID・外部resumeを要求しない。
 
   cursorはwatcher不在中も進めないため、親のcontext圧縮・task交代・一時切断後に未達DMを回収できる。
