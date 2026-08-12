@@ -96,7 +96,7 @@ model／effortと履歴を同期し、同一sessionとcontextが維持される�
 
 - [ ] i1を完了する。
 
-依存: r1。所有: 本campaignの統合証跡だけ。旧`t4`所有fileは変更しない。
+依存: r1、r2。所有: 本campaignの統合証跡だけ。旧`t4`所有fileは変更しない。
 
 旧`t4`をin-progressのまま、同じroom・同じ席で本PLANへ到達できることを実測する。途中で一席のmodel／effortを
 親だけがPeertableの入口からAiterm経由で変更し、対象メンバーは変更操作をせず、同一contextのまま作業を続けた
@@ -122,6 +122,19 @@ wakeup bridgeの既存契約を維持する。
 作業者は配線のfocused testと自己監査までを行い、現在の実席の再着席、model／effort変更、live E2Eは行わない。
 これらはr1の完了後にi1で親だけが行う。
 
+### r2 Aiterm管理席の着席判定をlive挙動へ合わせる
+
+- [ ] r2を完了する。
+
+親のi1実測で、Aiterm launch receiptが成功しbrief turnも開始した後、旧direct-launch用の現在画面ヘッダ判定が
+ヘッダの画面外流出を未着席と誤判定し、正常席をrollbackした。所有は`skill/scripts/launch-seat.sh`、この原因を
+再現するfocused harness、r2証跡だけとする。
+
+Aiterm管理席は公開launcherのtyped receiptでprocess起動を、room member登録で必須room MCPの成立を判定する。
+旧direct-launch用のヘッダ・trust dialog観測をAiterm起動後へ重ねない。invalid receiptとroom未登録は従来どおり
+typed failureにし、briefが継続中であることを未着席理由にしない。作業者はfocused testと自己監査までを行い、
+現在の実席を変更しない。修正後のlive再着席はi1で親だけが再開する。
+
 ### g1 関連回帰・Lattice整合・pushを閉じる
 
 - [ ] g1を完了する。
@@ -134,17 +147,18 @@ wakeup bridgeの既存契約を維持する。
 ## 4. 依存グラフ
 
 ```text
-c1（done） -> c2 -> m2（done） -----> i1 -> g1
-                    ^                 ^
-m3（done） ----------┘                 |
-r1 -----------------------------------┘
+c1（done） -> c2 -> m2（done） -------> i1 -> g1
+                    ^                   ^
+m3（done） ----------┘                   |
+r1（done） -----------------------------┤
+r2 -------------------------------------┘
 ```
 
 未着手だった`c3`、`m1`、`m4`は、必要な内容をそれぞれ`c2`と`m2`へ吸収して廃止する。
 
 ## 5. 完了条件
 
-1. c1、c2、m3、m2、r1、i1、g1がLatticeでdoneである。
+1. c1、c2、m3、m2、r1、r2、i1、g1がLatticeでdoneである。
 2. 親がClaude／Codex席のmodel／effort変更をAiterm公開面で行い、同一session・contextの維持を実測済みである。
 3. room memberのmodel／effortと変更履歴が実設定に一致する。
 4. 同じroom・席・Lattice storeが複数PLANを扱い、setupや再起動を要求しない。
