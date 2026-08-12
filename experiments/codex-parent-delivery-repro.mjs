@@ -56,7 +56,9 @@ try {
   check('Codex親task配送を一度だけ実行', await waitFor(async () => (await readFile(calls, 'utf8').catch(() => '')).includes(threadId)))
   const lines = (await readFile(calls, 'utf8')).trim().split('\n')
   check('同じDMを重複配送しない', lines.length === 1, JSON.stringify(lines))
-  check('resumeへ正しいthread IDと通知を渡す', lines[0]?.includes(`exec resume ${threadId}`) && lines[0]?.includes('hinata → bell'), lines[0])
+  check('resumeへ正しいthread IDとDM本文を渡す', lines[0]?.includes(`exec resume ${threadId}`)
+    && lines[0]?.includes('hinata → bell')
+    && lines[0]?.includes('[メンバーturn完了] hinata'), lines[0])
   const state = JSON.parse(await readFile(join(project, '.team/wakeup-bridge-delivery.json'), 'utf8'))
   check('turn完了後だけreceiptを確定', state.delivered?.includes('2:bell') === true, JSON.stringify(state))
 } finally {

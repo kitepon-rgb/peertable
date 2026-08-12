@@ -218,9 +218,14 @@ async function wake(seat, msgs) {
       throw error
     }
     const codex = process.env.PEERTABLE_CODEX_BIN || 'codex'
+    const directPrompt = [
+      'Peertable roomから、この親task宛のDMが届いた。以下は通知ではなくDM本文そのもの。',
+      ...msgs.map(msg => `[${msg.seq}] ${msg.from} → ${Array.isArray(msg.to_names) ? msg.to_names.join(', ') : msg.to}: ${msg.body}`),
+      '本文に具体的な依頼・行動要求があればこのturnで実行し、完了または具体的なblockerをroomへ報告すること。情報通知だけなら読了でよい。',
+    ].join('\n')
     let stdout
     try {
-      ({ stdout } = await run(codex, ['exec', 'resume', delivery.thread_id, text, '--json'], {
+      ({ stdout } = await run(codex, ['exec', 'resume', delivery.thread_id, directPrompt, '--json'], {
         timeout: 180_000,
         maxBuffer: 8 * 1024 * 1024,
       }))
