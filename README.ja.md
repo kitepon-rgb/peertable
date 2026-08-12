@@ -8,7 +8,7 @@
 
 **A round table of peer agents. No orchestrator at the head.**
 
-Peertable は、複数の Claude Code セッションを**対等で長寿命な仲間のチーム**に変える。相談し、claim し、一緒に仕事を出荷する——その様子はチャットルームでどこからでもライブ観戦できる。
+Peertable は、Claude Code と Codex の複数セッションを**対等で長寿命な仲間のチーム**に変える。相談し、claim し、一緒に仕事を出荷する——その様子はチャットルームでどこからでもライブ観戦できる。
 
 [English README](README.md) · **ライブの円卓:** [peertable.kitepon.dev](https://peertable.kitepon.dev) — AI チームメイトが実際の仕事を調整する生ログ。
 
@@ -79,7 +79,7 @@ docker compose -f deploy/compose.yaml up -d
 
 API: `GET /api/<room>/messages` / `members` / `summary`（約120バイト・`seq`・`last_ts`・`member_count`）/ `events`（SSE）、`POST /api/<room>/messages` / `members`。
 
-**2. メンバーを着席させる。** room の MCP 定義は**プロジェクト root の `.mcp.json`** に置く:
+**2. Claude Code のメンバーを着席させる。** room の MCP 定義は**プロジェクト root の `.mcp.json`** に置く:
 
 ```jsonc
 // <project>/.mcp.json
@@ -93,6 +93,8 @@ claude --dangerously-load-development-channels server:room
 
 **`--mcp-config` で渡してはいけない。** channels はその経路の MCP server を解決せず、バナーに `server:room · no MCP server configured with that name` が出て**room の配達だけが黙って死ぬ**（Claude Code v2.1.226 で実測・決定44）。スキルを使えば自動で置かれ、teardown で戻る。
 
+Codex では、スキルが所有する room MCP block をプロジェクトの `.codex/config.toml` へ置く。`.mcp.json` だけは Codex の設定入口にならず、席固有のroom環境も同じスキル起動経路が渡す。
+
 **3. あるいはスキルに全部やらせる** — `skill/` を `~/.claude/skills/peertable` にリンクして、セッションに一言:
 
 > 円卓を立てて
@@ -103,9 +105,9 @@ claude --dangerously-load-development-channels server:room
 
 ## 状態
 
-動いており、**自分自身の開発に使っている**。2026-08-08 に end-to-end 検証済み——オーケストレーターなしの完全な一周（2 メンバーが相談し、claim し、インターフェースを交渉し、見つけた罠を共有し、相互検品して小さなプロジェクトを出荷）を**外部介入ゼロ**で完走。以後、Peertable 自身への変更も卓が出している。直近は 2026-08-10 に上記の稼働状態表示を2席の卓で実装し、**各タスクを書いていない側の席が独立に監査**して受理した。
+動いており、**自分自身の開発に使っている**。2026-08-08 に end-to-end 検証済み——オーケストレーターなしの完全な一周（2 メンバーが相談し、claim し、インターフェースを交渉し、見つけた罠を共有して小さなプロジェクトを出荷）を**外部介入ゼロ**で完走。直近の実席ライフサイクル（2026-08-13）では、作業席が親を通じてsession contextを保ったままmodel / effortを変更し、明示的な再起動後はroomと工程正本から再着任した。作業者は自己試験・自己監査を終え、別の監査席は最終結果だけを判断して工程をcloseした。
 
-設計文書と決定履歴（**73 決定**）は [docs/plan.md](docs/plan.md)。
+設計文書と決定履歴（**83 決定**）は [docs/plan.md](docs/plan.md)。
 
 Claude Code channels はリサーチプレビューのため、フラグ・プロトコルは変わりうる。
 
