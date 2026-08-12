@@ -132,10 +132,10 @@ try {
       JSON.stringify(codexMember));
     check('Codex親へbackground watcherの起動要求を返す',
       joinResult.stdout.includes('PARENT_WATCH_START_REQUIRED')
-      && joinResult.stdout.includes('--follow')
-      && joinResult.stdout.includes('1回だけ起動')
-      && joinResult.stdout.includes('待機を続ける')
-      && !joinResult.stdout.includes('--next')
+      && joinResult.stdout.includes('codex-parent-watch.sh')
+      && joinResult.stdout.includes('1秒ごと')
+      && joinResult.stdout.includes('端末sessionは常駐させない')
+      && !joinResult.stdout.includes('--follow')
       && !joinResult.stdout.includes('wakeup-bridge'));
 
     // 3. mode=standalone では parent-env.sh を作らない

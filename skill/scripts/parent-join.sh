@@ -68,7 +68,7 @@ if PEERTABLE_PARENT_HOST="$parent_vendor" node "$here/parent-watch.mjs" "$proj" 
   capacity_delivery_ready=1
   echo "parent-watch cursor ready: ${name}（host=${parent_vendor}）"
   if [ "$parent_vendor" = "codex" ]; then
-    echo "PARENT_WATCH_START_REQUIRED: Codex親の長寿命background taskで ${here}/parent-watch.mjs ${proj} ${name} --follow を1回だけ起動し、DMごとのstdout eventを親turnへnotifyした後も同じtaskで待機を続けること"
+    echo "PARENT_WATCH_START_REQUIRED: Codex親のbackground taskで1秒ごとに ${here}/codex-parent-watch.sh ${proj} ${name} を都度実行し、空でないstdoutだけを親turnへnotifyすること。background taskはloopを続けるが、Node processや端末sessionは常駐させない"
   else
     echo "PARENT_WATCH_START_REQUIRED: Claude Monitor（persistent）で ${here}/parent-watch.mjs ${proj} ${name} --follow を1回だけ起動し、通知後も同じMonitorで待機を続けること"
   fi

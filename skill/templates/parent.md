@@ -48,10 +48,10 @@ export は親 shell に伝播しないため**、これをしないまま `latti
 
 - **Claude**: Monitorツール（persistent）で`node scripts/parent-watch.mjs <project> <親名> --follow`
   を起動し、その出力を親へ通知する。世代は常に1匹。張り替え時は旧MonitorをTaskStopしてから起動する。
-- **Codex**: 親の長寿命background tool taskを1本だけyield状態で保持する。そのtask内で
-  `node scripts/parent-watch.mjs <project> <親名> --follow`を1回だけ起動し、DMごとのstdoutを`notify`して
-  `yield_control`した後も、同じprocess/sessionの待機へ戻る。通知1件でtaskやwatcherを終了・再生成しない。
-  張り替え時は旧background taskを停止してから起動する。
+- **Codex**: 親のbackground tool taskを1本だけyield状態で保持する。そのtask内で1秒ごとに
+  `scripts/codex-parent-watch.sh <project> <親名>`を都度実行し、空でないstdoutだけを`notify`して
+  `yield_control`する。このscriptはHTTP catch-upを一度行って即終了する。長寿命なのはbackground taskの
+  loopだけで、Node processや端末sessionは常駐させない。張り替え時は旧background taskを停止する。
 
 どちらも`parent-join.sh`が先に作る`.team/parent-watch.json`のcursorを共有する。watcher不在中のDMは
 次回起動時にcatch-upされ、親以外宛・親自身の発言・pingでは親を起こさない。`watch_error`が届いたら
@@ -129,8 +129,8 @@ peertable_parent_post() {
 3. 工程正本で照合する（Lattice 併用: `lattice todo status --json`。単独: `.team/tasks.md` と
    room ログの突き合わせ）。食い違ったら工程正本が正で、食い違い自体を room へ出す
 4. member 登録は残っているので `parent-join.sh` を再実行しない。名前を確認するだけでよい
-5. vendorに応じて番犬を張り直す。Claudeは旧Monitor、Codexは旧background taskを止め、どちらも
-   `--follow`を1回だけ起動して通知後も同じ世代で待機を続ける。永続cursorが不在時間のDMをcatch-upする
+5. vendorに応じて番犬を張り直す。Claudeは旧Monitorを止めて`--follow`を1回起動する。Codexは旧background
+   taskを止め、1秒ごとの`--poll` loopを起動する。永続cursorが不在時間のDMをcatch-upする
 6. 順序の要点は「room と工程正本を読み終えるまで発言しない」
 
 ## 席の縮退・散会

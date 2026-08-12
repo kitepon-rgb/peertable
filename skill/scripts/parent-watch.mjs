@@ -4,6 +4,7 @@
 // この process が stdout へ出す構造化 event を親へ返すことだけを担う。
 //
 // usage: parent-watch.mjs <project_dir> [parent_name] --prime
+//        parent-watch.mjs <project_dir> [parent_name] --poll
 //        parent-watch.mjs <project_dir> [parent_name] --next
 //        parent-watch.mjs <project_dir> [parent_name] --follow
 import { existsSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
@@ -14,8 +15,8 @@ const project = args.shift()
 let parent = 'bell'
 if (args[0] && !args[0].startsWith('--')) parent = args.shift()
 const mode = args.shift() ?? '--follow'
-if (!project || !['--prime', '--next', '--follow'].includes(mode) || args.length > 0) {
-  console.error('usage: parent-watch.mjs <project_dir> [parent_name] <--prime|--next|--follow>')
+if (!project || !['--prime', '--poll', '--next', '--follow'].includes(mode) || args.length > 0) {
+  console.error('usage: parent-watch.mjs <project_dir> [parent_name] <--prime|--poll|--next|--follow>')
   process.exit(2)
 }
 
@@ -139,6 +140,13 @@ async function catchUp() {
     if (await acceptMessage(message) && mode === '--next') return true
   }
   return false
+}
+
+// Codex親のbackground task向け。HTTP catch-upを一度だけ行って即終了する。
+// 長寿命なのはbackground taskのloopだけで、端末sessionやNode processは常駐させない。
+if (mode === '--poll') {
+  await catchUp()
+  process.exit(0)
 }
 
 const nextWindowMs = Number(process.env.PEERTABLE_PARENT_WATCH_WINDOW_MS ?? 55_000)
