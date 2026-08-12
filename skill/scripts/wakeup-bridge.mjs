@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// room のSSEを購読し、明示宛先の新着を current member descriptor のsessionへ
-// 素送信して起こす。vendorや起動時の固定席集合は配送経路にしない。
+// room のSSEを購読し、明示宛先の新着を current member descriptor の通常席へ
+// 素送信して起こす。親セッションは parent-watch が所有し、このbridgeでは扱わない。
 //
 // usage: wakeup-bridge.mjs <project_dir> [legacy-seat...]     起動（前面。nohup で常駐させる）
 //        wakeup-bridge.mjs <project_dir> --stop               停止
@@ -110,6 +110,7 @@ function reconcileSeats() {
   if (membersObserved) {
     for (const member of members.values()) {
       if (typeof member.name !== 'string' || member.name.length === 0) continue
+      if (member.delivery?.kind === 'parent_watch') continue
       next.add(member.name)
       if (!pending.has(member.name)) pending.set(member.name, new Map())
     }
@@ -211,40 +212,6 @@ async function wake(seat, msgs) {
   await refreshMembers()
   const member = members.get(seat)
   const delivery = member?.delivery
-  if (delivery?.kind === 'codex_thread') {
-    if (typeof delivery.thread_id !== 'string' || !/^[0-9a-f-]{36}$/iu.test(delivery.thread_id)) {
-      const error = new Error(`CODEX_THREAD_DESCRIPTOR_INVALID: ${seat}`)
-      error.code = 'CODEX_THREAD_DESCRIPTOR_INVALID'
-      throw error
-    }
-    const codex = process.env.PEERTABLE_CODEX_BIN || 'codex'
-    const directPrompt = [
-      'Peertable roomから、この親task宛のDMが届いた。以下は通知ではなくDM本文そのもの。',
-      ...msgs.map(msg => `[${msg.seq}] ${msg.from} → ${Array.isArray(msg.to_names) ? msg.to_names.join(', ') : msg.to}: ${msg.body}`),
-      '本文に具体的な依頼・行動要求があればこのturnで実行し、完了または具体的なblockerをroomへ報告すること。情報通知だけなら読了でよい。',
-    ].join('\n')
-    let stdout
-    try {
-      ({ stdout } = await run(codex, ['exec', 'resume', delivery.thread_id, directPrompt, '--json'], {
-        timeout: 180_000,
-        maxBuffer: 8 * 1024 * 1024,
-      }))
-    } catch (cause) {
-      const error = new Error(`CODEX_THREAD_DELIVERY_FAILED: ${seat}: ${cause.message.split('\n')[0]}`)
-      error.code = 'CODEX_THREAD_DELIVERY_FAILED'
-      throw error
-    }
-    const completed = String(stdout).split('\n').some(line => {
-      try { return JSON.parse(line).type === 'turn.completed' } catch { return false }
-    })
-    if (!completed) {
-      const error = new Error(`CODEX_THREAD_TURN_INCOMPLETE: ${seat}`)
-      error.code = 'CODEX_THREAD_TURN_INCOMPLETE'
-      throw error
-    }
-    log(`Codex親taskを起こした: ${seat} ← ${msgs.length} 件（最新 seq ${last.seq}）`)
-    return
-  }
   const observation = resolveSeatObservation(member, null)
   if (observation === null) {
     const code = members.has(seat) ? 'DESCRIPTOR_MISSING' : 'MEMBER_MISSING'
@@ -265,7 +232,8 @@ async function wake(seat, msgs) {
 
 function dispatch(msg) {
   if (deliveryStates.has(msg.seq)) return
-  const targets = recipientNames(msg).filter(seat => seat !== msg.from)
+  const targets = recipientNames(msg).filter(seat => seat !== msg.from
+    && members.get(seat)?.delivery?.kind !== 'parent_watch')
   const state = { message: msg, targets: new Set(targets), delivered: new Set() }
   for (const seat of targets) {
     if (delivered.has(deliveryKey(msg.seq, seat))) state.delivered.add(seat)

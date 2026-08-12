@@ -37,6 +37,10 @@ const server = createServer((request, response) => {
     response.end(JSON.stringify({ messages: posts.map((message, index) => ({ ...message, seq: index + 1 })) }))
     return
   }
+  if (request.method === 'GET' && url.pathname.endsWith('/summary')) {
+    response.end(JSON.stringify({ schema: 'peertable.summary.v1', room, seq: posts.length }))
+    return
+  }
   if (request.method === 'POST' && url.pathname.endsWith('/messages')) {
     if (request.headers['x-peertable-token'] !== token) {
       response.writeHead(403).end(JSON.stringify({ error: 'forbidden' }))
@@ -229,6 +233,7 @@ try {
     room, server_url: serverUrl, mode: 'standalone',
   })}\n`)
   await copyFile(join(repo, 'skill/scripts/parent-join.sh'), join(parentScripts, 'parent-join.sh'))
+  await copyFile(join(repo, 'skill/scripts/parent-watch.mjs'), join(parentScripts, 'parent-watch.mjs'))
   await writeFile(join(parentScripts, 'ensure-bridge.sh'), `#!/bin/bash\nif [ -n "\${PEERTABLE_POST_TOKEN:-}" ]; then token=present; else token=absent; fi\nprintf 'parent=%s token=%s args=%s\\n' "\${PEERTABLE_PARENT_NAME:-}" "$token" "$*" >> "$CAPACITY_FIXTURE_ENSURE_LOG"\n`)
   await writeFile(join(fakeBin, 'tmux'), `#!/bin/bash\ncase "$3" in\n  '#{socket_path}') printf '%s\\n' /tmp/capacity-fixture.sock ;;\n  '#{pane_id}') printf '%s\\n' %42 ;;\nesac\n`)
   await chmod(join(parentScripts, 'parent-join.sh'), 0o755)
@@ -242,12 +247,14 @@ try {
     CAPACITY_FIXTURE_ENSURE_LOG: ensureLog,
   }
   const joined = await runProcess('bash', [join(parentScripts, 'parent-join.sh'), parentProject, 'parent-a', '', '', 'codex'], { env: parentEnv })
-  check('Codex親はname→descriptor配送bridge ready後にcapacityを起動する', () => {
+  check('Codex親はparent-watch cursor準備後にcapacityを起動する', () => {
     assert.equal(joined.status, 0, joined.stderr)
     const calls = readFileSync(ensureLog, 'utf8').trim().split('\n')
-    assert.match(calls[0], /parent= token=present args=.* wakeup parent-a$/u)
-    assert.match(calls[1], /parent=parent-a token=absent args=.* capacity$/u)
-    assert.equal(joinedMembers.at(-1)?.observe?.tmux_target, '%42')
+    assert.equal(calls.length, 1)
+    assert.match(calls[0], /parent=parent-a token=absent args=.* capacity$/u)
+    assert.equal(joinedMembers.at(-1)?.observe, null)
+    assert.deepEqual(joinedMembers.at(-1)?.delivery, { kind: 'parent_watch', host: 'codex' })
+    assert.match(joined.stdout, /PARENT_WATCH_START_REQUIRED: Codex/u)
     assert.match(readFileSync(join(repo, 'skill/scripts/ensure-bridge.sh'), 'utf8'),
       /PEERTABLE_PARENT_NAME/u)
     assert.match(readFileSync(join(repo, 'skill/scripts/parent-join.sh'), 'utf8'),
@@ -255,13 +262,14 @@ try {
   })
 
   await rm(ensureLog, { force: true })
-  const noDescriptor = await runProcess('bash', [join(parentScripts, 'parent-join.sh'), parentProject, 'bell-undeliverable', '', '', 'codex'], {
+  const claudeParent = await runProcess('bash', [join(parentScripts, 'parent-join.sh'), parentProject, 'bell-claude', '', '', 'claude'], {
     env: { ...parentEnv, TMUX: '' },
   })
-  check('Codex親にdescriptorが無ければ初回DMをstate済みにせずcapacityを起動しない', () => {
-    assert.equal(noDescriptor.status, 0, noDescriptor.stderr)
-    assert.match(noDescriptor.stderr, /CAPACITY_BRIDGE_DELIVERY_NOT_READY/u)
-    assert.equal(existsSync(ensureLog), false)
+  check('Claude親も同じcursorを使いMonitor起動だけをvendor固有案内する', () => {
+    assert.equal(claudeParent.status, 0, claudeParent.stderr)
+    assert.match(claudeParent.stdout, /PARENT_WATCH_START_REQUIRED: Claude Monitor/u)
+    assert.deepEqual(joinedMembers.at(-1)?.delivery, { kind: 'parent_watch', host: 'claude' })
+    assert.match(readFileSync(ensureLog, 'utf8').trim(), /parent=bell-claude token=absent args=.* capacity$/u)
   })
 } finally {
   await new Promise(resolve => server.close(resolve))

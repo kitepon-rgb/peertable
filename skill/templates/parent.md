@@ -40,30 +40,22 @@ vendor に関わらず: `scripts/parent-join.sh <project> [name] [model] [effort
 export は親 shell に伝播しないため**、これをしないまま `lattice todo reopen` 等を打つと
 `ACTOR_UNRESOLVED`（`missing_environment=[...]`）で無変更停止する（実測: owner裁定[46]④）。
 
-## 新着の検知（vendor で手順が違う）
+## 新着の検知（room追従は共通、親への通知だけvendor別）
 
-- **Claude**: bell宛DM番犬を Monitor ツール（persistent）で張る。room SSE を購読し、
-  親宛DM（`to` が親名、または `to_names` に親名を含む）だけを event として通す。切断は沈黙でなく
-  event として出す（再接続ループの echo が親を起こす）。世代は常に1匹——張り替える時は先に旧世代を
-  TaskStop で止める。
-  ```
-  while true; do curl -sN $URL/api/$ROOM/events | grep --line-buffered '^data: ' | sed -u 's/^data: //' \
-    | jq --unbuffered -rc 'select(type=="object" and .from!="<親名>" and (.to=="<親名>" or ((.to_names//[])|index("<親名>")))) | ...' ; \
-    echo "[番犬] SSE切断——3秒後に再接続"; sleep 3; done
-  ```
-- **Codex**: 起床は wakeup-bridge が担う（席と同じ入口。実測: room[104][109]、
-  `experiments/parent-wakeup-e2e-repro.mjs`）。`room に新着あり（<誰> → <宛先>）。
-  read_unread で読むこと。` が端末へ直接届く。**この文言は席（room MCP を持つ）向けの定型句を
-  そのまま使っているので、親は文字どおり `read_unread` を呼ばず、上の「親は MCP を後付けできない
-  ため room へは HTTP API 直で入る」の原則どおり `curl -s $URL/api/$ROOM/messages?since=<最後に
-  読んだseq>` で新着を確認する**（親は launch-seat.sh の `-c mcp_servers.room...` オーバーライド
-  を経ていないため room MCP を持たない。実測: tsubaki[110]、`codex mcp list` に room connector が
-  無いことを確認済み——これは欠陥ではなく親が最初から MCP 経由でない設計であることの裏付け）。
-  届いたらその場で手を止めて確認し、返事が要るなら post してから元の作業へ戻る（作業中でも
-  割り込んで届く）。**この経路は Desktop/CLI どちらでも同一の wakeup-bridge を使うため、Desktop
-  での注入成立可否は個別に確認すること**——手動でのポーリングを自動 wake の成功と偽らない
-  （未実測項目: 実 Codex CLI セッションでの turn 内 steering・Desktop 環境。t4 で実円卓検証する。
-  このhostは `codex mcp list` に room connector を持たない CLI のみの環境という制約を確認済み）。
+`scripts/parent-watch.mjs <project> <親名>` がroom SSE、heartbeat、再接続catch-up、宛先判定、
+永続cursorを一括所有する。stdoutへ出る`peertable.parent-watch-event.v1`はDM本文そのものであり、
+再度roomを読まなくてよい。通常席用`wakeup-bridge`、tmux、`codex exec resume`を親へ流用しない。
+
+- **Claude**: Monitorツール（persistent）で`node scripts/parent-watch.mjs <project> <親名> --follow`
+  を起動し、その出力を親へ通知する。世代は常に1匹。張り替え時は旧MonitorをTaskStopしてから起動する。
+- **Codex**: 親のbackground tool taskを1本だけyield状態で保持する。そのtask内で
+  `node scripts/parent-watch.mjs <project> <親名> --next`を反復し、空でないstdoutを`notify`して
+  `yield_control`する。`--next`は55秒で自然終了するため、親taskを畳んだ後に孤児processを残さない。
+  張り替え時は旧background taskを停止してから起動する。
+
+どちらも`parent-join.sh`が先に作る`.team/parent-watch.json`のcursorを共有する。watcher不在中のDMは
+次回起動時にcatch-upされ、親以外宛・親自身の発言・pingでは親を起こさない。`watch_error`が届いたら
+通常のDMとして扱わず、番犬の再着卓を行う。
 
 ## 発言規律（決定43・正典 §3.4）
 
@@ -137,8 +129,8 @@ peertable_parent_post() {
 3. 工程正本で照合する（Lattice 併用: `lattice todo status --json`。単独: `.team/tasks.md` と
    room ログの突き合わせ）。食い違ったら工程正本が正で、食い違い自体を room へ出す
 4. member 登録は残っているので `parent-join.sh` を再実行しない。名前を確認するだけでよい
-5. Claude: 番犬を張り直す（前の Monitor は死んでいる）。Codex: wakeup-bridge は起こしたまま
-   （teardown が停止するまで生存する）ので張り直し不要
+5. vendorに応じて番犬を張り直す。Claudeは旧Monitorを止めて`--follow`、Codexは旧background taskを
+   止めて`--next`反復を起動する。永続cursorが不在時間のDMをcatch-upする
 6. 順序の要点は「room と工程正本を読み終えるまで発言しない」
 
 ## 席の縮退・散会
@@ -147,8 +139,8 @@ peertable_parent_post() {
 非競合ready／live worker／増減数を読み、不足数だけ`launch-seat.sh`で起こす。reclaim対象のidle席は
 配車せず、同じ通知を受けた本人が工程正本とlive ownerを差分確認して自律claimする。親自身は目標席数へ
 数えない。同じcapacity差の反復通知はbridge側が抑止する。capacity側はroom member名だけを宛先にし、
-実sessionへの注入は通常DM配送側が現在のdescriptorから解決する。Codex親のdescriptor／wakeup-bridgeが
-readyでなければcapacity bridge自体を起こさず、初回差分を「通知済み」にしない。
+親宛DMはparent-watchの永続cursorから現在の親background taskへ届く。cursorをprimeできなければ
+capacity bridge自体を起こさず、初回差分を「通知済み」にしない。
 
 frontier が細って遊休席が出たら親が畳む: ①対象席へ名指しで通告 ②本人に WIP と未報告の作業が
 無いことを確認する（本人が「まだ持っている」と言えば畳まない） ③席のセッションを終了 ④room API

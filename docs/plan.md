@@ -794,6 +794,22 @@ Peertable が Lattice のどの面をどう消費するか（consumer contract �
   サイドカー索引は作らず、消費者は既存`GET /api/<room>/summary`を必要なroomへ使う。CORSとtoken不要は
   既存の読み取り系と同じ契約とする。
 
+- **決定76（2026-08-12・オーナー裁定）: 親DM番犬はroom追従を共通化し、Claude/Codex双方の親内background taskで起こす**
+
+  旧Claude番犬は、親がMonitorへ手組みの`curl | grep | sed | jq`を渡していたため、roomが名前付きSSE event、
+  heartbeat、複数宛先、catch-upを持つようになった後も古い解釈のまま残った。Codex親を通常席用
+  `wakeup-bridge`へ載せる案も、親がAiterm/tmux席ではないこと、Desktopの現在taskへ外部
+  `codex exec resume`で注入できないことを実測して不成立とした。
+
+  **room追従は`parent-watch.mjs`一つが所有する。** `parent-join.sh`が現在headを永続cursorへprimeし、
+  watcherがSSE/heartbeat、切断後のHTTP catch-up、`to`/`to_names`、親自身の発言除外を処理する。
+  stdoutはDM本文を含むversioned JSON eventであり、Claudeはpersistent Monitor、Codexはyieldした
+  background tool taskから同じ出力を現在の親sessionへ返す。通常席のwakeup-bridgeは
+  `delivery.kind=parent_watch`を対象外にし、親へtmux・thread ID・外部resumeを要求しない。
+
+  cursorはwatcher不在中も進めないため、親のcontext圧縮・task交代・一時切断後に未達DMを回収できる。
+  世代は各親1本だけとし、ClaudeはTaskStop、Codexはbackground task停止後に張り替える。
+
 ---
 
 ## 9. スキル化 — 完了（2026-08-08）
@@ -1242,9 +1258,9 @@ channels/wakeup-bridgeで作業中でも割り込まれるのに、親だけが�
 send_message・CLI・headlessから叩ける面がどれか）は実装時に実測で確定する。受入は「親が作業中でも
 bell宛のroomメッセージがそのターンに届く」と「親を明示していない発言が注入されない」の両方の実測。
 
-**現況（2026-08-10 実測）**: 着地済み（2026-08-09 受入実測済み）。実現手段は Monitor ツールで room の SSE を
-張り、親宛DM（`to`が親名または`to_names`に親名を含む）だけを通す「bell宛DM番犬」（`skill/SKILL.md` の
-「親の operating notes」節）。Desktop 親への channel 注入は不成立だったため、この経路が正になった。
+**現況（2026-08-12 更新）**: 初代はClaude Monitorへ手組みSSE filterを渡す方式だったが、room進化への
+追従漏れとCodex親不達を決定76で置換した。現行は`parent-watch.mjs`がroom解釈と永続cursorを共通所有し、
+Claude Monitor / Codex background taskは同じ構造化DM eventを現在の親sessionへ返す。
 
 ## 16. 明示宛先 campaign（explicit-recipients-20260809）— 計画正本（オーナー裁定 2026-08-09）
 

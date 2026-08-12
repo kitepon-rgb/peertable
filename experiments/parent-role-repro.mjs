@@ -8,7 +8,7 @@
 //      （owner裁定[46]④: 子processのexportは親shellへ伝播しないため、親が自分でsourceする
 //      持続ファイルが要る）
 //   3. mode=standalone では parent-env.sh を生成しない（Lattice を持ち込まない卓を汚さない）
-//   4. vendor=codex を渡すと member 登録の vendor が codex になる
+//   4. vendor=codex を渡すと通常席のdescriptorでなくparent_watch契約が登録される
 //   5. token 未設定の新 shell が parent.md の再着卓ブロックだけで正規 config を source し、
 //      秘密値を出力せず Unicode room の read / post へ到達する
 import assert from 'node:assert/strict';
@@ -56,6 +56,10 @@ async function fixtureServer() {
     }
     if (request.method === 'GET' && request.url?.includes('/messages')) {
       response.end(JSON.stringify({ messages, latest_seq: messages.length }));
+      return;
+    }
+    if (request.method === 'GET' && request.url?.endsWith('/summary')) {
+      response.end(JSON.stringify({ schema: 'peertable.summary.v1', room: 'r', seq: messages.length }));
       return;
     }
     if (request.method === 'POST' && request.url?.endsWith('/messages')) {
@@ -112,8 +116,7 @@ try {
     const latticeProj = path.join(work, 'lattice-proj');
     await mkdir(path.join(latticeProj, '.team'), { recursive: true });
     await writeFile(path.join(latticeProj, '.team/setup-state.json'), JSON.stringify({ room: 'r', server_url: url, mode: 'lattice' }));
-    const parentThreadId = '019fef48-49b0-7190-a4cc-6ca657000c48';
-    const childEnv = { PEERTABLE_POST_TOKEN: 'x', CODEX_THREAD_ID: parentThreadId };
+    const childEnv = { PEERTABLE_POST_TOKEN: 'x' };
     const joinResult = await run('bash', [PARENT_JOIN, latticeProj, 'nagi-test', '', '', 'codex'], { env: childEnv });
     check('parent-join.sh（lattice）が成功する', joinResult.code === 0, joinResult.stderr.trim().slice(-300));
     const envFile = await readFile(path.join(latticeProj, '.team/parent-env.sh'), 'utf8').catch(() => null);
@@ -122,13 +125,15 @@ try {
       (envFile?.includes('LATTICE_TODO_ACTOR_HOST=mac') && envFile?.includes('LATTICE_TODO_ACTOR_SESSION=nagi-test') && envFile?.includes('LATTICE_TODO_ACTOR_AGENT=nagi-test')) ?? false);
     check('vendor=codex が member 登録へ反映される', registered.some((m) => m.vendor === 'codex'));
     const codexMember = registered.find((m) => m.name === 'nagi-test');
-    check('Codex親はtmux observeでなくthread記述子を自己申告する',
+    check('Codex親は通常席descriptorでなくparent_watchを自己申告する',
       codexMember?.observe === null
-      && codexMember?.delivery?.kind === 'codex_thread'
-      && codexMember?.delivery?.thread_id === parentThreadId,
+      && codexMember?.delivery?.kind === 'parent_watch'
+      && codexMember?.delivery?.host === 'codex',
       JSON.stringify(codexMember));
-    check('thread記述子が在ればwakeup-bridge起動を試みる',
-      joinResult.stdout.includes('wakeup-bridge') || joinResult.stderr.includes('wakeup-bridge'));
+    check('Codex親へbackground watcherの起動要求を返す',
+      joinResult.stdout.includes('PARENT_WATCH_START_REQUIRED')
+      && joinResult.stdout.includes('--next')
+      && !joinResult.stdout.includes('wakeup-bridge'));
 
     // 3. mode=standalone では parent-env.sh を作らない
     const standaloneProj = path.join(work, 'standalone-proj');

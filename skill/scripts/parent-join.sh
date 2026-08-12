@@ -19,20 +19,12 @@ if [ -z "${PEERTABLE_POST_TOKEN:-}" ] && [ -f "$HOME/.config/peertable.env" ]; t
   . "$HOME/.config/peertable.env"
 fi
 
-# 親はAiterm席ではない。Codex親は起動元taskそのものを配送先として登録する。
-# tmux observe は通常席専用で、親へ流用すると同名の別席を起こしてしまう。
-observe_socket=""; observe_target=""
-thread_id=""
-if [ "${vendor:-}" = "codex" ] && [ -n "${CODEX_THREAD_ID:-}" ]; then
-  thread_id="$CODEX_THREAD_ID"
-elif [ "${vendor:-}" != "codex" ] && [ -n "${TMUX:-}" ]; then
-  observe_socket=$(tmux display-message -p '#{socket_path}' 2>/dev/null || true)
-  observe_target=$(tmux display-message -p '#{pane_id}' 2>/dev/null || true)
-fi
-
-member=$(python3 - "$name" "$model" "$effort" "$vendor" "$observe_socket" "$observe_target" "$thread_id" <<'PY'
+# 親はAiterm席ではない。Claude/Codexとも、親自身が所有するparent-watchを配送先にする。
+# tmux observeやCodex thread IDを登録すると、通常席bridge／外部resumeへ誤配送される。
+parent_vendor="${vendor:-claude}"
+member=$(python3 - "$name" "$model" "$effort" "$parent_vendor" <<'PY'
 import json, sys
-name, model, effort, vendor, observe_socket, observe_target, thread_id = sys.argv[1:8]
+name, model, effort, vendor = sys.argv[1:5]
 body = {'name': name}
 # 渡された欄だけ載せる。空欄を送ると、素性を持つ既存登録を空で上書きしうる
 if model or vendor:
@@ -41,11 +33,8 @@ if model:
     body['model'] = model
 if effort:
     body['effort'] = effort
-if observe_socket and observe_target:
-    body['observe'] = {'tmux_socket': observe_socket, 'tmux_target': observe_target}
-if thread_id:
-    body['observe'] = None
-    body['delivery'] = {'kind': 'codex_thread', 'thread_id': thread_id}
+body['observe'] = None
+body['delivery'] = {'kind': 'parent_watch', 'host': vendor}
 print(json.dumps(body))
 PY
 )
@@ -72,22 +61,23 @@ if [ -f "$proj/.team/roles/parent.md" ]; then
   echo "親役割は $proj/.team/roles/parent.md を読むこと"
 fi
 
-# 親のhost固有delivery記述子がある時だけwakeupを配線する。
-capacity_delivery_ready=1
-if [ -n "$thread_id" ] || [ -n "$observe_target" ]; then
-  if "$here/ensure-bridge.sh" "$proj" wakeup "$name"; then
-    echo "wakeup-bridge を外部親（${name}）宛に起動した"
+# parent-watchが初回headを固定してからcapacityを起こす。以後のDMはwatcher不在時間を含め
+# 永続cursorからcatch-upされる。host内のbackground task自体は親セッションだけが所有できる。
+capacity_delivery_ready=0
+if PEERTABLE_PARENT_HOST="$parent_vendor" node "$here/parent-watch.mjs" "$proj" "$name" --prime; then
+  capacity_delivery_ready=1
+  echo "parent-watch cursor ready: ${name}（host=${parent_vendor}）"
+  if [ "$parent_vendor" = "codex" ]; then
+    echo "PARENT_WATCH_START_REQUIRED: Codex親のbackground taskで ${here}/parent-watch.mjs ${proj} ${name} --next を反復し、stdout eventを親turnへnotifyすること"
   else
-    echo "WARN: wakeup-bridge の起動に失敗した。手動で ${here}/ensure-bridge.sh ${proj} wakeup ${name} を実行すること" >&2
-    capacity_delivery_ready=0
+    echo "PARENT_WATCH_START_REQUIRED: Claude Monitor（persistent）で ${here}/parent-watch.mjs ${proj} ${name} --follow を起動すること"
   fi
 else
-  echo "WARN: PARENT_DELIVERY_DESCRIPTOR_MISSING: 親hostのsession記述子が無いためwakeup-bridgeを自動配線できない" >&2
-  capacity_delivery_ready=0
+  echo "WARN: PARENT_WATCH_PRIME_FAILED: 親（${name}）のDM cursorを準備できない" >&2
 fi
 
 # capacity通知はroomへ記録するだけでなく、上で準備したname→session descriptor経路から
-# 親を実際に起こせて初めて届く。Codex親ではwakeup-bridge readyより先に初回差分を送らない。
+# 親DMは上で固定したcursorから欠落なく回収できる状態になってからcapacityを起こす。
 if [ "$capacity_delivery_ready" = "1" ]; then
   if env -u PEERTABLE_POST_TOKEN PEERTABLE_PARENT_NAME="$name" "$here/ensure-bridge.sh" "$proj" capacity; then
     echo "capacity-bridge を親（${name}）の配送経路準備後に起動した"

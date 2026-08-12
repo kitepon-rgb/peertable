@@ -1,11 +1,7 @@
 #!/usr/bin/env node
-// t3 追加実測（tsubaki, room[95]）: parent-join.sh が observe 記述子を自己申告し、
-// wakeup-bridge.mjs をその記述子経由で親（Codex 想定）へ実際に起こせることを、
-// 実 room server（SSE 対応）＋実 tmux pane で確認する。
+// 通常席互換の歴史fixture: observe記述子を持つtmux席へwakeup-bridgeが届くことを測る。
 //
-// これは「入口が配線されていること」の実測であり、実 Codex CLI セッションを親として動かす
-// 検証（Desktop/CLI の wake 差の区別を含む）はこの host では別途 t4 で行う
-// （campaign文書t3: 「外部注入面が存在しない host は、制約と継続監視の正規手順を明示して止める」）。
+// 親セッションは決定76でparent-watchへ移行済み。このfixtureは親契約の証拠としては使わない。
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';

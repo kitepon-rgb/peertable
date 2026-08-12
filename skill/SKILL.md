@@ -69,7 +69,7 @@ sub-agentを円卓メンバーの代用にしない。通常shell用の短命PTY
    - ログは `.team/wakeup-bridge.log`。**0件でも0件と出す**ので、起こせているか・取りこぼしていないかはログを見れば分かる。再現ハーネスは `experiments/bridge-catchup-repro.mjs`
 
 6.5 **席の稼働状態ブリッジ（setup.sh が自動で起こす）**: 手順3の scaffold が `ensure-bridge.sh <project> seat-status` で起こすので、**AI が手で叩く段は無い**。観測先は member の `observe: {tmux_socket, tmux_target}` を優先し、無い既存memberだけ `peer-<名前>` へ後方互換で落とす。socket は明示env → aiterm POSIX既定 → 検証済み`/tmp/aiterm-*.sock`1本 → 既定パスの順で解決し、bashからは`tmux-socket.mjs`を呼ぶ。既に立っている席はclient再起動まで`observe`を自己申告しないため、`peer-`以外の席で記述子が要る時は席かclientを再起動する。WSLではbridgeが読む**WSL側**の版が正で、Windows側だけの更新では直らない。
-6.6 **容量差分ブリッジ（parent-join.sh が親登録・DM配送経路ready後に自動で起こす）**: `ensure-bridge.sh <project> capacity` がLatticeのstatus＋plan別independence（単独卓は`.team/tasks.md`＋room claim）とroom membersを観測する。親・deadを除くlive workerとの差が変わった時だけ、親とidle reclaim席へ一通の`[capacity] PEERTABLE_CAPACITY_CHANGED` DMを送る。roomへは名前だけを宛先として記録し、実sessionへの配送は通常DM経路が現在のmember descriptorから解決する。Codex親でdescriptorまたはwakeup-bridge readyを確認できなければ`CAPACITY_BRIDGE_DELIVERY_NOT_READY`を出してcapacityを起動せず、初回差分をstate済みにしない。状態は`.team/capacity-advisor.json`、process記録は`.team/capacity-bridge.json`、ログは`.team/capacity-bridge.log`。停止は`node scripts/capacity-bridge.mjs <project> --stop`（teardownが自動で行う）。setup時点では親が未登録なので起こさない。
+6.6 **容量差分ブリッジ（parent-join.sh が親登録・parent-watch cursor ready後に自動で起こす）**: `ensure-bridge.sh <project> capacity` がLatticeのstatus＋plan別independence（単独卓は`.team/tasks.md`＋room claim）とroom membersを観測する。親・deadを除くlive workerとの差が変わった時だけ、親とidle reclaim席へ一通の`[capacity] PEERTABLE_CAPACITY_CHANGED` DMを送る。roomへは名前だけを宛先として記録し、親宛DMは`parent-watch`の永続cursorから現在の親background taskへ届く。cursorをprimeできなければcapacityを起動せず、初回差分をstate済みにしない。状態は`.team/capacity-advisor.json`、process記録は`.team/capacity-bridge.json`、ログは`.team/capacity-bridge.log`。停止は`node scripts/capacity-bridge.mjs <project> --stop`（teardownが自動で行う）。setup時点では親が未登録なので起こさない。
    - **`nohup` は使わない（決定74）。** `ensure-bridge.sh` が専用 tmux セッション `peertable-<bridge>-<room>` で常駐を保持する。tmux は**呼び出し元シェルの寿命に縛られない**——WSL の `wsl -e bash -lc` 経由だと `nohup` の子が呼び出し元と一緒に殺され、**初回1回だけ送信して死ぬ**（2026-08-11 実測。macOS では死なないので、この症状は WSL でしか出ない）。ensure は手渡された `PEERTABLE_TMUX_SOCKET` / `PEERTABLE_POST_TOKEN` / `PEERTABLE_URL` を command 側で明示して渡す——新 session が継ぐのは tmux *server* の環境で、呼び出し元 client の環境ではないため
    - **parent-join が配送経路ready後に起こし、teardown が止める（対称）。** 2026-08-10 までは「起こすかは卓の任意」で手で `nohup` する設計だったが、それが2つの失敗を招いたので変えた: 起こし忘れと、**トークンを持たないシェルで起こすこと**。後者は実害が出た——`~/.config/peertable.env` の `export` 欠落により、`source` した shell から起こした常駐がトークンを持たず、**4時間 HTTP 403 を撃ち続けた**。参加者一覧には点が1つも出ず、**「起こしていない」と見分けがつかなかった**
    - **書込トークンは起こす側の env に依存しない。** ブリッジ自身が `launch-seat.sh:25-27` と同じ規則で解決する（env が先・無ければ `~/.config/peertable.env` を読む。`export` の有無を問わない）。同じ規則を `run-bridge.mjs` も使う
@@ -79,7 +79,7 @@ sub-agentを円卓メンバーの代用にしない。通常shell用の短命PTY
 6.7 **effort変更（本人要請→親実行）**: 本人は親だけへ`[effort変更依頼] <level>`を明示DMする。親は席がidleなのを確認して`env -u PEERTABLE_POST_TOKEN skill/scripts/change-effort.sh <project> <member> <level> [parent_name]`を実行する。短命control processにも平文tokenを初期envとして渡さない。scriptは未使用の本人DMを機械確認し、room membersのvendor/modelを保って席を再起動し、metadataを読み返してから本人宛へ変更履歴を残す。同じ依頼の再利用、busy席、Claudeの未知level、Codex model catalogに無いlevelは再起動前にtyped拒否する。新設定での起動失敗時は旧effortで1回だけ明示rollbackし、両方失敗なら手動復旧が必要だと非0で出す。
    - **会話contextは引き継がない**。本人は作業を安全に中断できる時だけ依頼し、再起動後はrole・工程正本・roomログから再着任する。変更できたのに履歴記録だけ失敗した場合も成功へ丸めず、`EFFORT_CHANGE_CHANGED_BUT_HISTORY_FAILED`で現在状態を明示する
 
-7. **親の着卓**（このセッション）: `scripts/parent-join.sh <project> [name] [model] [effort]` で member 登録を行う。**`effort` は任意のまま据え置く**——席は `launch-seat.sh` が `--effort` で実際に設定するので「渡した値＝実挙動」だが、親は既に走っているセッションで自分の effort を機械的に知る経路が無く、推測して載せると画面が嘘をつく。**bell宛DM番犬**を Monitor で張る（形は下記「親の operating notes」の番犬仕様）。broadcastのkickoffは廃止済み。以後の post も API 直（同 notes）
+7. **親の着卓**（このセッション）: `scripts/parent-join.sh <project> [name] [model] [effort] [vendor]` で member 登録とparent-watch cursorのprimeを行う。**`effort` は任意のまま据え置く**——席は `launch-seat.sh` が `--effort` で実際に設定するので「渡した値＝実挙動」だが、親は既に走っているセッションで自分の effort を機械的に知る経路が無く、推測して載せると画面が嘘をつく。続けて、ClaudeはMonitor、Codexはyieldしたbackground tool taskとして**親宛DM番犬**を1世代だけ張る（形は下記「親の operating notes」の番犬仕様）。broadcastのkickoffは廃止済み。以後の post も API 直（同 notes）
 8. **起動確認**: room の members に全員いる / 最初の claim が room に流れる（Lattice 併用モードはそれが Lattice へ到達している＝`lattice todo status --json` の active に出ることも確認する。単独モードは room の claim 宣言だけが到達の証拠）/ Web UI で観測できる、をチェックして報告する
 
 ## teardown
@@ -194,10 +194,15 @@ witness をどう生成するかは**対象 project 側の作法に従う**（La
   - 登録: `curl -X POST $URL/api/$ROOM/members -H "X-Peertable-Token: $TOKEN" -d '{"name":"bell"}'`
   - 発言: `curl -X POST $URL/api/$ROOM/messages -H "X-Peertable-Token: $TOKEN" -d '{"from":"bell","to":"<明示宛先>","body":"..."}'`（複数人は`to`へ名前の配列）
   - 観測: **bell宛DM番犬**（下記）。素の SSE 全量 Monitor は張らない
-- **bell宛DM番犬の仕様**（p7。2026-08-09 受入実測済み——Desktop 親への channel 注入は不成立で、これが親を起こす唯一の線）: Monitor ツール（persistent）で room SSE を張り、**親宛DM（`to` が親名、または `to_names` に親名を含む）だけ**を event として通す。ping・親自身の発言は捨てる。形:
-  - `while true; do curl -sN $URL/api/$ROOM/events | grep --line-buffered '^data: ' | sed -u 's/^data: //' | jq --unbuffered -rc 'select(type=="object" and .from!="<親名>" and (.to=="<親名>" or ((.to_names//[])|index("<親名>")))) | ...' ; echo "[番犬] SSE切断——3秒後に再接続"; sleep 3; done`
-  - **切断は沈黙でなく event**——再接続ループの echo が親を起こすので、黙って死ねない（ADR 0157 型の不死・沈黙死の対策）
-  - **世代は常に1匹**——張り替える時は先に旧世代を TaskStop で止める。張った・畳んだは room へ一言流す（卓が「親が起きない」を検知できる面）
+- **親宛DM番犬の仕様**（決定76）: room追従は`parent-watch.mjs`一つが所有する。`parent-join.sh`が
+  `.team/parent-watch.json`をprimeし、room SSE・heartbeat・再接続catch-up・`to`/`to_names`判定・
+  永続cursorをscript内で処理する。stdoutの`peertable.parent-watch-event.v1`はDM本文そのもの。
+  - **Claude**はpersistent Monitorで`node scripts/parent-watch.mjs <project> <親名> --follow`を実行し、
+    出力を親へ通知する。**Codex**はyieldしたbackground tool taskで`--next`を反復し、空でないstdoutを
+    `notify`して`yield_control`する。通常席用wakeup-bridge、tmux、`codex exec resume`を親へ流用しない
+  - 親以外宛・ping・親自身の発言は捨てる。watcher不在中のDMは永続cursorから次回起動時にcatch-upする
+  - **世代は常に1匹**。Claudeは旧MonitorをTaskStop、Codexは旧background taskを停止してから張り替える。
+    `watch_error`は親へ通知し、沈黙死させない
   - broadcastはserverがtyped拒否する。状況把握はroomログをpullで読む
 - **effort変更依頼**: 本人からexactな`[effort変更依頼] <level>` DMが来た時だけ上記6.7のscriptを使う。親が本人の代わりに依頼文を投稿しない。busy拒否は「失敗したから直接tmuxを落とす」理由にならず、本人がidleになるまで待つ
 - 親の権能は進行・受理判定・督促・オーナーとの接点だけ。**実務に落ちない**: バグを見つけても直さず、発見内容を room に送って会議に載せる。差し戻しは異議であり、平行線はメンバーが勝つ
@@ -211,8 +216,8 @@ witness をどう生成するかは**対象 project 側の作法に従う**（La
   1. **room ログを読む**——`curl -s "$URL/api/$ROOM/messages?since=<最後に読んだ seq>"`。`since` を持っていなければ 0 から。**会話が卓の正本**なので、まずここで現在地（誰が何を claim し、どこまで done か）を作る
   2. **工程正本で照合する**——`lattice todo status --json`（Lattice 併用）。room の宣言と `active` / `next_ready` / `audit_pending` が食い違ったら**工程正本が正**で、食い違い自体を room へ出す（単独円卓モードは `.team/tasks.md` と room ログの突き合わせ）
   3. **member 登録は残っている**ので `parent-join.sh` を再実行しない。`curl -s $URL/api/$ROOM/members` で自分の名前を確認するだけでよい（実測: 親の登録はセッションを跨いで残る）。**再実行しても `<名前> が参加した` は流れない**——`POST /members` は本当に新規追加の時だけ本人宛のsystem発言を出す
-  4. **番犬を張り直す**——下記「親の operating notes」の番犬仕様どおり。**前の Monitor は死んでいる**ので、張り直さないと以後の新着に気づかない。生きた旧世代が残っていれば先に止める（世代は常に1匹）
-  - **再着卓の契機は Monitor stream の終了通知**（2026-08-08 実測。1日に2回——引き継ぎ時と障害復旧後）。親の側には「途絶した」と教えてくれるものが他に無いので、**Monitor が終わったら再着卓の手順に入る**と決めておく
+  4. **番犬を張り直す**——Claudeは`--follow`、Codexは`--next`反復。生きた旧世代が残っていれば先に止める（世代は常に1匹）。永続cursorが不在時間のDMを回収する
+  - **再着卓の契機は番犬taskの終了通知または`watch_error`**。親の側には「途絶した」と教える別経路が無いので、届いたら再着卓の手順に入る
   - **順序の要点は「room と工程正本を読み終えるまで発言しない」**。読む前に喋ると、自分が行き違いを作る側になる（実例あり）
   - **やらないこと**: 復帰の挨拶で席を起こさない。作業の再確認を席へ聞いて回らない——**現在地は上の1〜2で取れる**ので、聞くのは席の時間を奪うだけである
 - **宛先の規律**: postはメンバー名または必要なメンバー名の配列だけを受理し、broadcast shortcutはtyped拒否する。channels/起床ブリッジが起こすのも明示宛先だけ。roomログは宛先に関係なく全員がpullで読める（§16）ので、宛先は秘匿ではなく「今起こす必要がある相手」を表す
