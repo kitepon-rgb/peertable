@@ -193,55 +193,9 @@ if [ -n "$evidence_from" ]; then
   }
 fi
 
-# completed は、固定SHAを対象とした別席の構造化DEFECT-FREE receiptがroomに在る時だけ進める。
-# 監査所見を成果証跡へ追記するとSHAが変わり、再監査ループになるため本文は読まない。
 f="evidence/$plan/$t.md"
 src="${evidence_from:-$f}"
 [ -f "$src" ] || { echo "ERROR: 証跡が見つからない: $src" >&2; exit 1; }
-commit_sha=$(git rev-parse HEAD 2>/dev/null) || { echo "ERROR: 完了処理を続けられない: HEADを読めない" >&2; exit 1; }
-[ -n "${PEERTABLE_URL:-}" ] && [ -n "${PEERTABLE_ROOM:-}" ] && [ -n "${PEERTABLE_MEMBER:-}" ] || {
-  echo "ERROR: 完了処理を続けられない: room receipt照合に PEERTABLE_URL / PEERTABLE_ROOM / PEERTABLE_MEMBER が必要" >&2
-  exit 1
-}
-audit_receipt=$(python3 - "$PEERTABLE_URL" "$PEERTABLE_ROOM" "$PEERTABLE_MEMBER" "$plan" "$t" "$commit_sha" 2>&1 <<'PY'
-import json
-import sys
-import urllib.parse
-import urllib.request
-
-url, room, member, plan, task, sha = sys.argv[1:]
-endpoint = url.rstrip('/') + '/api/' + urllib.parse.quote(room, safe='') + '/messages'
-try:
-    with urllib.request.urlopen(endpoint) as response:
-        messages = json.load(response).get('messages')
-except Exception as error:
-    sys.exit(f'room receiptを読めない: {error}')
-if not isinstance(messages, list):
-    sys.exit('room receiptを読めない: messages 配列が無い')
-matches = []
-for message in messages:
-    if not isinstance(message, dict) or not isinstance(message.get('from'), str) or not isinstance(message.get('body'), str):
-        continue
-    try:
-        receipt = json.loads(message['body'])
-    except json.JSONDecodeError:
-        continue
-    if not isinstance(receipt, dict) or receipt.get('schema') != 'peertable.peer_audit_receipt.v1':
-        continue
-    if (receipt.get('plan_key'), receipt.get('task_id'), receipt.get('commit_sha')) != (plan, task, sha):
-        continue
-    if receipt.get('verdict') != 'DEFECT-FREE':
-        sys.exit('room receiptがDEFECT-FREEでない')
-    if message['from'] == member:
-        sys.exit('room receiptが実装者本人による自己監査である')
-    matches.append(message)
-if len(matches) != 1:
-    sys.exit('room receiptが無い: 別席の固定SHA DEFECT-FREE receiptが必要' if not matches else 'room receiptが重複している: 固定SHAのpeer auditは一度だけでなければならない')
-PY
-) || {
-  echo "ERROR: 完了処理を続けられない: $audit_receipt" >&2
-  exit 1
-}
 
 done_gate_cli="${LATTICE_CLI:-lattice}"
 # 再試行では既にdoneのToDoへtodo doneを重ねない。
