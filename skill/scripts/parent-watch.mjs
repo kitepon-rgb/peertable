@@ -105,7 +105,8 @@ acquireLock()
 process.on('exit', releaseLock)
 
 const addressedToParent = message => message?.from !== parent
-  && (message?.to === parent || (Array.isArray(message?.to_names) && message.to_names.includes(parent)))
+  && (message?.to === 'all' || message?.to === parent
+    || (Array.isArray(message?.to_names) && message.to_names.includes(parent)))
 
 async function writeEvent(event) {
   await new Promise((resolve, reject) => {

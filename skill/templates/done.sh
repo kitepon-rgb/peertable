@@ -202,32 +202,20 @@ print("yes" if has_audit and has_defect_free else "no")
 PY
 ) || audit_state="no"
 [ "$audit_state" = yes ] || {
-  echo "ERROR: completed通知を送らない: defect-free監査所見が証跡に無い: $src" >&2
+  echo "ERROR: 完了処理を続けられない: defect-free監査所見が証跡に無い: $src" >&2
   exit 1
 }
 
 done_gate_cli="${LATTICE_CLI:-lattice}"
 [ -n "${PEERTABLE_PLAN:-}" ] || {
-  echo "ERROR: completed通知を送らない: PEERTABLE_PLAN が無い" >&2
-  exit 1
-}
-event_url="${PEERTABLE_URL:-}"
-event_room="${PEERTABLE_ROOM:-}"
-event_actor="${PEERTABLE_MEMBER:-}"
-event_credential="${PEERTABLE_CREDENTIAL_FILE:-}"
-[ -n "$event_url" ] || { echo "ERROR: completed通知を送らない: PEERTABLE_URL が無い" >&2; exit 1; }
-[ -n "$event_room" ] || { echo "ERROR: completed通知を送らない: PEERTABLE_ROOM が無い" >&2; exit 1; }
-[ -n "$event_actor" ] || { echo "ERROR: completed通知を送らない: PEERTABLE_MEMBER が無い" >&2; exit 1; }
-[ -f "$event_credential" ] && [ -s "$event_credential" ] || {
-  echo "ERROR: completed通知を送らない: PEERTABLE_CREDENTIAL_FILE が読めない" >&2
+  echo "ERROR: 完了処理を続けられない: PEERTABLE_PLAN が無い" >&2
   exit 1
 }
 
-# 再試行では既に done の ToDoへ todo done を重ねず、同じ done_at から同じ
-# transition idを再構成する。reopen 後は done_at が更新されるため別遷移になる。
+# 再試行では既にdoneのToDoへtodo doneを重ねない。
 task_state_json=""
 task_state_json=$("$done_gate_cli" todo show --plan "$PEERTABLE_PLAN" --task "$t" --json 2>&1) || {
-  echo "ERROR: completed通知を送らない: todo show が失敗: $task_state_json" >&2
+  echo "ERROR: 完了処理を続けられない: todo show が失敗: $task_state_json" >&2
   exit 1
 }
 task_field() {
@@ -242,14 +230,9 @@ task = report.get("task")
 if not isinstance(state, dict) or not isinstance(task, dict):
     raise SystemExit("todo show の state/task が不正")
 field = sys.argv[1]
-if field == "status":
-    value = state.get("status")
-elif field == "done_at":
-    value = state.get("done_at") or ""
-elif field == "title":
-    value = task.get("title")
-else:
+if field != "status":
     raise SystemExit(f"未知のtask field: {field}")
+value = state.get("status")
 if not isinstance(value, str):
     raise SystemExit(f"task fieldが文字列でない: {field}")
 print(value)
@@ -257,19 +240,14 @@ print(value)
 }
 task_status=""
 task_status=$(task_field status 2>&1) || {
-  echo "ERROR: completed通知を送らない: ToDo状態を読めない: $task_status" >&2
-  exit 1
-}
-task_title=""
-task_title=$(task_field title 2>&1) || {
-  echo "ERROR: completed通知を送らない: ToDo titleを読めない: $task_title" >&2
+  echo "ERROR: 完了処理を続けられない: ToDo状態を読めない: $task_status" >&2
   exit 1
 }
 already_done=no
 case "$task_status" in
   done) already_done=yes ;;
   in-progress) ;;
-  *) echo "ERROR: completed通知を送らない: ToDoが完了可能状態でない: $task_status" >&2; exit 1 ;;
+  *) echo "ERROR: 完了処理を続けられない: ToDoが完了可能状態でない: $task_status" >&2; exit 1 ;;
 esac
 
 # **receipt が未 accept のまま done を打たせない。** 実行層に載せた task の成果の正本は
@@ -387,23 +365,15 @@ fi
 
 # todo done の直後（または再試行時の既存done）に、工程正本が本当に done か再確認する。
 task_state_json=$("$done_gate_cli" todo show --plan "$PEERTABLE_PLAN" --task "$t" --json 2>&1) || {
-  echo "ERROR: completed通知を送らない: done後のToDo状態を読めない: $task_state_json" >&2
+  echo "ERROR: 完了処理を続けられない: done後のToDo状態を読めない: $task_state_json" >&2
   exit 1
 }
 task_status=$(task_field status 2>&1) || {
-  echo "ERROR: completed通知を送らない: done後の状態を読めない: $task_status" >&2
+  echo "ERROR: 完了処理を続けられない: done後の状態を読めない: $task_status" >&2
   exit 1
 }
 [ "$task_status" = done ] || {
-  echo "ERROR: completed通知を送らない: todo done後も状態がdoneでない: $task_status" >&2
-  exit 1
-}
-task_done_at=$(task_field done_at 2>&1) || {
-  echo "ERROR: completed通知を送らない: done時刻を読めない: $task_done_at" >&2
-  exit 1
-}
-[ -n "$task_done_at" ] || {
-  echo "ERROR: completed通知を送らない: done時刻が空" >&2
+  echo "ERROR: 完了処理を続けられない: todo done後も状態がdoneでない: $task_status" >&2
   exit 1
 }
 
@@ -415,21 +385,21 @@ task_done_at=$(task_field done_at 2>&1) || {
 # upstream 未設定・git 管理外でも done.sh 自体は死なせない（set -e の下なので必ずガードする）。
 upstream_ref=$(git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null || true)
 [ -n "$upstream_ref" ] || {
-  echo "ERROR: completed通知を送らない: canonical upstream が無い" >&2
+  echo "ERROR: 完了処理を続けられない: canonical upstream が無い" >&2
   exit 1
 }
 unpushed=$(git rev-list --count "${upstream_ref}..HEAD" 2>/dev/null || true)
 [ -n "$unpushed" ] || {
-  echo "ERROR: completed通知を送らない: canonical landing 状態を読めない" >&2
+  echo "ERROR: 完了処理を続けられない: canonical landing 状態を読めない" >&2
   exit 1
 }
 if [ "$unpushed" != 0 ]; then
   echo "未push ${unpushed}本: この done の成果物はまだ upstream へ着地していない" >&2
-  echo "ERROR: completed通知を送らない: canonical landing 不足" >&2
+  echo "ERROR: 完了処理を続けられない: canonical landing 不足" >&2
   exit 1
 fi
 git merge-base --is-ancestor HEAD "$upstream_ref" || {
-  echo "ERROR: completed通知を送らない: HEAD が canonical upstream の祖先でない" >&2
+  echo "ERROR: 完了処理を続けられない: HEAD が canonical upstream の祖先でない" >&2
   exit 1
 }
 
@@ -439,7 +409,7 @@ git merge-base --is-ancestor HEAD "$upstream_ref" || {
 for gate_ref in $gate_refs; do
   gate_obs=""
   gate_obs=$("$done_gate_cli" run observe --run "$gate_ref" 2>&1) || {
-    echo "ERROR: completed通知を送らない: run observe が失敗: $gate_ref: $gate_obs" >&2
+    echo "ERROR: 完了処理を続けられない: run observe が失敗: $gate_ref: $gate_obs" >&2
     exit 1
   }
   gate_state=$(printf '%s' "$gate_obs" | python3 -c '
@@ -471,17 +441,17 @@ elif found.get("accepted_head_sha"):
 else:
     print("pending")
 ' "$t" 2>&1) || {
-    echo "ERROR: completed通知を送らない: run observeのtask状態を読めない: $gate_ref: $gate_state" >&2
+    echo "ERROR: 完了処理を続けられない: run observeのtask状態を読めない: $gate_ref: $gate_state" >&2
     exit 1
   }
   [ "$gate_state" = absent ] && continue
   [ "$gate_state" = accepted ] || {
-    echo "ERROR: completed通知を送らない: receipt が未accept: ${t} @ ${gate_ref}" >&2
+    echo "ERROR: 完了処理を続けられない: receipt が未accept: ${t} @ ${gate_ref}" >&2
     exit 1
   }
   landing_report=""
   landing_report=$("$done_gate_cli" run landing --run "$gate_ref" 2>&1) || {
-    echo "ERROR: completed通知を送らない: run landing が失敗: $gate_ref: $landing_report" >&2
+    echo "ERROR: 完了処理を続けられない: run landing が失敗: $gate_ref: $landing_report" >&2
     exit 1
   }
   landing_task=$(printf '%s' "$landing_report" | python3 -c '
@@ -510,92 +480,14 @@ elif not isinstance(found.get("landed"), bool):
 else:
     print("landed" if found["landed"] else "unlanded")
 ' "$t" 2>&1) || {
-    echo "ERROR: completed通知を送らない: task landing状態を読めない: $gate_ref: $landing_task" >&2
+    echo "ERROR: 完了処理を続けられない: task landing状態を読めない: $gate_ref: $landing_task" >&2
     exit 1
   }
   [ "$landing_task" = landed ] || {
-    echo "ERROR: completed通知を送らない: task receipt がcanonical landing済みでない: ${t} @ ${gate_ref}" >&2
+    echo "ERROR: 完了処理を続けられない: task receipt がcanonical landing済みでない: ${t} @ ${gate_ref}" >&2
     exit 1
   }
 done
-
-# done_at は Lattice の一つの完了遷移を表す。room 側の transition_id
-# 冪等性へ渡すことで、送信再試行は同じ遷移、reopen後は別遷移になる。
-transition_digest=$(printf '%s\n' "$PEERTABLE_PLAN" "$t" "$task_done_at" | shasum -a 256 | cut -d' ' -f1)
-transition_id="completed:${transition_digest}"
-TASK_EVENT_URL="$event_url" \
-TASK_EVENT_ROOM="$event_room" \
-TASK_EVENT_ACTOR="$event_actor" \
-TASK_EVENT_PLAN="$PEERTABLE_PLAN" \
-TASK_EVENT_TASK="$t" \
-TASK_EVENT_TITLE="$task_title" \
-TASK_EVENT_TRANSITION="$transition_id" \
-PEERTABLE_CREDENTIAL_FILE="$event_credential" \
-node --input-type=module <<'NODE'
-import { readFileSync } from 'node:fs'
-
-const env = process.env
-const required = [
-  'TASK_EVENT_URL', 'TASK_EVENT_ROOM', 'TASK_EVENT_ACTOR', 'TASK_EVENT_PLAN',
-  'TASK_EVENT_TASK', 'TASK_EVENT_TITLE', 'TASK_EVENT_TRANSITION',
-  'PEERTABLE_CREDENTIAL_FILE',
-]
-for (const key of required) {
-  if (!env[key]) {
-    console.error(`ERROR: completed task eventの${key}が無い`)
-    process.exit(1)
-  }
-}
-
-let token
-try {
-  token = readFileSync(env.PEERTABLE_CREDENTIAL_FILE, 'utf8').trim()
-} catch {
-  console.error('ERROR: completed task eventのcredential fileを読めない')
-  process.exit(1)
-}
-if (!token) {
-  console.error('ERROR: completed task eventのcredential fileが空')
-  process.exit(1)
-}
-
-let response
-try {
-  response = await fetch(`${env.TASK_EVENT_URL.replace(/\/+$/, '')}/api/${encodeURIComponent(env.TASK_EVENT_ROOM)}/task-events`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Peertable-Token': token },
-    body: JSON.stringify({
-      kind: 'completed',
-      actor: env.TASK_EVENT_ACTOR,
-      plan_key: env.TASK_EVENT_PLAN,
-      task_id: env.TASK_EVENT_TASK,
-      title: env.TASK_EVENT_TITLE,
-      transition_id: env.TASK_EVENT_TRANSITION,
-    }),
-  })
-} catch (error) {
-  console.error(`ERROR: completed task eventを送れない: ${error.message}`)
-  process.exit(1)
-}
-
-const raw = await response.text()
-let event
-try {
-  event = JSON.parse(raw)
-} catch {
-  console.error(`ERROR: completed task eventの応答がJSONでない: HTTP ${response.status}`)
-  process.exit(1)
-}
-if (!response.ok) {
-  console.error(`ERROR: completed task eventが拒否された: HTTP ${response.status}`)
-  process.exit(1)
-}
-if (event.type !== 'task_event' || event.event_kind !== 'completed') {
-  console.error('ERROR: completed task eventの応答型が不正')
-  process.exit(1)
-}
-console.log(`${event.idempotent ? 'already sent' : 'sent'} [${event.seq}] ${event.type}:${event.event_kind}`)
-NODE
 
 # 外部ペインの喪失検出。Lattice 併用モードの卓は、公開工程表の右ペインに円卓が出ているのが正常。
 # 2026-08-08、受入検証が本番のコネクタを「外して痕跡ゼロ」まで確かめて終わり、差し直しが人の記憶

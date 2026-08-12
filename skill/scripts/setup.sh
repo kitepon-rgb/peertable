@@ -118,9 +118,6 @@ else
   sed -e "s|{{PLAN_KEY}}|$plan|g" -e "s|{{CLAIM_SCOPE}}|$scope|g" "$tpl/member.md" > "$tdir/roles/member.md"
   cp "$tpl/done.sh" "$tdir/scripts/done.sh" && chmod +x "$tdir/scripts/done.sh"
 fi
-cp "$tpl/start.sh" "$tdir/scripts/start.sh" && chmod +x "$tdir/scripts/start.sh"
-cp "$tpl/start-event.mjs" "$tdir/scripts/start-event.mjs" && chmod +x "$tdir/scripts/start-event.mjs"
-
 # room MCP 定義は project root の .mcp.json が正（channels は --mcp-config を解決しない。決定44）
 added_root_mcp=false
 if [ -f "$proj/.mcp.json" ]; then

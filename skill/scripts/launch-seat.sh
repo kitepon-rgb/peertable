@@ -43,8 +43,6 @@ brief_max_bytes=65536
 brief_completed=false
 seat_created=false
 rollback_done=false
-turn_hook_file=""
-turn_hook_helper="$peertable_repo/skill/scripts/member-turn-completed.mjs"
 # ready を観測できないだけの不確実性は、投入後の真失敗と分ける。これは
 # Aiterm から手動 dispatch できる空席として残し、席数へ成功着任とは数えない。
 brief_not_ready=false
@@ -57,11 +55,6 @@ cleanup_brief() {
   if [ -n "$brief_file" ]; then rm -f "$brief_file"; fi
   return 0
 }
-cleanup_turn_hook() {
-  if [ -n "$turn_hook_file" ]; then rm -f "$turn_hook_file"; fi
-  return 0
-}
-
 # brief を受け付けて送信した後に turn が始まらなかった場合は、作りかけの席を残さない。
 # tmux を先に落とし、client が再登録しない状態にしてから room member を解除する。
 # DELETE は idempotent だが、一覧の読み返しまで通らなければ rollback 成功とは言わない。
@@ -134,7 +127,6 @@ on_exit() {
   local rollback_rc
   trap - EXIT
   cleanup_brief
-  cleanup_turn_hook
   if [ "$seat_created" = true ] && [ "$brief_completed" != true ] && [ "$brief_not_ready" != true ] && [ "$rollback_done" != true ]; then
     rollback_done=true
     if rollback_brief "$exit_rc"; then
@@ -283,8 +275,7 @@ seat_tmux_pane=$(tmux -S "$sock" display-message -p -t "$sess" '#{pane_id}')
 
 # 素性は席の env にも入れる。client が**登録のたびに**載せるので、member の状態が失われても戻る
 credential_shell=$(printf '%q' "$credential_file")
-turn_hook_helper_shell=$(printf '%q' "$turn_hook_helper")
-env_line="export PEERTABLE_URL=$url PEERTABLE_ROOM=$room PEERTABLE_MEMBER=$name PEERTABLE_CREDENTIAL_FILE=$credential_shell PEERTABLE_MEMBER_TURN_HELPER=$turn_hook_helper_shell"
+env_line="export PEERTABLE_URL=$url PEERTABLE_ROOM=$room PEERTABLE_MEMBER=$name PEERTABLE_CREDENTIAL_FILE=$credential_shell"
 env_line="$env_line PEERTABLE_VENDOR=$vendor PEERTABLE_MODEL=$model"
 [ -n "$effort" ] && env_line="$env_line PEERTABLE_EFFORT=$effort"
 if [ "$mode" = "lattice" ]; then
@@ -296,59 +287,16 @@ sleep 1
 
 case "$vendor" in
   claude)
-    if ! turn_hook_file=$(mktemp "${TMPDIR:-/tmp}/peertable-turn-hook.XXXXXX"); then
-      echo "TURN_HOOK_PREPARE_FAILED: Stop hook設定fileを作れない（席は着席済み）" >&2
-      exit 1
-    fi
-    if ! python3 - "$turn_hook_file" "$turn_hook_helper" <<'PY'
-import json
-import shlex
-import sys
-
-out, helper = sys.argv[1:]
-body = {
-    'hooks': {
-        'Stop': [{
-            'hooks': [{
-                'type': 'command',
-                'command': f'node {shlex.quote(helper)}',
-                'timeout': 10,
-            }],
-        }],
-    },
-}
-with open(out, 'w', encoding='utf-8') as handle:
-    json.dump(body, handle, ensure_ascii=False, separators=(',', ':'))
-PY
-    then
-      echo "TURN_HOOK_PREPARE_FAILED: Claude Stop hook設定を作れない（席は着席済み）" >&2
-      exit 1
-    fi
     cmd="claude --model $model"
     [ -n "$effort" ] && cmd="$cmd --effort $effort"
-    cmd="$cmd --dangerously-skip-permissions --dangerously-load-development-channels server:room --settings $(printf '%q' "$turn_hook_file")"
+    cmd="$cmd --dangerously-skip-permissions --dangerously-load-development-channels server:room"
     ;;
   codex)
     # Codex には channels が無いので room は stdio MCP として差す。
     # `[mcp_servers.X.env]` は closed mode（親 env を継がない）ので全変数を明示列挙する
     # （caveat `codex-cli-v0-130-0-mcp-servers-x-env-block-is-closed-mode-parent-env-not-inherited`）。
-    envtbl="PATH=\\\"$PATH\\\",PEERTABLE_URL=\\\"$url\\\",PEERTABLE_ROOM=\\\"$room\\\",PEERTABLE_MEMBER=\\\"$name\\\",PEERTABLE_CREDENTIAL_FILE=\\\"$credential_file\\\",PEERTABLE_MEMBER_TURN_HELPER=\\\"$turn_hook_helper\\\",TMUX=\\\"$seat_tmux\\\",TMUX_PANE=\\\"$seat_tmux_pane\\\""
-    # Codex 0.147 は `hooks` をJSON file pathではなくinline TOML tableとして読む。
-    # session層へStopだけを追加すれば、user/project hooksはCodex自身のmerge規則で残る。
-    hook_command_toml=$(python3 - "$turn_hook_helper" <<'PY'
-import json
-import shlex
-import sys
-
-print(json.dumps(f'node {shlex.quote(sys.argv[1])}', ensure_ascii=False))
-PY
-    )
-    if [ -z "$hook_command_toml" ]; then
-      echo "TURN_HOOK_PREPARE_FAILED: Codex Stop hook commandを作れない（席は着席済み）" >&2
-      exit 1
-    fi
-    hook_config=$(printf '%q' "hooks.Stop=[{hooks=[{type=\"command\",command=$hook_command_toml,timeout=10}]}]")
-    cmd="codex --model $model -C $proj --dangerously-bypass-approvals-and-sandbox --dangerously-bypass-hook-trust -c $hook_config"
+    envtbl="PATH=\\\"$PATH\\\",PEERTABLE_URL=\\\"$url\\\",PEERTABLE_ROOM=\\\"$room\\\",PEERTABLE_MEMBER=\\\"$name\\\",PEERTABLE_CREDENTIAL_FILE=\\\"$credential_file\\\",TMUX=\\\"$seat_tmux\\\",TMUX_PANE=\\\"$seat_tmux_pane\\\""
+    cmd="codex --model $model -C $proj --dangerously-bypass-approvals-and-sandbox"
     # Codexのeffortは環境変数だけでは適用されない。member metadataへ表示する値と、
     # 実際の推論設定を同じ引数から渡して食い違わせない。
     [ -n "$effort" ] && cmd="$cmd -c 'model_reasoning_effort=\"$effort\"'"

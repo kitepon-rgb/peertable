@@ -156,8 +156,6 @@ function main() {
   const common = [
     ['.team/CLAUDE.md', 'skill/templates/charter.md', 0o644],
     ['.team/roles/parent.md', 'skill/templates/parent.md', 0o644],
-    ['.team/scripts/start.sh', 'skill/templates/start.sh', 0o755],
-    ['.team/scripts/start-event.mjs', 'skill/templates/start-event.mjs', 0o755],
   ]
   const modeSpecific = state.mode === 'lattice'
     ? [
@@ -185,6 +183,8 @@ function main() {
     }
     return { path: item.relativePath, action: current.equals(item.content) ? 'mode-updated' : 'updated', sha256: sha256(item.content) }
   })
+  const obsolete = ['.team/scripts/start.sh', '.team/scripts/start-event.mjs']
+    .map(relativePath => ({ relativePath, ...validateTargetPath(project, relativePath) }))
 
   // 全対象の安全性・template・差分を先に確定してから、管理allowlistだけへ書く。
   for (const [index, item] of prepared.entries()) {
@@ -196,6 +196,13 @@ function main() {
     else writeAtomically(item.target, item.content, item.mode)
   }
 
+  const removed = []
+  for (const { relativePath, target, stat } of obsolete) {
+    if (!stat) continue
+    unlinkSync(target)
+    removed.push(relativePath)
+  }
+
   console.log(JSON.stringify({
     schema: 'peertable.generated_assets_upgrade_result.v1',
     result: 'ok',
@@ -203,7 +210,8 @@ function main() {
     mode: state.mode,
     managed: prepared.map(item => ({ path: item.relativePath, source: item.sourcePath, sha256: sha256(item.content) })),
     changes,
-    changed_count: changes.filter(change => change.action !== 'unchanged').length,
+    removed,
+    changed_count: changes.filter(change => change.action !== 'unchanged').length + removed.length,
   }))
 }
 

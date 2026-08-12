@@ -184,6 +184,7 @@ function recipientNames(msg) {
     if (msg.to_names.includes(BROADCAST_RECIPIENT)) return []
     return [...new Set(msg.to_names.filter(name => typeof name === 'string' && name.length > 0))]
   }
+  if (msg.to === BROADCAST_RECIPIENT) return [...members.keys()].filter(name => name !== msg.from)
   if (typeof msg.to === 'string' && msg.to.length > 0 && msg.to !== BROADCAST_RECIPIENT) return [msg.to]
   return []
 }
@@ -232,8 +233,7 @@ async function wake(seat, msgs) {
 
 function dispatch(msg) {
   if (deliveryStates.has(msg.seq)) return
-  const targets = recipientNames(msg).filter(seat => seat !== msg.from
-    && members.has(seat)
+  const targets = recipientNames(msg).filter(seat => members.has(seat)
     && members.get(seat)?.delivery?.kind !== 'parent_watch')
   const state = { message: msg, targets: new Set(targets), delivered: new Set() }
   for (const seat of targets) {
