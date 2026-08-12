@@ -1,8 +1,8 @@
 #!/bin/bash
-# usage: .team/scripts/done.sh <task_id> [--evidence-from <隔離worktreeの証跡の絶対path>]
+# usage: .team/scripts/done.sh <task_id> [--plan <plan_key>] [--evidence-from <隔離worktreeの証跡の絶対path>]
 #        .team/scripts/done.sh --landing-run <run_ref>
 # evidence/<plan_key>/<task_id>.md（commit 済みであること）から記述子を作り lattice todo done を実行する。
-# plan key は環境変数 PEERTABLE_PLAN から取る。
+# plan key は --plan を優先し、省略時だけ環境変数 PEERTABLE_PLAN から取る。
 # 証跡を plan key で仕切るのは、task_id が campaign を跨いで再利用される（t1, t2, …）ため。
 # 平置きだと次の campaign の t1 が前の campaign の t1 の監査証跡を上書きで消す（2026-08-08 実測）。
 #
@@ -23,11 +23,11 @@ set -e
 
 show_usage() {
   cat <<'USAGE'
-usage: done.sh <task_id> [--evidence-from <隔離worktreeの証跡の絶対path>]
+usage: done.sh <task_id> [--plan <plan_key>] [--evidence-from <隔離worktreeの証跡の絶対path>]
        done.sh --landing-run <run_ref>
 
 完了処理:
-  PEERTABLE_PLAN に plan key を設定し、
+  --plan <plan_key> を指定する。省略時だけ PEERTABLE_PLAN を使う。
   evidence/<plan>/<task>.md を commit 済みにして done.sh <task_id> を実行する。
   wrapper が証跡から記述子を生成し、lattice todo done を canonical store へ記録する。
   pull run の worktree で作業した場合だけ --evidence-from に同じrepoの絶対pathを渡す。
@@ -150,22 +150,29 @@ print(",".join(sorted(pending)))
   fi
   exit 0
 fi
-# **引数の形を exact に要求する。** 緩く受けると、`--evidnce-from` のような typo が
-# 「option 無し」として通り、**canonical 側の同名証跡を黙って hash する**——別 file を
-# 受理させておいて green に見える（kanade の監査で実測・room [1029]）。
-# 1引数（既定経路）か、3引数（`<task> --evidence-from <絶対path>`）だけを許す。
-case $# in
-  1) ;;
-  3) [ "$2" = "--evidence-from" ] || {
-       echo "ERROR: 未知のoption: $2（使えるのは --evidence-from だけ）" >&2; exit 1; } ;;
-  *) echo "ERROR: 引数の形が違う（usage: done.sh <task_id> [--evidence-from <絶対path>] | done.sh --landing-run <run_ref>）" >&2; exit 1 ;;
-esac
 t="$1"
 [ -n "$t" ] || { echo "ERROR: task_id が空" >&2; exit 1; }
+shift
+plan="${PEERTABLE_PLAN:-}"
 evidence_from=""
-if [ "$#" = 3 ]; then
-  evidence_from="$3"
-  [ -n "$evidence_from" ] || { echo "ERROR: --evidence-from には証跡fileの絶対pathを渡すこと" >&2; exit 1; }
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --plan)
+      [ "$#" -ge 2 ] && [ -z "${plan_explicit:-}" ] || { echo "ERROR: --plan は一度だけ値付きで指定すること" >&2; exit 1; }
+      plan="$2"
+      plan_explicit=yes
+      shift 2
+      ;;
+    --evidence-from)
+      [ "$#" -ge 2 ] && [ -z "$evidence_from" ] || { echo "ERROR: --evidence-from は一度だけ値付きで指定すること" >&2; exit 1; }
+      evidence_from="$2"
+      shift 2
+      ;;
+    *) echo "ERROR: 未知のoption: $1（使えるのは --plan と --evidence-from だけ）" >&2; exit 1 ;;
+  esac
+done
+[ -n "$plan" ] || { echo "ERROR: 完了処理を続けられない: --plan または PEERTABLE_PLAN が必要" >&2; exit 1; }
+if [ -n "$evidence_from" ]; then
   case "$evidence_from" in
     /*) ;;
     *) echo "ERROR: --evidence-from は絶対pathでなければならない: $evidence_from" >&2; exit 1 ;;
@@ -186,35 +193,60 @@ if [ "$#" = 3 ]; then
   }
 fi
 
-# completed は「done が通った」だけの通知ではない。実装者以外の席による
-# defect-free 監査所見を証跡へ束縛した後だけ、終了イベントへ進める。
-f="evidence/$PEERTABLE_PLAN/$t.md"
+# completed は、固定SHAを対象とした別席の構造化DEFECT-FREE receiptがroomに在る時だけ進める。
+# 監査所見を成果証跡へ追記するとSHAが変わり、再監査ループになるため本文は読まない。
+f="evidence/$plan/$t.md"
 src="${evidence_from:-$f}"
 [ -f "$src" ] || { echo "ERROR: 証跡が見つからない: $src" >&2; exit 1; }
-audit_state=$(python3 - "$src" <<'PY' 2>/dev/null
-import re
+commit_sha=$(git rev-parse HEAD 2>/dev/null) || { echo "ERROR: 完了処理を続けられない: HEADを読めない" >&2; exit 1; }
+[ -n "${PEERTABLE_URL:-}" ] && [ -n "${PEERTABLE_ROOM:-}" ] && [ -n "${PEERTABLE_MEMBER:-}" ] || {
+  echo "ERROR: 完了処理を続けられない: room receipt照合に PEERTABLE_URL / PEERTABLE_ROOM / PEERTABLE_MEMBER が必要" >&2
+  exit 1
+}
+audit_receipt=$(python3 - "$PEERTABLE_URL" "$PEERTABLE_ROOM" "$PEERTABLE_MEMBER" "$plan" "$t" "$commit_sha" 2>&1 <<'PY'
+import json
 import sys
+import urllib.parse
+import urllib.request
 
-text = open(sys.argv[1], encoding="utf-8").read()
-has_audit = re.search(r"監査|peer\s+audit", text, re.IGNORECASE)
-has_defect_free = re.search(r"欠陥なし|defect[- ]free|no\s+defects", text, re.IGNORECASE)
-print("yes" if has_audit and has_defect_free else "no")
+url, room, member, plan, task, sha = sys.argv[1:]
+endpoint = url.rstrip('/') + '/api/' + urllib.parse.quote(room, safe='') + '/messages'
+try:
+    with urllib.request.urlopen(endpoint) as response:
+        messages = json.load(response).get('messages')
+except Exception as error:
+    sys.exit(f'room receiptを読めない: {error}')
+if not isinstance(messages, list):
+    sys.exit('room receiptを読めない: messages 配列が無い')
+matches = []
+for message in messages:
+    if not isinstance(message, dict) or not isinstance(message.get('from'), str) or not isinstance(message.get('body'), str):
+        continue
+    try:
+        receipt = json.loads(message['body'])
+    except json.JSONDecodeError:
+        continue
+    if not isinstance(receipt, dict) or receipt.get('schema') != 'peertable.peer_audit_receipt.v1':
+        continue
+    if (receipt.get('plan_key'), receipt.get('task_id'), receipt.get('commit_sha')) != (plan, task, sha):
+        continue
+    if receipt.get('verdict') != 'DEFECT-FREE':
+        sys.exit('room receiptがDEFECT-FREEでない')
+    if message['from'] == member:
+        sys.exit('room receiptが実装者本人による自己監査である')
+    matches.append(message)
+if len(matches) != 1:
+    sys.exit('room receiptが無い: 別席の固定SHA DEFECT-FREE receiptが必要' if not matches else 'room receiptが重複している: 固定SHAのpeer auditは一度だけでなければならない')
 PY
-) || audit_state="no"
-[ "$audit_state" = yes ] || {
-  echo "ERROR: 完了処理を続けられない: defect-free監査所見が証跡に無い: $src" >&2
+) || {
+  echo "ERROR: 完了処理を続けられない: $audit_receipt" >&2
   exit 1
 }
 
 done_gate_cli="${LATTICE_CLI:-lattice}"
-[ -n "${PEERTABLE_PLAN:-}" ] || {
-  echo "ERROR: 完了処理を続けられない: PEERTABLE_PLAN が無い" >&2
-  exit 1
-}
-
 # 再試行では既にdoneのToDoへtodo doneを重ねない。
 task_state_json=""
-task_state_json=$("$done_gate_cli" todo show --plan "$PEERTABLE_PLAN" --task "$t" --json 2>&1) || {
+task_state_json=$("$done_gate_cli" todo show --plan "$plan" --task "$t" --json 2>&1) || {
   echo "ERROR: 完了処理を続けられない: todo show が失敗: $task_state_json" >&2
   exit 1
 }
@@ -290,7 +322,7 @@ for index, run in enumerate(runs):
         if not isinstance(run_ref, str) or not run_ref:
             sys.exit(f"active_runs[{index}] の run_ref が空または文字列でない")
         print(run_ref)
-' "$PEERTABLE_PLAN") || {
+' "$plan") || {
   echo "ERROR: receipt の状態を読めない: $gate_refs" >&2; exit 1;
 }
 for gate_ref in $gate_refs; do
@@ -355,7 +387,7 @@ if [ "$already_done" = no ]; then
   # 無い時だけ PATH を使う（bridge の `--lattice` / teardown の `LATTICE_CLI` と同じ選択規律）。
   done_output=""
   done_rc=0
-  done_output=$("$done_gate_cli" todo done --plan "$PEERTABLE_PLAN" --task "$t" --evidence "$tmp" 2>&1) || done_rc=$?
+  done_output=$("$done_gate_cli" todo done --plan "$plan" --task "$t" --evidence "$tmp" 2>&1) || done_rc=$?
   printf '%s\n' "$done_output"
   [ "$done_rc" -eq 0 ] || exit "$done_rc"
   rm -f "$tmp"
@@ -364,7 +396,7 @@ else
 fi
 
 # todo done の直後（または再試行時の既存done）に、工程正本が本当に done か再確認する。
-task_state_json=$("$done_gate_cli" todo show --plan "$PEERTABLE_PLAN" --task "$t" --json 2>&1) || {
+task_state_json=$("$done_gate_cli" todo show --plan "$plan" --task "$t" --json 2>&1) || {
   echo "ERROR: 完了処理を続けられない: done後のToDo状態を読めない: $task_state_json" >&2
   exit 1
 }

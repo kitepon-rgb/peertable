@@ -6,11 +6,11 @@
 // 親の事後照合（run landing = landed:false / accepted_receipts:[]）まで誰にも見えなかった（room [42][45]）。
 // landing-only mode も accepted receipt しか数えないので、受理前で止まった intake には無言だった。
 //
-// 測るのは: 未accept なら done を打たない / accept 済みなら通す / 実行層に載っていない task は素通し /
-// 状態を読めない時は黙って通さない / landing-only mode が「未accept」を別軸で出す /
-// 引数なし・--help が raw CLI の誤解釈にならない。
+// 測るのは: fixed SHAの別席receiptが無ければdoneを打たない / 完全修飾PLANを優先する /
+// 実行層の未accept・未landingを通さない / 状態不明を成功へ倒さない / landing-onlyの未acceptを別軸で出す。
 import { strict as assert } from 'node:assert'
-import { spawnSync } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
+import { once } from 'node:events'
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -31,13 +31,32 @@ const git = (...args) => spawnSync('git', ['-C', repo, ...args], { encoding: 'ut
 git('init', '-q')
 git('config', 'user.email', 'fixture@example.com')
 git('config', 'user.name', 'fixture')
-await writeFile(join(repo, `evidence/${plan}/x1.md`), '# x1\n\n監査: fixture-audit\n判定: defect-free\n')
+await writeFile(join(repo, `evidence/${plan}/x1.md`), '# x1\n')
 git('add', '.')
 git('commit', '-q', '-m', 'fixture evidence')
 git('branch', '-M', 'main')
 assert.equal(spawnSync('git', ['init', '--bare', '-q', remote], { encoding: 'utf8' }).status, 0)
 assert.equal(git('remote', 'add', 'origin', remote).status, 0)
 assert.equal(git('push', '-q', '-u', 'origin', 'main').status, 0)
+
+// room receipt は証跡本文でなく、監査対象の固定SHA・完全修飾plan/task・別席を束縛する。
+// state.json を読んで応答を変える最小の実room境界で、done.sh がGET結果を検証する。
+const roomServer = spawn(process.execPath, ['--input-type=module', '-e', `
+  import http from 'node:http'
+  import { readFileSync } from 'node:fs'
+  const state = process.env.STUB_STATE
+  const server = http.createServer((request, response) => {
+    if (request.method !== 'GET' || request.url !== '/api/fixture-room/messages') {
+      response.writeHead(404); response.end(); return
+    }
+    const current = JSON.parse(readFileSync(state, 'utf8'))
+    response.setHeader('Content-Type', 'application/json')
+    response.end(JSON.stringify({ messages: current.audit_messages ?? [] }))
+  })
+  server.listen(0, '127.0.0.1', () => process.stdout.write(String(server.address().port) + '\\n'))
+`], { env: { ...process.env, STUB_STATE: state }, stdio: ['ignore', 'pipe', 'inherit'] })
+const [roomPort] = (await once(roomServer.stdout, 'data')).toString().trim().split(/\s+/)
+const roomUrl = `http://127.0.0.1:${roomPort}`
 
 // stub lattice: state.json が「この run/task が今どう見えるか」を決める。
 // run list → active_runs、run observe → intakes、todo done → 呼ばれたことを log へ書く。
@@ -102,17 +121,25 @@ exit 0
 `)
 await chmod(join(bin, 'lattice'), 0o755)
 
+const receipt = ({ planKey = plan, taskId = 'x1', commitSha = git('rev-parse', 'HEAD').stdout.trim(), from = 'auditor', verdict = 'DEFECT-FREE' } = {}) => ({
+  from,
+  body: JSON.stringify({ schema: 'peertable.peer_audit_receipt.v1', plan_key: planKey, task_id: taskId, commit_sha: commitSha, verdict }),
+})
 const setMode = (mode, extra = {}) => writeFile(state, JSON.stringify({
   mode,
   todo_status: 'in-progress',
   done_at: '',
   done_seq: 0,
+  audit_messages: [receipt()],
   ...extra,
 }) + '\n')
 const env = {
   ...process.env,
   PATH: `${bin}:${process.env.PATH}`,
   PEERTABLE_PLAN: plan,
+  PEERTABLE_URL: roomUrl,
+  PEERTABLE_ROOM: 'fixture-room',
+  PEERTABLE_MEMBER: 'worker',
   LATTICE_CLI: join(bin, 'lattice'),
   LATTICE_LOG: latticeLog,
   STUB_STATE: state,
@@ -162,19 +189,37 @@ try {
   })
   assert.deepEqual(await doneCalls(), [], '未accept で todo done が呼ばれていない')
 
-  // 3. audit が証跡に無ければtodo doneを打たない
-  await writeFile(join(repo, `evidence/${plan}/x1.md`), '# x1\n')
+  // 3. receipt が無ければ証跡本文を読んで代用せず、todo doneを打たない
   await setMode('accepted')
+  await setMode('accepted', { audit_messages: [] })
   await resetLog()
   result = run('x1')
-  check('監査所見の無い証跡ではdoneを打たない', () => {
+  check('room receiptが無ければdoneを打たない', () => {
     assert.notEqual(result.status, 0)
-    assert.match(result.stderr, /defect-free監査所見が証跡に無い/)
+    assert.match(result.stderr, /room receiptが無い/)
   })
   assert.deepEqual(await doneCalls(), [], '監査不足で todo done が呼ばれていない')
-  await writeFile(join(repo, `evidence/${plan}/x1.md`), '# x1\n\n監査: fixture-audit\n判定: defect-free\n')
 
-  // 4. accept・landing 済みならdoneを通す
+  // 4. 本人・別SHA・別plan/taskのreceiptは副作用より前に拒否する
+  for (const [label, auditMessages, expected] of [
+    ['自己監査', [receipt({ from: 'worker' })], /自己監査/],
+    ['別SHA', [receipt({ commitSha: 'b'.repeat(40) })], /room receiptが無い/],
+    ['別PLAN', [receipt({ planKey: 'other-plan' })], /room receiptが無い/],
+    ['別task', [receipt({ taskId: 'other-task' })], /room receiptが無い/],
+    ['DEFECT', [receipt({ verdict: 'DEFECT' })], /DEFECT-FREEでない/],
+    ['重複', [receipt(), receipt({ from: 'auditor-2' })], /room receiptが重複/],
+  ]) {
+    await setMode('accepted', { audit_messages: auditMessages })
+    await resetLog()
+    result = run('x1')
+    check(`${label} receiptではdoneを打たない`, () => {
+      assert.notEqual(result.status, 0)
+      assert.match(result.stderr, expected)
+    })
+    assert.deepEqual(await doneCalls(), [], `${label} receiptで todo done が呼ばれていない`)
+  }
+
+  // 5. accept・landing済みかつ証跡本文に監査文が無くても、別席receiptならdoneを通す
   await setMode('accepted')
   await resetLog()
   result = run('x1')
@@ -183,7 +228,7 @@ try {
   })
   assert.equal((await doneCalls()).length, 1)
 
-  // 5. 同じdoneの再試行はtodo doneを重ねない
+  // 6. 同じdoneの再試行はtodo doneを重ねない
   await resetLog()
   result = run('x1')
   check('同じdoneの再試行は成功する', () => {
@@ -191,7 +236,7 @@ try {
   })
   assert.deepEqual(await doneCalls(), [], '既存doneの再試行で todo done を再実行していない')
 
-  // 6. f6のtask receiptが未着地なら完了処理を止める
+  // 7. f6のtask receiptが未着地なら完了処理を止める
   await setMode('landing_unlanded')
   await resetLog()
   result = run('x1')
@@ -200,7 +245,7 @@ try {
     assert.match(result.stderr, /task receipt がcanonical landing済みでない/)
   })
 
-  // 7. canonical landing前はdone後でも完了処理を止め、push後の再試行を通す
+  // 8. canonical landing前はdone後でも完了処理を止め、push後の再試行を通す
   assert.equal(git('commit', '--allow-empty', '-q', '-m', 'unlanded fixture').status, 0)
   await setMode('accepted', { done_seq: 1 })
   await resetLog()
@@ -217,7 +262,7 @@ try {
     assert.equal(result.status, 0, result.stderr)
   })
 
-  // 8. reopen後の新しいdoneを通す
+  // 9. reopen後の新しいdoneを通す
   await setMode('accepted', { done_seq: 2 })
   await resetLog()
   result = run('x1')
@@ -225,7 +270,7 @@ try {
     assert.equal(result.status, 0, result.stderr)
   })
 
-  // 9. 実行層に載っていない task（intake が無い）は素通し
+  // 10. 実行層に載っていない task（intake が無い）は素通し
   await setMode('other_task')
   await resetLog()
   result = run('x1')
@@ -234,7 +279,7 @@ try {
   })
   assert.equal((await doneCalls()).length, 1)
 
-  // 10. pull run そのものが無い卓も素通し
+  // 11. pull run そのものが無い卓も素通し
   await setMode('no_run')
   await resetLog()
   result = run('x1')
@@ -243,7 +288,20 @@ try {
   })
   assert.equal((await doneCalls()).length, 1)
 
-  // 11. 状態を読めない時は黙って通さない（fallbackで成功にしない）
+  // 12. --plan は環境の互換既定より優先し、同名taskでも全操作と証跡を呼出しPLANへ束縛する
+  const explicitPlan = 'explicit-plan'
+  await mkdir(join(repo, `evidence/${explicitPlan}`), { recursive: true })
+  await writeFile(join(repo, `evidence/${explicitPlan}/x1.md`), '# explicit plan x1\n')
+  await setMode('no_run', { audit_messages: [receipt({ planKey: explicitPlan })] })
+  await resetLog()
+  result = run('x1', '--plan', explicitPlan)
+  check('--plan が環境の既定PLANより優先する', () => {
+    assert.equal(result.status, 0, result.stderr)
+  })
+  assert.ok((await calls()).some(line => line === `todo show --plan ${explicitPlan} --task x1 --json`), 'todo show が明示PLANを使う')
+  assert.ok((await calls()).some(line => line.includes(`todo done --plan ${explicitPlan} --task x1`)), 'todo done が明示PLANを使う')
+
+  // 13. 状態を読めない時は黙って通さない（fallbackで成功にしない）
   for (const [mode, label] of [
     ['list_broken', 'run list'],
     ['list_invalid', 'run list のJSON不正'],
@@ -263,7 +321,7 @@ try {
     assert.deepEqual(await doneCalls(), [], `${label} 失敗時に todo done が呼ばれていない`)
   }
 
-  // 7. landing-only mode の読取失敗は全て非0で落とす
+  // 14. landing-only mode の読取失敗は全て非0で落とす
   for (const [mode, label] of [
     ['landing_broken', 'run landing の失敗'],
     ['landing_invalid', 'run landing のJSON不正'],
@@ -290,7 +348,7 @@ try {
     assert.match(result.stderr, /着地状態を読めない/)
   })
 
-  // 9. landing-only mode が「未accept」を着地とは別軸で出す
+  // 15. landing-only mode が「未accept」を着地とは別軸で出す
   await setMode('pending')
   await resetLog()
   result = run('--landing-run', '.lattice/runs/r1')
@@ -308,5 +366,7 @@ try {
 
   console.log(`done-receipt-gate repro: ${checks}/${checks} green`)
 } finally {
+  roomServer.kill()
+  await once(roomServer, 'close')
   await rm(root, { recursive: true, force: true })
 }
