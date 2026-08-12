@@ -33,7 +33,7 @@ rm -f "$record"
 # 呼び出し元 client の環境ではないので、素で起こすと `PEERTABLE_TMUX_SOCKET` の手渡しが黙って消え、
 # 常駐が別の socket（本番の既定）を観測しにいく（2026-08-11 実測）。決定73 と同じ形の裏返しである。
 env_prefix=""
-for v in PEERTABLE_TMUX_SOCKET PEERTABLE_POST_TOKEN PEERTABLE_URL PEERTABLE_PARENT_NAME; do
+for v in PEERTABLE_TMUX_SOCKET PEERTABLE_POST_TOKEN PEERTABLE_CREDENTIAL_FILE PEERTABLE_URL PEERTABLE_PARENT_NAME; do
   eval "val=\${$v:-}"
   [ -n "$val" ] && env_prefix="$env_prefix $v=$(printf '%q' "$val")"
 done

@@ -35,31 +35,43 @@ assert.equal(resolvePostToken({ PEERTABLE_POST_TOKEN: 'from-env', HOME: '/nonexi
 // ⑦ env が空なら設定ファイルへ落ちる —— **旧ロジックはここで '' を返していた**
 assert.equal(resolvePostToken({ HOME: '/home/x' }, () => 'PEERTABLE_POST_TOKEN=from-file\n'), 'from-file')
 
-// ⑧ どちらも無ければ空文字（黙って偽のトークンを作らない）
+// ⑧ launch-seat の席別credentialがあれば、親shellのenvやHOMEよりそれを優先する
+assert.equal(resolvePostToken({ PEERTABLE_CREDENTIAL_FILE: '/project/.team/credentials/seat.token', HOME: '/home/x' }, path => {
+  assert.equal(path, '/project/.team/credentials/seat.token')
+  return 'seat-token\n'
+}), 'seat-token')
+
+// ⑨ credential pathを渡したのに読めない時は、別のtokenへ黙ってfallbackしない
+assert.equal(resolvePostToken({ PEERTABLE_CREDENTIAL_FILE: '/project/.team/credentials/missing.token', HOME: '/home/x' }, path => {
+  if (path.endsWith('missing.token')) return null
+  return 'PEERTABLE_POST_TOKEN=wrong-token\n'
+}), '')
+
+// ⑩ どちらも無ければ空文字（黙って偽のトークンを作らない）
 assert.equal(resolvePostToken({ HOME: '/home/x' }, () => null), '')
 
-// ⑨ 設定ファイルの path は launch-seat.sh:25-27 と同じ（規則を二重に書かない）
+// ⑪ 設定ファイルの path は launch-seat.sh:25-27 と同じ（規則を二重に書かない）
 let seen = null
 resolvePostToken({ HOME: '/home/x' }, path => { seen = path; return null })
 assert.equal(seen, '/home/x/.config/peertable.env')
 
-// ⑩ 送るものが無い tick は失敗ではない（席がまだ立っていない卓・setup 直後に起こした場合）。
+// ⑫ 送るものが無い tick は失敗ではない（席がまだ立っていない卓・setup 直後に起こした場合）。
 //    **ここを failure と数えると、席が立つ前に常駐が死ぬ**
 const idle = decideBridgeContinuation({ attempted: 0, failed: 0, provenWritable: false, failedTicks: 0, limit: 10 })
 assert.equal(idle.verdict, 'idle')
 assert.equal(idle.provenWritable, false)
 
-// ⑪ 一度も書けていないまま全件失敗 → 常駐に入らせない（今回の403の形。席が0でない最初の送信で発火する）
+// ⑬ 一度も書けていないまま全件失敗 → 常駐に入らせない（今回の403の形。席が0でない最初の送信で発火する）
 assert.equal(decideBridgeContinuation({ attempted: 3, failed: 3, provenWritable: false, failedTicks: 0, limit: 10 }).verdict,
   'write_denied')
 
-// ⑫ 一度でも書けたら provenWritable が立ち、失敗カウンタは戻る
+// ⑭ 一度でも書けたら provenWritable が立ち、失敗カウンタは戻る
 const ok = decideBridgeContinuation({ attempted: 3, failed: 1, provenWritable: false, failedTicks: 7, limit: 10 })
 assert.equal(ok.verdict, 'ok')
 assert.equal(ok.provenWritable, true)
 assert.equal(ok.failedTicks, 0)
 
-// ⑬ 一度書けた後の全件失敗は degraded（即死させない）→ limit で unreachable
+// ⑮ 一度書けた後の全件失敗は degraded（即死させない）→ limit で unreachable
 assert.equal(decideBridgeContinuation({ attempted: 2, failed: 2, provenWritable: true, failedTicks: 0, limit: 10 }).verdict,
   'degraded')
 assert.equal(decideBridgeContinuation({ attempted: 2, failed: 2, provenWritable: true, failedTicks: 9, limit: 10 }).verdict,

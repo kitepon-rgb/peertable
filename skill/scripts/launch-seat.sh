@@ -20,6 +20,11 @@ if [ "$vendor" = "claude" ]; then
   esac
 fi
 
+if [ -n "${PEERTABLE_MEMBER:-}" ]; then
+  echo "SEAT_LAUNCH_DELEGATED_CHILD_FORBIDDEN: PEERTABLE_MEMBER=${PEERTABLE_MEMBER} を継承した呼出元からの席起動を拒否" >&2
+  exit 1
+fi
+
 # 呼出元が古い手順でtokenをexportしていても、preflight・tmux・model CLIへ継承しない。
 # 値の解決はcredential helperだけが設定fileから行う。env/argvへのfallbackは持たない。
 unset PEERTABLE_POST_TOKEN
@@ -587,7 +592,7 @@ else
   echo "metadata の登録に失敗した: 席は着席済みで、参加者一覧に素性が出ないだけ（room の到達性とトークンを確認）" >&2
 fi
 
-if "$(dirname "$0")/ensure-bridge.sh" "$proj" seat-status; then
+if PEERTABLE_CREDENTIAL_FILE="$credential_file" "$(dirname "$0")/ensure-bridge.sh" "$proj" seat-status; then
   echo "seat-status-bridge: 起動確認済み"
 else
   echo "seat-status-bridge の起動確認に失敗した（席は着席済み）" >&2

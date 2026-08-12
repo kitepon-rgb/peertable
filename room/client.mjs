@@ -182,6 +182,11 @@ function observeSelf() {
   }
 }
 
+{
+  const { messages } = await (await fetch(api('messages'))).json()
+  cursor = messages.length ? messages[messages.length - 1].seq : 0
+}
+
 const observe = observeSelf()
 const IDENTITY = Object.fromEntries(Object.entries({
   vendor: process.env.PEERTABLE_VENDOR,
@@ -190,12 +195,9 @@ const IDENTITY = Object.fromEntries(Object.entries({
   observe,
 }).filter(([, v]) => v))
 await fetch(api('members'), { method: 'POST', headers, body: JSON.stringify({ name: ME, ...IDENTITY }) })
-{
-  const { messages } = await (await fetch(api('messages'))).json()
-  cursor = messages.length ? messages[messages.length - 1].seq : 0
-}
 
 // SSE 購読 → 自分に関係する新着だけ一行通知へ変換。切断は外部境界なので再接続する
+const actionHint = 'read_unread で本文を読み、本文に具体的な依頼・行動要求があればそれをこのturnで実行し、完了または具体的なblockerをroomへ報告してから入力待ちに戻ること。情報通知だけなら追加の外部行動を起こさず読了で戻ること。'
 async function subscribe() {
   for (;;) {
     try {
@@ -219,7 +221,7 @@ async function subscribe() {
           await mcp.notification({
             method: 'notifications/claude/channel',
             params: {
-              content: `room に新着あり（${m.from} → ${Array.isArray(m.to_names) ? m.to_names.join(', ') : m.to}）。read_unread で読むこと。`,
+              content: `room に新着あり（${m.from} → ${Array.isArray(m.to_names) ? m.to_names.join(', ') : m.to}）。${actionHint}`,
               meta: { from: m.from, to: Array.isArray(m.to_names) ? m.to_names.join(',') : m.to, seq: String(m.seq) },
             },
           })
@@ -300,6 +302,7 @@ async function runDiagnostics(asJson) {
       'scripts/teardown.sh',
       'scripts/external-pane.mjs',
       'scripts/launch-seat.sh',
+      'scripts/member-turn-completed.mjs',
       'scripts/seat-credential.mjs',
       'scripts/ensure-room-mcp.mjs',
       'scripts/leave-seat.sh',
@@ -310,6 +313,8 @@ async function runDiagnostics(asJson) {
       'scripts/parent-join.sh',
       'scripts/wakeup-bridge.mjs',
       'scripts/seat-status-bridge.mjs',
+      'scripts/capacity-advisor.mjs',
+      'scripts/capacity-bridge.mjs',
       // teardown の archive（＝解散・既定）が呼ぶ。欠けるとログの写しが取れない
       'scripts/archive-room-log.py',
       'templates/gen-plan.mjs',

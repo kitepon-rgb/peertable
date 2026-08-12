@@ -101,12 +101,16 @@ export function parsePostTokenEnvFile(text) {
 }
 
 /**
- * launch-seat.sh:25-27 と同じ解決規則で書込トークンを決める（env が先・無ければ設定ファイル）。
- * 規則を二重に書かない——bash 側だけが自力解決を持ち、.mjs 側が起こす側の env に丸投げしていたのが
- * 上記 403 の構造的な原因だった。readFile は試験のための注入口で、既定は実ファイルを読む。
+ * launch-seat.sh:25-27 と同じ解決規則で書込トークンを決める（直接env → 席別credential → 設定file）。
+ * 規則を二重に書かない——常駐bridgeは起こし側のshell envを継承しないため、席別credentialのpathを
+ * 明示的に渡す。readFileは試験のための注入口で、既定は実ファイルを読む。
  */
 export function resolvePostToken(env, readFile = path => { try { return readFileSync(path, 'utf8') } catch { return null } }) {
   if (env.PEERTABLE_POST_TOKEN) return env.PEERTABLE_POST_TOKEN
+  if (env.PEERTABLE_CREDENTIAL_FILE) {
+    const token = readFile(env.PEERTABLE_CREDENTIAL_FILE)
+    return typeof token === 'string' ? token.trim() : ''
+  }
   return parsePostTokenEnvFile(readFile(join(env.HOME || homedir(), '.config', 'peertable.env'))) ?? ''
 }
 

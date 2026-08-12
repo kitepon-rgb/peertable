@@ -1,8 +1,8 @@
 #!/usr/bin/env node
-// Codex 席の起床ブリッジ。room の SSE を購読し、明示的にその席宛の新着が来たら
-// tmux の席へ素送信して起こす。Claude 席は channels が同じ役をするので対象外。
+// room のSSEを購読し、明示宛先の新着を current member descriptor のsessionへ
+// 素送信して起こす。vendorや起動時の固定席集合は配送経路にしない。
 //
-// usage: wakeup-bridge.mjs <project_dir> <seat> [seat...]     起動（前面。nohup で常駐させる）
+// usage: wakeup-bridge.mjs <project_dir> [legacy-seat...]     起動（前面。nohup で常駐させる）
 //        wakeup-bridge.mjs <project_dir> --stop               停止
 //
 // 生死の作法は Lattice ADR 0157 に倣う: 自分の pid を記録に置き、起動時に前の記録を掃除し、
@@ -15,21 +15,52 @@ import { execFile } from 'node:child_process'
 import { existsSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
-import { resolveSeatObservation, resolveTmuxSocket } from './seat-usage.mjs'
+import { resolveSeatObservation } from './seat-usage.mjs'
 
 const run = promisify(execFile)
 const [proj, ...rest] = process.argv.slice(2)
-if (!proj || rest.length === 0) {
+if (!proj) {
   console.error('usage: wakeup-bridge.mjs <project_dir> <seat> [seat...] | <project_dir> --stop')
   process.exit(1)
 }
 
 const record = join(proj, '.team', 'wakeup-bridge.json')
-const socketResult = resolveTmuxSocket(process.env)
-const sock = socketResult.socket
+const deliveryStatePath = join(proj, '.team', 'wakeup-bridge-delivery.json')
+const startupLock = `${record}.lock`
 const alive = pid => { try { process.kill(pid, 0); return true } catch { return false } }
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 const log = line => console.log(`[${new Date().toISOString()}] ${line}`)
+let lockHeld = false
+const releaseStartupLock = () => {
+  if (!lockHeld) return
+  try { if (existsSync(startupLock)) unlinkSync(startupLock) } catch {}
+  lockHeld = false
+}
+process.on('exit', releaseStartupLock)
+
+async function acquireStartupLock() {
+  const deadline = Date.now() + 10_000
+  for (;;) {
+    try {
+      writeFileSync(startupLock, `${process.pid}\n`, { flag: 'wx', mode: 0o600 })
+      lockHeld = true
+      return
+    } catch (error) {
+      if (error.code !== 'EEXIST') throw error
+      let owner = null
+      try { owner = Number(readFileSync(startupLock, 'utf8').trim()) } catch {}
+      if (owner !== null && Number.isInteger(owner) && !alive(owner)) {
+        try { unlinkSync(startupLock) } catch {}
+        continue
+      }
+      if (Date.now() >= deadline) {
+        console.error(`WAKEUP_BRIDGE_START_LOCKED: 起動処理中のbridge（pid ${owner ?? '不明'}）がlockを保持している`)
+        process.exit(1)
+      }
+      await sleep(200)
+    }
+  }
+}
 
 async function stopRecorded() {
   if (!existsSync(record)) return
@@ -49,37 +80,61 @@ async function stopRecorded() {
   log(`前のブリッジを停止した（pid ${pid}）`)
 }
 
+await acquireStartupLock()
 await stopRecorded()
 if (rest[0] === '--stop') process.exit(0)
 
-const seats = rest
+// 起動引数は supervisor の後方互換として記録するだけで、配送対象の正本にはしない。
+// 宛先は常に room の現在 member name から descriptor を解決する。
+const requestedSeats = rest
 const state = JSON.parse(readFileSync(join(proj, '.team', 'setup-state.json'), 'utf8'))
 const { room, server_url: url } = state
 writeFileSync(record, JSON.stringify({
-  pid: process.pid, room, server_url: url, seats, started_at: new Date().toISOString(),
+  pid: process.pid, room, server_url: url, requested_seats: requestedSeats, started_at: new Date().toISOString(),
 }) + '\n')
+releaseStartupLock()
 
 const cleanup = () => { if (existsSync(record)) unlinkSync(record); process.exit(0) }
 process.on('SIGTERM', cleanup)
 process.on('SIGINT', cleanup)
 
-// 席ごとに未配達を溜めて、2秒ごとにまとめて1回起こす（連投で席を何度も起こさない）
-const pending = new Map(seats.map(s => [s, []]))
+// 席ごとに未配達を溜めて、2秒ごとにまとめて1回起こす（連投で席を何度も起こさない）。
+// pending は room message の宛先名から作る。起動引数や vendor は候補集合を決めない。
+const pending = new Map() // name -> Map<seq, message>
+const deliveryStates = new Map() // seq -> { message, targets, delivered }
+let seats = []
 let members = new Map()
+let membersObserved = false
+function reconcileSeats() {
+  const next = new Set()
+  if (membersObserved) {
+    for (const member of members.values()) {
+      if (typeof member.name !== 'string' || member.name.length === 0) continue
+      next.add(member.name)
+      if (!pending.has(member.name)) pending.set(member.name, new Map())
+    }
+  }
+  const previous = seats.join(',')
+  seats = [...next]
+  if (previous !== seats.join(',')) log(`監視席を更新: ${seats.join(',') || 'なし'}`)
+}
 async function refreshMembers() {
   try {
     const res = await fetch(`${url}/api/${encodeURIComponent(room)}/members`)
     if (!res.ok) throw new Error(`members ${res.status}`)
     const body = await res.json()
+    if (!Array.isArray(body.members)) throw new Error('members response is not an array')
     members = new Map(body.members.map(member => [member.name, member]))
+    membersObserved = true
+    reconcileSeats()
     return true
   } catch (error) {
-    // 記述子の更新が読めないことは起床停止の理由にしない。直前の map を保ち、
-    // 未登録席は wake() の legacy target へ戻す。縮退を必ずログに残す。
-    log(`member 記述子を更新できないので直前の観測先で続ける: ${error.message}`)
+    // 直前の member map は保持するが、起動引数や既定 socketへ縮退しない。
+    log(`member 記述子を更新できないので直前の観測を保持する: ${error.message}`)
     return false
   }
 }
+reconcileSeats()
 await refreshMembers()
 function markReady() {
   const next = { ...JSON.parse(readFileSync(record, 'utf8')), ready_at: new Date().toISOString() }
@@ -88,58 +143,182 @@ function markReady() {
   renameSync(temp, record)
 }
 
+function loadDeliveryState() {
+  try {
+    const saved = JSON.parse(readFileSync(deliveryStatePath, 'utf8'))
+    if (saved.room !== room || saved.server_url !== url) return { primed: false, lastSeq: 0, delivered: new Set() }
+    return {
+      primed: saved.primed === true,
+      lastSeq: Number.isSafeInteger(saved.last_seq) && saved.last_seq >= 0 ? saved.last_seq : 0,
+      delivered: new Set(Array.isArray(saved.delivered) ? saved.delivered.filter(key => typeof key === 'string') : []),
+    }
+  } catch {
+    return { primed: false, lastSeq: 0, delivered: new Set() }
+  }
+}
+
+const deliveryState = loadDeliveryState()
+let lastSeq = deliveryState.lastSeq
+const delivered = deliveryState.delivered
+let primed = deliveryState.primed
+function saveDeliveryState() {
+  const temp = `${deliveryStatePath}.${process.pid}.tmp`
+  writeFileSync(temp, JSON.stringify({
+    room,
+    server_url: url,
+    primed,
+    last_seq: lastSeq,
+    delivered: [...delivered].slice(-10_000),
+  }) + '\n')
+  renameSync(temp, deliveryStatePath)
+}
+
+function deliveryKey(seq, seat) {
+  return `${seq}:${seat}`
+}
+
+const BROADCAST_RECIPIENT = 'all'
+function recipientNames(msg) {
+  if (Array.isArray(msg.to_names)) {
+    if (msg.to_names.includes(BROADCAST_RECIPIENT)) return []
+    return [...new Set(msg.to_names.filter(name => typeof name === 'string' && name.length > 0))]
+  }
+  if (typeof msg.to === 'string' && msg.to.length > 0 && msg.to !== BROADCAST_RECIPIENT) return [msg.to]
+  return []
+}
+
+function advanceLastSeq() {
+  let advanced = false
+  for (;;) {
+    const state = deliveryStates.get(lastSeq + 1)
+    if (!state) break
+    if (![...state.targets].every(seat => state.delivered.has(seat))) break
+    deliveryStates.delete(lastSeq + 1)
+    lastSeq += 1
+    advanced = true
+  }
+  if (advanced) saveDeliveryState()
+}
+
 async function wake(seat, msgs) {
   const last = msgs[msgs.length - 1]
   const audience = Array.isArray(last.to_names) ? last.to_names.join(', ') : last.to
+  const actionHint = 'read_unread で本文を読み、本文に具体的な依頼・行動要求があればそれをこのturnで実行し、完了または具体的なblockerをroomへ報告してから入力待ちに戻ること。情報通知だけなら追加の外部行動を起こさず読了で戻ること。'
   const text = msgs.length === 1
-    ? `room に新着あり（${last.from} → ${audience}）。read_unread で読むこと。`
-    : `room に新着 ${msgs.length} 件（最新: ${last.from} → ${audience}）。read_unread で読むこと。`
+    ? `room に新着あり（${last.from} → ${audience}）。${actionHint}`
+    : `room に新着 ${msgs.length} 件（最新: ${last.from} → ${audience}）。${actionHint}`
+  // 配送直前に member ledger を取り直し、current name -> descriptor の一経路だけを使う。
+  await refreshMembers()
+  const observation = resolveSeatObservation(members.get(seat), null)
+  if (observation === null) {
+    const code = members.has(seat) ? 'DESCRIPTOR_MISSING' : 'MEMBER_MISSING'
+    const error = new Error(`${code}: ${seat}`)
+    error.code = code
+    throw error
+  }
+  // Codexの入力欄は本文とEnterを同じtmux commandで送ると、初回turn完了後に
+  // 本文が入力欄へ残ることがある。再試行時の半入力も含め、正規のsubmitを分離する。
+  // 最後のEnterまで成功しない限りwakeは成功扱いにせず、flushSeatのreceiptも確定しない。
+  await run('tmux', ['-S', observation.socket, 'send-keys', '-t', observation.target, 'C-u'])
+  await sleep(100)
+  await run('tmux', ['-S', observation.socket, 'send-keys', '-l', '-t', observation.target, text])
+  await sleep(750)
+  await run('tmux', ['-S', observation.socket, 'send-keys', '-t', observation.target, 'Enter'])
+  log(`起こした: ${seat} ← ${msgs.length} 件（最新 seq ${last.seq}）`)
+}
+
+function dispatch(msg) {
+  if (deliveryStates.has(msg.seq)) return
+  const targets = recipientNames(msg).filter(seat => seat !== msg.from)
+  const state = { message: msg, targets: new Set(targets), delivered: new Set() }
+  for (const seat of targets) {
+    if (delivered.has(deliveryKey(msg.seq, seat))) state.delivered.add(seat)
+  }
+  deliveryStates.set(msg.seq, state)
+  for (const seat of targets) {
+    if (state.delivered.has(seat)) continue
+    if (!pending.has(seat)) pending.set(seat, new Map())
+    pending.get(seat).set(msg.seq, msg)
+  }
+  advanceLastSeq()
+}
+
+const flushing = new Set()
+async function flushSeat(seat) {
+  if (flushing.has(seat)) return
+  const queue = pending.get(seat)
+  if (!queue || queue.size === 0) return
+  flushing.add(seat)
+  const msgs = [...queue.values()].sort((a, b) => a.seq - b.seq)
   try {
-    // bridge 起動後の着席も次の配達で取り直す。初回だけの snapshot にすると
-    // 新席を「member 不明」として永久に起こせず、旧 peer- 互換より後退する。
-    await refreshMembers()
-    const observation = resolveSeatObservation(members.get(seat) ?? { name: seat }, sock)
-    if (observation === null) throw new Error(`観測記述子も既定 socket も無い: ${seat}`)
-    await run('tmux', ['-S', observation.socket, 'send-keys', '-t', observation.target, text])
-    await sleep(400)
-    await run('tmux', ['-S', observation.socket, 'send-keys', '-t', observation.target, 'Enter'])
-    log(`起こした: ${seat} ← ${msgs.length} 件（最新 seq ${last.seq}）`)
+    await wake(seat, msgs)
+    const receipts = []
+    for (const msg of msgs) {
+      if (queue.get(msg.seq) !== msg) continue
+      const state = deliveryStates.get(msg.seq)
+      if (!state) continue
+      state.delivered.add(seat)
+      delivered.add(deliveryKey(msg.seq, seat))
+      receipts.push({ msg, state })
+    }
+    // lastSeq が先行seqの別宛先失敗で止まっても、今回成功した宛先のreceiptは失わない。
+    // durable receiptを先に確定してからpendingを消すので、再起動後に成功席へ重複wakeしない。
+    if (receipts.length > 0) {
+      try {
+        saveDeliveryState()
+      } catch (error) {
+        for (const { msg, state } of receipts) {
+          state.delivered.delete(seat)
+          delivered.delete(deliveryKey(msg.seq, seat))
+        }
+        throw error
+      }
+      for (const { msg } of receipts) queue.delete(msg.seq)
+    }
+    advanceLastSeq()
   } catch (error) {
-    // 席が畳まれていれば tmux が落ちる。黙って飲まず、毎回出す（何件落としたかも出す）
-    log(`起こせなかった: ${seat} ← ${msgs.length} 件（最新 seq ${last.seq}）: ${error.message.split('\n')[0]}`)
+    // 失敗時はpendingもreceiptもcursorも動かさない。次のmember refreshで
+    // descriptor/PTYが復旧した時、同じseqを同じ宛先へ一度だけ再試行する。
+    log(`WAKEUP_BRIDGE_DELIVERY_FAILURE ${JSON.stringify({
+      recipient: seat,
+      code: typeof error.code === 'string' ? error.code : 'INJECTION_FAILED',
+      seqs: msgs.map(msg => msg.seq),
+      detail: error.message.split('\n')[0],
+    })}`)
+  } finally {
+    flushing.delete(seat)
   }
 }
 
-setInterval(async () => {
-  for (const [seat, msgs] of pending) {
-    if (msgs.length === 0) continue
-    pending.set(seat, [])
-    await wake(seat, msgs)
+setInterval(() => {
+  for (const [seat, queue] of pending) {
+    if (queue.size > 0) flushSeat(seat).catch(error => log(`WAKEUP_BRIDGE_FLUSH_FAILED: ${error.message}`))
   }
 }, 2000)
 
-function dispatch(msg) {
-  for (const seat of seats) {
-    if (msg.from === seat) continue
-    if (Array.isArray(msg.to_names) ? !msg.to_names.includes(seat) : msg.to !== seat) continue
-    pending.get(seat).push(msg)
-  }
-}
-
-// 再接続で取りこぼさないために、配達済みの最大 seq を持つ。
-// SSE は切れている間の発言を後から届けてくれないので、繋ぎ直したら必ず穴を埋める。
-let lastSeq = 0
+// 再接続で取りこぼさないために、全宛先の成功が揃った最大 seq を持つ。
+// 失敗した宛先がある限り lastSeq は前進せず、GET since から同じseqを回収する。
+let dispatchQueue = Promise.resolve()
 function dispatchNew(msg) {
-  // seq の無いイベントで lastSeq を汚さない。`undefined <= 数値` は false なので、
-  // 素通しにすると lastSeq が undefined に化け、以後の比較が全部 false になって
-  // 「取りこぼし回収が毎回 since=undefined で 0 件」という静かな故障になる（実測で踏んだ）
-  if (typeof msg.seq !== 'number') {
-    log(`seq を持たないイベントを捨てた: ${JSON.stringify(msg).slice(0, 120)}`)
-    return
-  }
-  if (msg.seq <= lastSeq) return
-  lastSeq = msg.seq
-  dispatch(msg)
+  // 心拍由来のcatch-upとSSE本文は同時に到着しうる。refreshMembers() の await より
+  // 前でseqを判定すると、同じmsgが両方の経路から二重に積まれ、lastSeqも逆行する。
+  // 判定・members同期・カーソル更新・dispatchを一本の順序へ直列化する。
+  const queued = dispatchQueue.then(async () => {
+    // seq の無いイベントで lastSeq を汚さない。`undefined <= 数値` は false なので、
+    // 素通しにすると lastSeq が undefined に化け、取りこぼし回収が静かに壊れる。
+    if (typeof msg.seq !== 'number') {
+      log(`seq を持たないイベントを捨てた: ${JSON.stringify(msg).slice(0, 120)}`)
+      return
+    }
+    if (msg.seq <= lastSeq) return
+    // SSEのmessageだけでは席追加と競合する。DMを積む直前にmembersを取り直し、
+    // 配送時にはさらにdescriptorを解決する。refresh失敗でも静的席へ縮退しない。
+    await refreshMembers()
+    if (msg.seq <= lastSeq || deliveryStates.has(msg.seq)) return
+    dispatch(msg)
+  })
+  dispatchQueue = queued.catch(() => {})
+  return queued
 }
 
 // 繋がったまま黙って死ぬ接続を検出する。SSE は無音でも生きていられるので、
@@ -150,7 +329,6 @@ const IDLE_MS = 75_000
 
 // 起動直後の1回だけは配達しない。既に流れ終わった過去ログで席を起こしても意味がなく、
 // 卓が長いほど巨大な起床通知になる。初回は「ここまでは読んだこと」にして頭出しするだけ。
-let primed = false
 let catching = false
 async function catchUp(reason) {
   // 再接続直後と心拍由来の回収が重なると二重に取りにいく。取りこぼし回収は1本だけ走らせる
@@ -163,11 +341,12 @@ async function catchUp(reason) {
     if (!primed) {
       primed = true
       if (messages.length > 0) lastSeq = messages[messages.length - 1].seq
+      saveDeliveryState()
       log(`頭出し: seq ${lastSeq} まで既読として開始する`)
       return
     }
     log(`取りこぼし確認（${reason}・since ${lastSeq}）: ${messages.length} 件`)
-    for (const msg of messages) dispatchNew(msg)
+    for (const msg of messages) await dispatchNew(msg)
   } finally {
     catching = false
   }
@@ -218,7 +397,7 @@ for (;;) {
           const line = lines.find(l => l.startsWith('data: '))
           if (name === 'ping') { if (line) onHeartbeat(line.slice(6)); continue }
           if (name !== undefined && name !== 'message') continue
-          if (line) dispatchNew(JSON.parse(line.slice(6)))
+          if (line) await dispatchNew(JSON.parse(line.slice(6)))
         }
       }
       log('SSE 切断（再接続する）')

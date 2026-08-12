@@ -84,7 +84,7 @@ await sleep(300)
 
 const noticed = /心拍が示す最新 seq 3 に追いついていない/.test(log)
 const recovered = /取りこぼし確認（心拍の差分・since 1）: 2 件/.test(log)
-const delivered = /(起こした|起こせなかった): nobody ← 2 件/.test(log)
+const delivered = /WAKEUP_BRIDGE_DELIVERY_FAILURE .*"recipient":"nobody".*"seqs":\[2,3\]/.test(log)
 
 console.log(log.trim())
 console.log('---')

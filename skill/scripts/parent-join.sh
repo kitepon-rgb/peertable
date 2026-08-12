@@ -67,22 +67,20 @@ if [ -f "$proj/.team/roles/parent.md" ]; then
   echo "親役割は $proj/.team/roles/parent.md を読むこと"
 fi
 
-# Codex 親は wakeup-bridge が起床を担う（parent.md）。observe 記述子（＝tmux内で動いている）が
-# 無いと対象を解決できず自動配線できないので、その場合は制約を明示して手動監視へ回す
-# （実測: tsubaki, room[95]。owner候補[37]①と同系統）。
+# 外部親は vendor を問わず、observe 記述子があれば wakeup-bridge が起床を担う。
+# descriptor が無いと current name→descriptor 経路を解決できず自動配線できないので、
+# その場合は制約を明示して手動監視へ回す（実測: tsubaki, room[95]）。
 capacity_delivery_ready=1
-if [ "$vendor" = "codex" ]; then
-  if [ -n "$observe_target" ]; then
-    if "$here/ensure-bridge.sh" "$proj" wakeup "$name"; then
-      echo "wakeup-bridge を親（${name}）宛に起動した"
-    else
-      echo "WARN: wakeup-bridge の起動に失敗した。手動で ${here}/ensure-bridge.sh ${proj} wakeup ${name} を実行すること" >&2
-      capacity_delivery_ready=0
-    fi
+if [ -n "$observe_target" ]; then
+  if "$here/ensure-bridge.sh" "$proj" wakeup "$name"; then
+    echo "wakeup-bridge を外部親（${name}）宛に起動した"
   else
-    echo "WARN: 親が tmux 外で動いているため wakeup-bridge を自動配線できない（外部注入面が無いhost）。room の新着は read_unread を自分で定期的に呼ぶこと" >&2
+    echo "WARN: wakeup-bridge の起動に失敗した。手動で ${here}/ensure-bridge.sh ${proj} wakeup ${name} を実行すること" >&2
     capacity_delivery_ready=0
   fi
+else
+  echo "WARN: 外部親が tmux 外で動いているため wakeup-bridge を自動配線できない（外部注入面が無いhost）。room の新着は read_unread を自分で定期的に呼ぶこと" >&2
+  capacity_delivery_ready=0
 fi
 
 # capacity通知はroomへ記録するだけでなく、上で準備したname→session descriptor経路から
