@@ -30,6 +30,7 @@ const serverUrl = setup.server_url.replace(/\/$/u, '')
 const api = `${serverUrl}/api/${encodeURIComponent(room)}`
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
 const now = () => new Date().toISOString()
+const ROOM_UPDATE_BODY = 'room全体の状況が更新された。roomログを読み、状況を把握して次の行動を判断する。'
 
 function loadState() {
   if (!existsSync(statePath)) return null
@@ -118,16 +119,19 @@ async function acceptMessage(message) {
   if (!Number.isSafeInteger(message?.seq) || message.seq <= state.last_seq) return false
   const matched = addressedToParent(message)
   if (matched) {
+    const roomUpdate = message.to === 'all'
     await writeEvent({
       schema: 'peertable.parent-watch-event.v1',
-      type: 'parent_dm',
+      type: roomUpdate ? 'parent_room_update' : 'parent_dm',
       parent,
       seq: message.seq,
       from: message.from,
       to: message.to ?? null,
       to_names: message.to_names ?? null,
-      body: message.body,
-      message,
+      body: roomUpdate ? ROOM_UPDATE_BODY : message.body,
+      message: roomUpdate
+        ? { seq: message.seq, ts: message.ts, from: message.from, to: message.to }
+        : message,
     })
   }
   state = { ...state, last_seq: message.seq, last_event_at: now() }

@@ -16,6 +16,7 @@ const project = join(root, 'project')
 const data = join(root, 'data')
 const room = 'parent-watch-fixture'
 const parent = 'bell'
+const roomUpdateBody = 'room全体の状況が更新された。roomログを読み、状況を把握して次の行動を判断する。'
 let server = null
 let green = true
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
@@ -92,6 +93,19 @@ try {
     && liveEvents[0].body === liveBody
     && liveEvents[0].to_names.includes(parent), liveResult.stdout || liveResult.stderr)
   check('親以外と親自身の発言では起こさない', !liveResult.stdout.includes('親以外') && !liveResult.stdout.includes('親自身'))
+
+  const allBody = 'ALL本文はroomだけに残す'
+  await fetch(`${api}/messages`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ from: 'hinata', to: 'all', body: allBody }),
+  })
+  const allResult = await run(['--next'], { PEERTABLE_PARENT_WATCH_WINDOW_MS: '1000' })
+  const allEvent = JSON.parse(allResult.stdout.trim())
+  check('allは本文でなくroom再読eventとして親へ返す', allResult.status === 0
+    && allEvent.type === 'parent_room_update'
+    && allEvent.body === roomUpdateBody
+    && allEvent.to === 'all', allResult.stdout || allResult.stderr)
+  check('all本文を親への直接出力へ混ぜない', !allResult.stdout.includes(allBody), allResult.stdout)
 
   const missedBody = 'watcher不在中のDM'
   await fetch(`${api}/messages`, {
