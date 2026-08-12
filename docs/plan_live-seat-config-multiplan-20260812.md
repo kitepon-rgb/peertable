@@ -96,7 +96,7 @@ model／effortと履歴を同期し、同一sessionとcontextが維持される�
 
 - [ ] i1を完了する。
 
-依存: r1、r2。所有: 本campaignの統合証跡だけ。旧`t4`所有fileは変更しない。
+依存: r1、r2、r3。所有: 本campaignの統合証跡だけ。旧`t4`所有fileは変更しない。
 
 旧`t4`をin-progressのまま、同じroom・同じ席で本PLANへ到達できることを実測する。途中で一席のmodel／effortを
 親だけがPeertableの入口からAiterm経由で変更し、対象メンバーは変更操作をせず、同一contextのまま作業を続けた
@@ -135,6 +135,19 @@ Aiterm管理席は公開launcherのtyped receiptでprocess起動を、room membe
 typed failureにし、briefが継続中であることを未着席理由にしない。作業者はfocused testと自己監査までを行い、
 現在の実席を変更しない。修正後のlive再着席はi1で親だけが再開する。
 
+### r3 Codex管理席へroom MCPをproject設定から装備する
+
+- [ ] r3を完了する。
+
+親のi1実測で、Aiterm launch receiptは成功したがCodex席のroom member登録が起きず、
+`SEAT_ROOM_MCP_NOT_READY`でrollbackした。`.mcp.json`はCodexの`mcp list`へ現れず、同じcwdの
+`.codex/config.toml`へ定義したroom MCPは現れることを親が実測済みである。
+
+Peertableのsetup／launch／teardown装備を、Codexが読むproject設定へ最小結線する。room clientはcurrent treeへ
+束縛し、seat固有のroom・member・credential環境を明示して渡す。既存roomはteardown／再setupせず追補でき、
+新規setupでは自動装備され、teardownはPeertableが所有する追加だけを戻す。Aiterm本体、Codex launcher、wrapperは
+変更しない。作業者はfocused testと自己監査までを行い、現在の実席を変更しない。live確認はi1で親だけが行う。
+
 ### g1 関連回帰・Lattice整合・pushを閉じる
 
 - [ ] g1を完了する。
@@ -151,14 +164,15 @@ c1（done） -> c2 -> m2（done） -------> i1 -> g1
                     ^                   ^
 m3（done） ----------┘                   |
 r1（done） -----------------------------┤
-r2 -------------------------------------┘
+r2（done） -----------------------------┤
+r3 -------------------------------------┘
 ```
 
 未着手だった`c3`、`m1`、`m4`は、必要な内容をそれぞれ`c2`と`m2`へ吸収して廃止する。
 
 ## 5. 完了条件
 
-1. c1、c2、m3、m2、r1、r2、i1、g1がLatticeでdoneである。
+1. c1、c2、m3、m2、r1、r2、r3、i1、g1がLatticeでdoneである。
 2. 親がClaude／Codex席のmodel／effort変更をAiterm公開面で行い、同一session・contextの維持を実測済みである。
 3. room memberのmodel／effortと変更履歴が実設定に一致する。
 4. 同じroom・席・Lattice storeが複数PLANを扱い、setupや再起動を要求しない。
