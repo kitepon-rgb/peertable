@@ -69,13 +69,6 @@ sub-agentを円卓メンバーの代用にしない。通常shell用の短命PTY
    - ログは `.team/wakeup-bridge.log`。**0件でも0件と出す**ので、起こせているか・取りこぼしていないかはログを見れば分かる。再現ハーネスは `experiments/bridge-catchup-repro.mjs`
 
 6.5 **席の稼働状態ブリッジ（setup.sh が自動で起こす）**: 手順3の scaffold が `ensure-bridge.sh <project> seat-status` で起こすので、**AI が手で叩く段は無い**。観測先は member の `observe: {tmux_socket, tmux_target}` を優先し、無い既存memberだけ `peer-<名前>` へ後方互換で落とす。socket は明示env → aiterm POSIX既定 → 検証済み`/tmp/aiterm-*.sock`1本 → 既定パスの順で解決し、bashからは`tmux-socket.mjs`を呼ぶ。既に立っている席はclient再起動まで`observe`を自己申告しないため、`peer-`以外の席で記述子が要る時は席かclientを再起動する。WSLではbridgeが読む**WSL側**の版が正で、Windows側だけの更新では直らない。
-6.6 **容量差分ブリッジ（parent-join.sh が親登録・parent-watch cursor ready後に自動で起こす）**: `ensure-bridge.sh <project> capacity` がLatticeのstatus＋plan別independence（単独卓は`.team/tasks.md`＋room claim）とroom membersを観測する。親・deadを除くlive workerとの差が変わった時だけ、親とidle reclaim席へ一通の`[capacity] PEERTABLE_CAPACITY_CHANGED` DMを送る。roomへは名前だけを宛先として記録し、親宛DMは`parent-watch`の永続cursorから現在の親background taskへ届く。cursorをprimeできなければcapacityを起動せず、初回差分をstate済みにしない。状態は`.team/capacity-advisor.json`、process記録は`.team/capacity-bridge.json`、ログは`.team/capacity-bridge.log`。停止は`node scripts/capacity-bridge.mjs <project> --stop`（teardownが自動で行う）。setup時点では親が未登録なので起こさない。
-   - **`nohup` は使わない（決定74）。** `ensure-bridge.sh` が専用 tmux セッション `peertable-<bridge>-<room>` で常駐を保持する。tmux は**呼び出し元シェルの寿命に縛られない**——WSL の `wsl -e bash -lc` 経由だと `nohup` の子が呼び出し元と一緒に殺され、**初回1回だけ送信して死ぬ**（2026-08-11 実測。macOS では死なないので、この症状は WSL でしか出ない）。ensure は手渡された `PEERTABLE_TMUX_SOCKET` / `PEERTABLE_POST_TOKEN` / `PEERTABLE_URL` を command 側で明示して渡す——新 session が継ぐのは tmux *server* の環境で、呼び出し元 client の環境ではないため
-   - **parent-join が配送経路ready後に起こし、teardown が止める（対称）。** 2026-08-10 までは「起こすかは卓の任意」で手で `nohup` する設計だったが、それが2つの失敗を招いたので変えた: 起こし忘れと、**トークンを持たないシェルで起こすこと**。後者は実害が出た——`~/.config/peertable.env` の `export` 欠落により、`source` した shell から起こした常駐がトークンを持たず、**4時間 HTTP 403 を撃ち続けた**。参加者一覧には点が1つも出ず、**「起こしていない」と見分けがつかなかった**
-   - **書込トークンは起こす側の env に依存しない。** ブリッジ自身が `launch-seat.sh:25-27` と同じ規則で解決する（env が先・無ければ `~/.config/peertable.env` を読む。`export` の有無を問わない）。同じ規則を `run-bridge.mjs` も使う
-   - **書けない常駐は生まれない。** 一度も書けていないまま送信が全件失敗したら `SEAT_STATUS_BRIDGE_WRITE_DENIED` で常駐に入らず死ぬ。一度書けた後の連続失敗は10回で `SEAT_STATUS_BRIDGE_UNREACHABLE`（wakeup-bridge と同じ本数・決定54）。**席がまだ立っていない tick は失敗に数えない**ので、setup 直後に起こしても死なない
-   - 止め忘れると `.team/` と一緒に pid 記録が消えて **`--stop` でも止められない常駐**が残る（teardown が自動で止めるので通常経路では起きない）
-
 6.7 **effort変更（本人要請→親実行）**: 本人は親だけへ`[effort変更依頼] <level>`を明示DMする。親は席がidleなのを確認して`env -u PEERTABLE_POST_TOKEN skill/scripts/change-effort.sh <project> <member> <level> [parent_name]`を実行する。短命control processにも平文tokenを初期envとして渡さない。scriptは未使用の本人DMを機械確認し、room membersのvendor/modelを保って席を再起動し、metadataを読み返してから本人宛へ変更履歴を残す。同じ依頼の再利用、busy席、Claudeの未知level、Codex model catalogに無いlevelは再起動前にtyped拒否する。新設定での起動失敗時は旧effortで1回だけ明示rollbackし、両方失敗なら手動復旧が必要だと非0で出す。
    - **会話contextは引き継がない**。本人は作業を安全に中断できる時だけ依頼し、再起動後はrole・工程正本・roomログから再着任する。変更できたのに履歴記録だけ失敗した場合も成功へ丸めず、`EFFORT_CHANGE_CHANGED_BUT_HISTORY_FAILED`で現在状態を明示する
 
@@ -187,8 +180,6 @@ witness をどう生成するかは**対象 project 側の作法に従う**（La
   push前に未push分の全commitが対応するtaskのdoneへ到達していることを確認する。
 
 ## 親の operating notes（このセッションの振る舞い）
-
-- **席数制御は親のloopである（決定68の運用側）**: `capacity-advisor.mjs`はactive＋検証済み非競合ready、roomのlive worker（親・dead除外）を同じ面へ投影し、capacity差が変わった時だけ親と自律claim対象のidle席へ`[capacity] PEERTABLE_CAPACITY_CHANGED`を一通送る。independenceのmissing／stale／unjudgedはready数へ含めない。親は通知の不足数だけ`launch-seat.sh`で起こし、超過時はidleかつ本人・工程正本の双方でWIPなしを確認できた席だけ畳む。基準値を席へ配って自己申告で守らせず、reclaim対象のidle席は通知を起点に自分でclaimする。畳む手順は縮退（通告→WIP棚卸し→`env -u PEERTABLE_POST_TOKEN scripts/leave-seat.sh <project> <member>`→必要なら`pty_close`でAiterm読取状態を破棄→宣言）。`leave-seat.sh`がsession / room member / seat identity / credentialを同じ境界で撤去し、sessionを停止確認できなければ後段を消さずtyped failureで止まる。
 
 - 親は MCP を後付けできないため room へは HTTP API 直で参加する:
   - 登録: `curl -X POST $URL/api/$ROOM/members -H "X-Peertable-Token: $TOKEN" -d '{"name":"bell"}'`

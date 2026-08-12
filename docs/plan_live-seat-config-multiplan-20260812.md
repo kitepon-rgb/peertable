@@ -10,7 +10,7 @@
    稼働中のClaude／Codex席のmodel／effortを同じsessionと会話contextのまま変更する。
 2. 一つのroomと同じ長寿命メンバー群が、同じLattice store内の複数PLANを完全修飾して扱えるようにする。
 3. Codex席の着席時に`wakeup-bridge`を機械的に装備する。
-4. Sol監査専任席をworker capacityと区別して維持する。
+4. Sol監査専任席を`auditor`役割として維持する。
 
 ## 2. 設計判断
 
@@ -30,8 +30,8 @@ Peertableはvendor TUIを直接操作せず、Aitermの公開`agent_configure`�
 ### 2.3 着席時の機械装備
 
 Codex席を立てる正規経路が、同じroomの`wakeup-bridge`を冪等にensureする。AIや親が手作業でbridgeを補うことを
-正常系にしない。監査専任席はlaunch入力、seat identity、room member metadata、capacity投影で`auditor`を保持し、
-workerのclaim、reclaim、scale-down対象から外す。役割省略時は互換の`worker`とする。
+正常系にしない。監査専任席はlaunch入力とroom member metadataで`auditor`を保持し、実装工程をclaimしない。
+役割省略時は互換の`worker`とする。capacity機能はオーナー裁定により製品から削除する。
 
 ### 2.4 作業・試験・監査の試行運用
 
@@ -80,13 +80,13 @@ model／effortと履歴を同期し、同一sessionとcontextが維持される�
 
 - [ ] m2を完了する。
 
-依存: c2、m3。所有: setup／launch／role／capacity／案内の必要箇所とfocused harness。
+依存: c2、m3。所有: setup／launch／role／案内の必要箇所とfocused harness。
 
 この工程は次の三成果だけをまとめて実装する。
 
 1. 同じroomと席が、setupをやり直さず複数PLANの完全修飾taskを扱う。
 2. Codex席の正規launchが`wakeup-bridge`を機械的に装備する。
-3. `auditor`席をworker capacityと区別し、Sol監査専任席を維持する。
+3. `auditor`役割をroom member metadataへ保持し、Sol監査専任席を維持する。
 
 必要な案内・正典の同期と、修正前の原因を再現するfocused testもこの工程に含める。別のdiscovery工程、
 文書だけの完了gate、細分化した確認機構は作らない。

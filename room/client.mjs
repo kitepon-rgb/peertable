@@ -251,8 +251,6 @@ async function runDiagnostics(asJson) {
       'scripts/parent-join.sh',
       'scripts/wakeup-bridge.mjs',
       'scripts/seat-status-bridge.mjs',
-      'scripts/capacity-advisor.mjs',
-      'scripts/capacity-bridge.mjs',
       // teardown の archive（＝解散・既定）が呼ぶ。欠けるとログの写しが取れない
       'scripts/archive-room-log.py',
       'templates/gen-plan.mjs',

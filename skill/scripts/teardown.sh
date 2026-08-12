@@ -95,18 +95,6 @@ else
   skip "wakeup-bridge（起動記録なし）"
 fi
 
-# capacity差分の常駐も `.team/` を消す前に止める。stateは次回setupの初回重複通知を防ぐため、
-# archiveでは残り、purgeでは後段の`.team/`撤去と一緒に消える。
-if [ -f "$proj/.team/capacity-bridge.json" ]; then
-  if node "$(dirname "$0")/capacity-bridge.mjs" "$proj" --stop; then
-    did "capacity-bridge 停止"
-  else
-    miss "capacity-bridge 停止に失敗（常駐が残る）— 上の _STOP_FAILED を見て手で止める"
-  fi
-else
-  skip "capacity-bridge（起動記録なし）"
-fi
-
 # 席の稼働状態ブリッジ。同じく常駐 process なので `.team/` を消す前に止める。
 # ここで止めないと、pid 記録が `.team/` ごと消えて **`--stop` でも止められなくなる**——しかも
 # 「起動記録が無い（既に停止）」と rc=0 で報告する＝**止めたと嘘をつく残骸**になる（実測）

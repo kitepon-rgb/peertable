@@ -61,11 +61,9 @@ if [ -f "$proj/.team/roles/parent.md" ]; then
   echo "親役割は $proj/.team/roles/parent.md を読むこと"
 fi
 
-# parent-watchが初回headを固定してからcapacityを起こす。以後のDMはwatcher不在時間を含め
+# parent-watchが初回headを固定する。以後のDMはwatcher不在時間を含め
 # 永続cursorからcatch-upされる。host内のbackground task自体は親セッションだけが所有できる。
-capacity_delivery_ready=0
 if PEERTABLE_PARENT_HOST="$parent_vendor" node "$here/parent-watch.mjs" "$proj" "$name" --prime; then
-  capacity_delivery_ready=1
   echo "parent-watch cursor ready: ${name}（host=${parent_vendor}）"
   if [ "$parent_vendor" = "codex" ]; then
     echo "PARENT_WATCH_START_REQUIRED: Codex親のbackground taskで1秒ごとに ${here}/codex-parent-watch.sh ${proj} ${name} を都度実行し、空でないstdoutだけを親turnへnotifyすること。background taskはloopを続けるが、Node processや端末sessionは常駐させない"
@@ -74,18 +72,6 @@ if PEERTABLE_PARENT_HOST="$parent_vendor" node "$here/parent-watch.mjs" "$proj" 
   fi
 else
   echo "WARN: PARENT_WATCH_PRIME_FAILED: 親（${name}）のDM cursorを準備できない" >&2
-fi
-
-# capacity通知はroomへ記録するだけでなく、上で準備したname→session descriptor経路から
-# 親DMは上で固定したcursorから欠落なく回収できる状態になってからcapacityを起こす。
-if [ "$capacity_delivery_ready" = "1" ]; then
-  if env -u PEERTABLE_POST_TOKEN PEERTABLE_PARENT_NAME="$name" "$here/ensure-bridge.sh" "$proj" capacity; then
-    echo "capacity-bridge を親（${name}）の配送経路準備後に起動した"
-  else
-    echo "WARN: capacity-bridge の起動に失敗した。手動で ${here}/ensure-bridge.sh ${proj} capacity を実行すること" >&2
-  fi
-else
-  echo "WARN: CAPACITY_BRIDGE_DELIVERY_NOT_READY: 親（${name}）の配送経路が無いためcapacity-bridgeを起動しない" >&2
 fi
 
 curl -sf "$url/api/$room/members" | python3 -c "import json,sys;print('members:', ', '.join(m['name'] for m in json.load(sys.stdin)['members']))"

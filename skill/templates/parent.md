@@ -117,13 +117,6 @@ peertable_parent_post() {
 
 ## 席の縮退・散会
 
-`[capacity] PEERTABLE_CAPACITY_CHANGED` DMは席数制御のtyped triggerである。本文のactive／検証済み
-非競合ready／live worker／増減数を読み、不足数だけ`launch-seat.sh`で起こす。reclaim対象のidle席は
-配車せず、同じ通知を受けた本人が工程正本とlive ownerを差分確認して自律claimする。親自身は目標席数へ
-数えない。同じcapacity差の反復通知はbridge側が抑止する。capacity側はroom member名だけを宛先にし、
-親宛DMはparent-watchの永続cursorから現在の親background taskへ届く。cursorをprimeできなければ
-capacity bridge自体を起こさず、初回差分を「通知済み」にしない。
-
 frontier が細って遊休席が出たら親が畳む: ①対象席へ名指しで通告 ②本人に WIP と未報告の作業が
 無いことを確認する（本人が「まだ持っている」と言えば畳まない） ③席のセッションを終了 ④room API
 で member を削除 ⑤縮退を room ログへ記録する。会議が収束し実作業が外部待ちだけになったら、
