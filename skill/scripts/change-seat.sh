@@ -57,9 +57,9 @@ name=sys.argv[1]
 member=next((m for m in json.load(sys.stdin).get("members",[]) if m.get("name")==name),None)
 if not member or member.get("vendor") not in ("claude","codex") or not member.get("model"):
     raise SystemExit(1)
-print("\t".join((member["vendor"],member["model"],member.get("effort") or "")))
+print("\t".join((member["vendor"],member["model"],member.get("effort") or "",member.get("aiterm_session_id") or "")))
 ' "$name") || { echo "SEAT_CHANGE_MEMBER_METADATA_MISSING: ${name} のvendor/modelが要る" >&2; exit 1; }
-IFS=$'\t' read -r old_vendor old_model old_effort <<EOF
+IFS=$'\t' read -r old_vendor old_model old_effort aiterm_session_id <<EOF
 $meta
 EOF
 
@@ -156,23 +156,40 @@ if [ "$effort" != "$old_effort" ]; then
   changes="${changes}effort ${old_effort:-default} → ${effort}"
 fi
 
-leave="$script_dir/leave-seat.sh"
-if ! "$leave" "$proj" "$name"; then
-  echo "SEAT_CHANGE_RESTART_PREPARE_FAILED: ${name} の旧席を安全に撤去できないため再起動しない" >&2
-  exit 1
-fi
-
-launch="$script_dir/launch-seat.sh"
-brief="席設定が変更され（${changes}）、席を再起動しました。.team/roles/member.mdと工程正本・roomログから再着任し、進行中taskを続けてください。"
-if ! "$launch" "$proj" "$name" "$model" "$vendor" "$effort" "$brief"; then
-  echo "SEAT_CHANGE_RESTART_FAILED: ${changes}。旧設定（vendor=${old_vendor} / model=${old_model} / effort=${old_effort:-default}）へrollbackする" >&2
-  rollback_brief="席設定の変更に失敗して旧設定へrollbackしました。.team/roles/member.mdと工程正本・roomログから再着任してください。"
-  if "$launch" "$proj" "$name" "$old_model" "$old_vendor" "$old_effort" "$rollback_brief"; then
-    echo "SEAT_CHANGE_ROLLED_BACK: ${name} は vendor=${old_vendor} / model=${old_model} / effort=${old_effort:-default} で再着席" >&2
-  else
-    echo "SEAT_CHANGE_ROLLBACK_FAILED: ${name} の席を手動で復旧する必要がある" >&2
+if [ "$vendor" = "$old_vendor" ]; then
+  [ -n "$aiterm_session_id" ] || {
+    echo "SEAT_CHANGE_AITERM_SESSION_MISSING: ${name} にAiterm managed session_idが無い" >&2; exit 1
+  }
+  configure_args=("$aiterm_session_id")
+  [ -z "$opt_model" ] || configure_args+=(--model "$model")
+  [ -z "$opt_effort" ] || configure_args+=(--effort "$effort")
+  node "$script_dir/aiterm-configure.mjs" "${configure_args[@]}" >/dev/null || {
+    echo "SEAT_CHANGE_AITERM_CONFIGURE_FAILED: ${name} の設定は変更していない" >&2; exit 1
+  }
+  identity=$(python3 -c 'import json,sys;print(json.dumps({"name":sys.argv[1],"vendor":sys.argv[2],"model":sys.argv[3],"effort":sys.argv[4],"aiterm_session_id":sys.argv[5]}))' "$name" "$vendor" "$model" "$effort" "$aiterm_session_id")
+  curl -sf -X POST -H 'Content-Type: application/json' "$url/api/$room/members" -d "$identity" >/dev/null || {
+    echo "SEAT_CHANGE_CHANGED_BUT_METADATA_FAILED: ${name} は設定済み、room metadataを同期できない" >&2; exit 1
+  }
+  change_method="同一sessionを維持"
+else
+  leave="$script_dir/leave-seat.sh"
+  if ! "$leave" "$proj" "$name"; then
+    echo "SEAT_CHANGE_RESTART_PREPARE_FAILED: ${name} の旧席を安全に撤去できないため再起動しない" >&2
+    exit 1
   fi
-  exit 1
+  launch="$script_dir/launch-seat.sh"
+  brief="席設定が変更され（${changes}）、席を再起動しました。.team/roles/member.mdと工程正本・roomログから再着任し、進行中taskを続けてください。"
+  if ! "$launch" "$proj" "$name" "$model" "$vendor" "$effort" "$brief"; then
+    echo "SEAT_CHANGE_RESTART_FAILED: ${changes}。旧設定（vendor=${old_vendor} / model=${old_model} / effort=${old_effort:-default}）へrollbackする" >&2
+    rollback_brief="席設定の変更に失敗して旧設定へrollbackしました。.team/roles/member.mdと工程正本・roomログから再着任してください。"
+    if "$launch" "$proj" "$name" "$old_model" "$old_vendor" "$old_effort" "$rollback_brief"; then
+      echo "SEAT_CHANGE_ROLLED_BACK: ${name} は vendor=${old_vendor} / model=${old_model} / effort=${old_effort:-default} で再着席" >&2
+    else
+      echo "SEAT_CHANGE_ROLLBACK_FAILED: ${name} の席を手動で復旧する必要がある" >&2
+    fi
+    exit 1
+  fi
+  change_method="席を再起動"
 fi
 
 members_after=$(curl -sf "$url/api/$room/members") || {
@@ -188,7 +205,7 @@ raise SystemExit(0 if m.get("vendor")==vendor and m.get("model")==model and m.ge
   exit 1
 fi
 
-body="[席設定変更] ${parent} が ${name} の ${changes} に変更（席を再起動）"
+body="[席設定変更] ${parent} が ${name} の ${changes} に変更（${change_method}）"
 [ -z "$reason" ] || body="${body}。理由: ${reason}"
 history=$(python3 -c 'import json,sys;print(json.dumps({"from":sys.argv[1],"to":sys.argv[2],"body":sys.argv[3]},ensure_ascii=False))' "$parent" "$name" "$body")
 credential_file=$(env -u PEERTABLE_POST_TOKEN node "$credential_helper" path "$proj" "$room" "$name")
