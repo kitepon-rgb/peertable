@@ -83,6 +83,17 @@ check('charter.md: turn終了時の次の行動は自分宛と明記',
   charter.includes('ターン終了時の次の行動は `post(to: "<自分の名前>")`'))
 check('charter.md: 待機宣言は最終手段として親だけへDMすると明記',
   charter.includes('待機宣言は最終手段として親だけへDMし、`all`へ送らない'))
+check('charter.md: 通し試験失敗後の原因確定・局所RED/GREEN・再実行制限を明記',
+  charter.includes('通し試験は完成確認にだけ使い、原因調査には使わない')
+    && charter.includes('動かない原因を実測で確定し、最小の修正方針を決める')
+    && charter.includes('修正前RED・修正後GREEN')
+    && charter.includes('通し試験を1回再実行できる')
+    && charter.includes('残る未確認経路を列挙して局所試験へ戻る'))
+check('charter.md: 親へ依存せず、Luna→Terra→Solを一回失敗ごとに交代すると明記',
+  charter.includes('親へ原因分析・修正方針・工程内監査を依存しない')
+    && charter.includes('現在のモデルが生き残れるチャンスは1回だけ')
+    && charter.includes('Lunaによる修正が不合格ならTerraへ変更')
+    && charter.includes('Terraによる修正も不合格ならSolへ変更'))
 
 // 8. 実装監査は監査済み計画とToDoの実現確認だけに限定し、思想で計画を再審議しない
 check('member.md: 元PLANと工程正本を絶対の正本として固定',
