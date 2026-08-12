@@ -87,7 +87,7 @@ export function verifiedReadyTasks(todoStatus) {
 }
 
 const liveWorker = (member, parentName) => member?.name && member.name !== parentName
-  && member.status !== 'dead' && member.role !== 'auditor'
+  && member.status !== 'dead'
 
 const sameNames = (left = [], right = []) => left.length === right.length
   && left.every((name, index) => name === right[index])
