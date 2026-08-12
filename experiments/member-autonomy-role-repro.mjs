@@ -108,6 +108,9 @@ check('SKILL.md: 円卓監査を正本へ拘束し親監査を除外',
   skill.includes('監査済みの元PLAN')
     && skill.includes('正本へ逆らわず')
     && skill.includes('親の監査には適用しない'))
+check('SKILL.md: 受入条件外を申し送りにする旧逃げ道を除去',
+  !skill.includes('受入条件外なら「修正を求めない申し送り」')
+    && skill.includes('受入条件外の思想・改善案は「申し送り」と言い換えて残さず'))
 
 console.log(ok ? 'member audit-before-done repro: green' : 'member audit-before-done repro: RED')
 process.exit(ok ? 0 : 1)
