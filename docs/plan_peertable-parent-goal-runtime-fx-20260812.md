@@ -1,5 +1,15 @@
 # Peertable 親Goal継続監視・Codex親liveness修理（peertable-parent-goal-runtime-fx-20260812）— 計画正本
 
+## 0. 縮小決定（2026-08-12）
+
+本計画で想定した durable Goal、watch generation、heartbeat、typed runtime receipt、親livenessの
+再定義は実装しない。DM到着時だけ親へ制御を返す一秒pollの `parent-watch` が Codex / Claude の
+両方で成立し、今回必要な親DM受信を満たしたためである。
+
+`pgr-01` は重い案を採用しなかった記録として完了する。成果は既存の単純な番犬経路
+（`skill/scripts/parent-watch.mjs`、`skill/scripts/codex-parent-watch.sh`、`parent-join.sh`）とその
+focused testである。Goal管理、親liveness表示、capacity意味変更は非採用・非実装とする。
+
 ## 1. 背景
 
 2026-08-12 の実円卓で、既存の `parent-watch` プロセスは生存し、room DM を cursor へ蓄積できている一方、非Aitermの Codex 親は通常ターンを final/DONE で閉じると、次の監視用tool callへ戻らない事象が確認された。DM は親へ処理可能な形で再注入されず、全席が idle になる。watcher が生きていることだけでは、親の判断ターンが継続している証拠にならない。
