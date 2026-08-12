@@ -62,7 +62,7 @@ const waitFor = async (predicate, why, timeout = 10_000) => {
   }
 }
 
-function startClient(baseUrl, project) {
+function startClient(baseUrl, project, clientPath = CLIENT) {
   const clientEnv = {
     ...process.env,
     PEERTABLE_URL: baseUrl,
@@ -77,7 +77,7 @@ function startClient(baseUrl, project) {
   // harnessの親shellの席を、追加Codex席のobserve先として登録しない。
   delete clientEnv.TMUX
   delete clientEnv.TMUX_PANE
-  const child = spawn(process.execPath, [CLIENT], {
+  const child = spawn(process.execPath, [clientPath], {
     env: clientEnv,
     stdio: ['pipe', 'pipe', 'pipe'],
   })
@@ -85,6 +85,13 @@ function startClient(baseUrl, project) {
   let stderr = ''
   let nextId = 1
   const pending = new Map()
+  let clientFailure = null
+  const rejectPending = error => {
+    if (clientFailure) return
+    clientFailure = error
+    for (const waiter of pending.values()) waiter.reject(error)
+    pending.clear()
+  }
   child.stderr.on('data', chunk => { stderr += chunk.toString('utf8') })
   child.stdout.on('data', chunk => {
     buffer += chunk.toString('utf8')
@@ -101,8 +108,12 @@ function startClient(baseUrl, project) {
       waiter.resolve(message)
     }
   })
+  child.once('error', error => rejectPending(error))
+  child.once('exit', (code, signal) =>
+    rejectPending(new Error(`room client exited${signal ? ` by ${signal}` : ` with code ${code}`}`)))
   const call = (method, params = {}) => {
     const id = nextId++
+    if (clientFailure) return Promise.reject(clientFailure)
     const result = new Promise((resolve, reject) => pending.set(id, { resolve, reject }))
     child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id, method, params })}\n`)
     return result
@@ -130,6 +141,7 @@ await writeFile(capture, '')
 let room = null
 let bridge = null
 let client = null
+let brokenClient = null
 let tmuxReady = false
 let ok = true
 const check = (label, condition, detail = '') => {
@@ -170,6 +182,27 @@ try {
     method: 'POST',
     body: JSON.stringify({ from, to, body }),
   })
+
+  brokenClient = startClient(baseUrl, project, join(root, 'missing-room-client.mjs'))
+  const failureStartedAt = Date.now()
+  let failure = null
+  try {
+    await Promise.race([
+      brokenClient.call('initialize', {
+        protocolVersion: '2024-11-05',
+        capabilities: {},
+        clientInfo: { name: 'broken-delivery-fixture', version: '1' },
+      }),
+      sleep(2_000).then(() => { throw new Error('client failure probe timeout') }),
+    ])
+  } catch (error) {
+    failure = error
+  }
+  check('client起動失敗でpending RPCをbounded reject', failure !== null
+    && Date.now() - failureStartedAt < 2_000
+    && /room client exited|spawn .*ENOENT/u.test(failure.message), failure?.message)
+  await stop(brokenClient.child)
+  brokenClient = null
 
   await member(OLD_SEAT, { vendor: 'codex', model: 'old', observe: { tmux_socket: socket, tmux_target: `peer-${OLD_SEAT}` } })
   const bridgeOutput = []
@@ -227,6 +260,7 @@ try {
   ok = false
 } finally {
   await stop(client?.child)
+  await stop(brokenClient?.child)
   await stop(bridge)
   await stop(room)
   if (tmuxReady) {
