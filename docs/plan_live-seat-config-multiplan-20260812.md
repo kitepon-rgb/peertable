@@ -103,6 +103,10 @@ model／effortと履歴を同期し、同一sessionとcontextが維持される�
 ことを返す。本件の実席E2E動作確認は親が所有する。片方のPLAN操作が他方のtask、run、evidence、未commit差分を
 変更しないことも親が確認する。
 
+親はroom `peertable-autonomy-runtime-20260811`をteardown／再setupせず、AkariとAsahiをTerra/highの`worker`、
+ReiをSol/highの`auditor`として最新規範で再着席する。全席のroom metadataに`aiterm_session_id`とroleが載ることを
+確認し、Reiは実装taskをclaimしない。
+
 ### r1 Aiterm管理sessionを正規着席へ結線する
 
 - [ ] r1を完了する。
@@ -115,10 +119,8 @@ model／effortと履歴を同期し、同一sessionとcontextが維持される�
 model変更ロジックを実装せず、direct CLI launchへのfallbackも持たない。room MCP、model／effort、role、brief、
 wakeup bridgeの既存契約を維持する。
 
-作業者は配線のfocused testと自己監査までを行い、実席の変更操作は行わない。修正後のlive操作は親が所有し、
-room `peertable-autonomy-runtime-20260811`をteardown／再setupせず、AkariとAsahiをTerra/highの`worker`、
-ReiをSol/highの`auditor`として最新規範で再着席する。親が全席のroom metadataに`aiterm_session_id`とroleが載る
-ことを確認し、Reiは実装taskをclaimしない。
+作業者は配線のfocused testと自己監査までを行い、現在の実席の再着席、model／effort変更、live E2Eは行わない。
+これらはr1の完了後にi1で親だけが行う。
 
 ### g1 関連回帰・Lattice整合・pushを閉じる
 
