@@ -49,7 +49,14 @@ try {
   const base = `http://127.0.0.1:${port}`
   const api = `${base}/api/${room}`
   await mkdir(join(project, '.team'), { recursive: true })
-  await writeFile(join(project, '.team/setup-state.json'), `${JSON.stringify({ room, server_url: base })}\n`)
+  await mkdir(join(project, '.lattice', 'todo'), { recursive: true })
+  const bin = join(root, 'bin')
+  const latticeStatus = join(project, '.lattice', 'todo', 'manifest.json')
+  await mkdir(bin)
+  const latticeCli = join(bin, 'lattice')
+  await writeFile(latticeCli, `#!/bin/sh\ncat ${JSON.stringify(latticeStatus)}\n`, { mode: 0o755 })
+  await writeFile(latticeStatus, `${JSON.stringify({ next_ready: [{}], active_set: [{}, {}] })}\n`)
+  await writeFile(join(project, '.team/setup-state.json'), `${JSON.stringify({ room, server_url: base, lattice_cli: latticeCli })}\n`)
   const serverEnv = { ...process.env, PEERTABLE_PORT: String(port), PEERTABLE_DATA: data }
   delete serverEnv.PEERTABLE_POST_TOKEN
   server = spawn(process.execPath, [roomServer], {
@@ -68,6 +75,8 @@ try {
   const stateAfterPrime = JSON.parse(await readFile(join(project, '.team/parent-watch.json'), 'utf8'))
   check('primeは親を起こさず現在headへカーソルを置く', primed.status === 0 && primed.stdout === '' && stateAfterPrime.last_seq === 1,
     `${primed.stderr} ${JSON.stringify(stateAfterPrime)}`)
+  check('primeはLattice工程数を無通知の基準値として保存する',
+    stateAfterPrime.lattice.ready === 1 && stateAfterPrime.lattice.active === 2, JSON.stringify(stateAfterPrime.lattice))
 
   const live = run(['--next'], { PEERTABLE_PARENT_WATCH_WINDOW_MS: '3000' })
   await sleep(150)
@@ -120,6 +129,57 @@ try {
   const duplicate = await run(['--next'], { PEERTABLE_PARENT_WATCH_WINDOW_MS: '250' })
   check('再起動しても配達済みDMを重複させない', duplicate.status === 0 && duplicate.stdout === '', duplicate.stdout || duplicate.stderr)
 
+  const roomSeqBeforeLattice = (await (await fetch(`${api}/summary`)).json()).seq
+  await writeFile(latticeStatus, `${JSON.stringify({ next_ready: [{}, {}], active_set: [{}, {}] })}\n`)
+  const latticeReadyChanged = await run(['--poll'])
+  const latticeReadyEvent = JSON.parse(latticeReadyChanged.stdout.trim())
+  check('着手可能工程数の変化だけを親向けeventへ返す', latticeReadyChanged.status === 0
+    && latticeReadyEvent.type === 'parent_lattice_update'
+    && latticeReadyEvent.ready === 2
+    && latticeReadyEvent.active === 2
+    && latticeReadyEvent.standard_worker_count === 4
+    && latticeReadyEvent.body === '現在、着手可能工程は 2 件、着手中工程は 2 件になりました。標準は 4＋監査担当数です。円卓メンバー数を検討してください。',
+  latticeReadyChanged.stdout || latticeReadyChanged.stderr)
+  const latticeDuplicate = await run(['--poll'])
+  check('Lattice工程数が同値なら反復通知しない',
+    latticeDuplicate.status === 0 && latticeDuplicate.stdout === '', latticeDuplicate.stdout || latticeDuplicate.stderr)
+
+  await writeFile(latticeStatus, `${JSON.stringify({ next_ready: [{}, {}], active_set: [{}, {}, {}] })}\n`)
+  const latticeActiveChanged = await run(['--poll'])
+  const latticeActiveEvent = JSON.parse(latticeActiveChanged.stdout.trim())
+  check('着手中工程数の変化もX＋Yだけを親へ知らせる', latticeActiveChanged.status === 0
+    && latticeActiveEvent.ready === 2
+    && latticeActiveEvent.active === 3
+    && latticeActiveEvent.standard_worker_count === 5
+    && latticeActiveEvent.body === '現在、着手可能工程は 2 件、着手中工程は 3 件になりました。標準は 5＋監査担当数です。円卓メンバー数を検討してください。',
+  latticeActiveChanged.stdout || latticeActiveChanged.stderr)
+  const roomSeqAfterLattice = (await (await fetch(`${api}/summary`)).json()).seq
+  check('工程通知はroomや円卓メンバーへ書き込まない', roomSeqAfterLattice === roomSeqBeforeLattice,
+    `${roomSeqBeforeLattice} -> ${roomSeqAfterLattice}`)
+
+  await writeFile(latticeStatus, '{invalid\n')
+  const duringFailureBody = 'Lattice観測失敗中も届くDM'
+  await fetch(`${api}/messages`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ from: 'nagi', to: parent, body: duringFailureBody }),
+  })
+  const latticeFailure = await run(['--poll'])
+  const latticeFailureEvents = latticeFailure.stdout.trim().split('\n').map(line => JSON.parse(line))
+  check('Lattice観測失敗はtyped eventで一度知らせroom DM追従を継続する', latticeFailure.status === 0
+    && latticeFailureEvents.length === 2
+    && latticeFailureEvents[0].type === 'parent_lattice_error'
+    && latticeFailureEvents[0].code === 'LATTICE_TODO_STATUS_FAILED'
+    && latticeFailureEvents[1].type === 'parent_dm'
+    && latticeFailureEvents[1].body === duringFailureBody,
+  latticeFailure.stdout || latticeFailure.stderr)
+  const repeatedFailure = await run(['--poll'])
+  check('同じLattice観測失敗を反復通知しない',
+    repeatedFailure.status === 0 && repeatedFailure.stdout === '', repeatedFailure.stdout || repeatedFailure.stderr)
+  await writeFile(latticeStatus, `${JSON.stringify({ next_ready: [{}, {}], active_set: [{}, {}, {}] })}\n`)
+  const recovered = await run(['--poll'])
+  check('復旧時にX/Yが同値なら人数検討通知を水増ししない',
+    recovered.status === 0 && recovered.stdout === '', recovered.stdout || recovered.stderr)
+
   for (const [from, body] of [['hinata', '常駐一件目'], ['asahi', '常駐二件目']]) {
     await fetch(`${api}/messages`, {
       method: 'POST', headers: { 'content-type': 'application/json' },
@@ -135,6 +195,17 @@ try {
     && polledEvents[1].body === '常駐二件目',
     polled.stdout || polled.stderr)
   check('poll終了後にNode processとlockを常駐させない', !existsSync(join(project, '.team/parent-watch.lock')))
+
+  await rm(join(project, '.team/parent-watch.json'))
+  await writeFile(latticeStatus, '{invalid\n')
+  const failedPrime = await run(['--prime'])
+  const failedAfterPrime = await run(['--poll'])
+  check('prime時のLattice観測失敗はprimeを黙らせたまま次回に一度通知する',
+    failedPrime.status === 0 && failedPrime.stdout === ''
+    && JSON.parse(failedAfterPrime.stdout).type === 'parent_lattice_error',
+  failedPrime.stderr || failedAfterPrime.stdout || failedAfterPrime.stderr)
+  await writeFile(latticeStatus, `${JSON.stringify({ next_ready: [{}, {}], active_set: [{}, {}, {}] })}\n`)
+  await run(['--poll'])
 
   const held = start(['--next'], { PEERTABLE_PARENT_WATCH_WINDOW_MS: '1000' })
   await sleep(80)

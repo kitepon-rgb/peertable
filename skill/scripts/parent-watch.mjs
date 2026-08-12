@@ -7,7 +7,8 @@
 //        parent-watch.mjs <project_dir> [parent_name] --poll
 //        parent-watch.mjs <project_dir> [parent_name] --next
 //        parent-watch.mjs <project_dir> [parent_name] --follow
-import { existsSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { existsSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 const args = process.argv.slice(2)
@@ -27,10 +28,34 @@ const lockPath = join(team, 'parent-watch.lock')
 const setup = JSON.parse(readFileSync(setupPath, 'utf8'))
 const room = setup.room
 const serverUrl = setup.server_url.replace(/\/$/u, '')
+const latticeCli = setup.lattice_cli || process.env.LATTICE_CLI || 'lattice'
 const api = `${serverUrl}/api/${encodeURIComponent(room)}`
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
 const now = () => new Date().toISOString()
 const ROOM_UPDATE_BODY = 'room全体の状況が更新された。roomログを読み、状況を把握して次の行動を判断する。'
+const staffingBody = ({ ready, active }) => `現在、着手可能工程は ${ready} 件、着手中工程は ${active} 件になりました。標準は ${ready + active}＋監査担当数です。円卓メンバー数を検討してください。`
+
+function readLatticeState(previous = null) {
+  const manifest = join(project, '.lattice', 'todo', 'manifest.json')
+  if (!existsSync(manifest)) return null
+  let info
+  try { info = statSync(manifest) } catch { return null }
+  const source = `${info.mtimeMs}:${info.size}`
+  if (previous?.source === source && previous.error === undefined) return previous
+  try {
+    const status = JSON.parse(execFileSync(latticeCli, ['todo', 'status', '--json'], {
+      cwd: project,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    }))
+    if (!Array.isArray(status.next_ready) || !Array.isArray(status.active_set)) {
+      throw new Error('invalid schema')
+    }
+    return { ready: status.next_ready.length, active: status.active_set.length, source }
+  } catch {
+    return { error: 'LATTICE_TODO_STATUS_FAILED', source }
+  }
+}
 
 function loadState() {
   if (!existsSync(statePath)) return null
@@ -59,17 +84,29 @@ async function readJson(path) {
 async function ensurePrimed() {
   const saved = loadState()
   if (saved) {
-    const next = { ...saved, ready_at: now(), host: process.env.PEERTABLE_PARENT_HOST || saved.host || null }
+    let lattice = saved.lattice
+    if (!lattice?.source) {
+      const observed = readLatticeState()
+      lattice = observed?.error ? null : observed
+    }
+    const next = {
+      ...saved,
+      lattice,
+      ready_at: now(),
+      host: process.env.PEERTABLE_PARENT_HOST || saved.host || null,
+    }
     saveState(next)
     return next
   }
   const summary = await readJson('/summary')
+  const observed = readLatticeState()
   const state = {
     schema: 'peertable.parent-watch-state.v1',
     room,
     server_url: serverUrl,
     parent,
     last_seq: Number.isSafeInteger(summary.seq) ? summary.seq : 0,
+    lattice: observed?.error ? null : observed,
     ready_at: now(),
     host: process.env.PEERTABLE_PARENT_HOST || null,
   }
@@ -115,6 +152,39 @@ async function writeEvent(event) {
   })
 }
 
+async function acceptLatticeState(next) {
+  if (next === null) return false
+  const previous = state.lattice
+  if (next.error !== undefined) {
+    if (previous?.error === next.error && previous.source === next.source) return false
+    state = { ...state, lattice: { ...previous, ...next }, last_event_at: now() }
+    saveState(state)
+    await writeEvent({
+      schema: 'peertable.parent-watch-event.v1',
+      type: 'parent_lattice_error',
+      parent,
+      code: next.error,
+      body: 'Lattice工程状態を取得できませんでした。親番犬のroom追従は継続します。',
+    })
+    return true
+  }
+  const changed = Number.isSafeInteger(previous?.ready) && Number.isSafeInteger(previous?.active)
+    && (previous.ready !== next.ready || previous.active !== next.active)
+  state = { ...state, lattice: next, last_event_at: now() }
+  saveState(state)
+  if (!changed) return false
+  await writeEvent({
+    schema: 'peertable.parent-watch-event.v1',
+    type: 'parent_lattice_update',
+    parent,
+    ready: next.ready,
+    active: next.active,
+    standard_worker_count: next.ready + next.active,
+    body: staffingBody(next),
+  })
+  return true
+}
+
 async function acceptMessage(message) {
   if (!Number.isSafeInteger(message?.seq) || message.seq <= state.last_seq) return false
   const matched = addressedToParent(message)
@@ -140,6 +210,7 @@ async function acceptMessage(message) {
 }
 
 async function catchUp() {
+  if (await acceptLatticeState(readLatticeState(state.lattice)) && mode === '--next') return true
   const body = await readJson(`/messages?since=${state.last_seq}`)
   for (const message of body.messages ?? []) {
     if (await acceptMessage(message) && mode === '--next') return true
@@ -183,6 +254,7 @@ for (;;) {
           const data = lines.filter(line => line.startsWith('data: ')).map(line => line.slice(6)).join('\n')
           if (eventName === 'ping') {
             const head = Number(data)
+            if (await acceptLatticeState(readLatticeState(state.lattice)) && mode === '--next') process.exit(0)
             if (Number.isSafeInteger(head) && head > state.last_seq && await catchUp()) process.exit(0)
             continue
           }
