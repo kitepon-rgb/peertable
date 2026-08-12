@@ -3,7 +3,8 @@
 //
 // 期待する連鎖: room へ明示 DM を保存 → 新席を一度だけ wake →
 // その席の room client が read_unread で同じ DM を取得する。
-// 現行版では bridge の固定 args 外へ配達されないため、この harness は修正前に非ゼロで落ちる。
+// 起動引数に無い追加席へも current member ledger から配達できることを確認する。
+// 固定 args に配送対象を束縛する欠陥版では、この harness は非ゼロで落ちる。
 import { execFileSync, spawn } from 'node:child_process'
 import { once } from 'node:events'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
