@@ -1,130 +1,54 @@
 # Peertable 稼働席設定変更・複数PLAN campaign — 計画正本
 
-本書は `live-seat-config-multiplan-20260812` campaign の計画正本である。Lattice store、room、
-メンバー席は既存の `peertable-autonomy-runtime-20260811` campaign と共有する。同campaignの `t4` と
-未commitの `experiments/autonomy-lifecycle-real-repro.mjs` は中断状態のまま保持し、本campaignから変更・
-完了・破棄しない。本campaignはオーナーが明示した緊急割込みとして先行する。
+本書は `live-seat-config-multiplan-20260812` campaign の目的と裁定を記録する。工程状態の正本はLattice storeである。
+既存のroom、メンバー席、`peertable-autonomy-runtime-20260811/t4`、同taskのpull runと未commit差分を保持し、
+本campaignから変更・完了・破棄しない。
 
-## 1. 目的と優先順位
+## 1. 目的
 
-最優先で、Aiterm `0.24.0` の公開MCP tool `agent_configure(session_id, model?, reasoning_effort?)`を使い、
-Peertableの稼働中Claude／Codex席のmodel／effortを、席・vendor session・会話contextを作り直さず変更
-できるようにする。変更後はroom memberのmodel／effort表示を実際の設定へ同期し、履歴を残す。
-
-次に、今回の運用で露呈した「1卓＝1 Lattice PLAN」と読める案内・生成物・実装上の束縛をすべて外す。
-一つのroomと同じ長寿命メンバー群が、同じLattice store内の複数PLANを完全修飾して選択・着手・監査・
-完了できる状態を正とする。
-
-優先順位は固定する。c1後は最優先のPhase 1実装c2と、全後続工程の無駄な再監査を止める即時gate m3だけを
-並行可能にする。c2とm3の双方をpeer audit込みで完了してからc3を閉じ、Phase 2へ進む。
+1. Aitermの公開MCP tool `agent_configure(session_id, model?, reasoning_effort?)`をPeertableの入口から呼び、
+   稼働中のClaude／Codex席のmodel／effortを同じsessionと会話contextのまま変更する。
+2. 一つのroomと同じ長寿命メンバー群が、同じLattice store内の複数PLANを完全修飾して扱えるようにする。
+3. Codex席の着席時に`wakeup-bridge`を機械的に装備する。
+4. Sol監査専任席をworker capacityと区別して維持する。
 
 ## 2. 設計判断
 
-#### 2.1 稼働席設定変更はAitermの公開契約だけを使う
+### 2.1 稼働席設定変更
 
-Peertableはvendor TUIへ `/model`、`/effort`、選択キーを直接注入しない。Aitermの
-`agent_configure`を呼ぶ薄い制御入口だけを所有する。
+Peertableはvendor TUIを直接操作せず、Aitermの公開`agent_configure`を呼ぶ薄い入口だけを持つ。Peertableが
+保持するAiterm `session_id`を渡し、成功receiptに従ってroom memberのmodel／effortと変更履歴を更新する。
+同一vendorの設定変更で席を再起動せず、Aitermの失敗を再起動や別modelへのfallbackで隠さない。vendor変更だけは
+従来の再着席経路に残す。
 
-- 対象はAitermが管理する稼働中のClaude／Codex agent sessionだけ。
-- `model`と`reasoning_effort`は片方だけでも同時でも指定できる。
-- Peertableが行う外部境界の確認は、対象席がidleであること、Aiterm receiptが
-  `aiterm.agent-configure-result.v1`でtargetと一致すること、room metadataの同期と読返しだけ。
-- Aitermが返した失敗を再起動、直接tmux注入、別modelへのfallbackで隠さない。
-- Aitermの未確認rollbackやinject挙動をPeertableの契約にしない。
-- vendor変更は従来どおり再起動経路に残し、本campaignのlive configureへ混ぜない。
+### 2.2 複数PLAN
 
-現在のPeertable席がAitermのmanaged-agent metadataから参照可能かは、実席focused testで確定する。
-参照できない場合は、Aiterm本体を改造せず、Peertableの正規launchがAiterm公開launcherで管理席を作る
-ために必要な最小adapterを本PLANへ改訂してから実装する。非公開stateの偽造やPTY直接操作で通さない。
+`setup-state.json.plan_key`と`PEERTABLE_PLAN`は初回着任時の既定値であり、卓が扱えるPLAN数を制限しない。
+操作対象は`<plan_key>/<task_id>`で完全修飾する。新PLANの追加にteardown、setup、席再起動、既定PLANの
+破壊的書換えを要求しない。既存のroom、メンバー、bridge、credential、`.mcp.json`をそのまま使う。
 
-#### 2.2 room memberの素性を動的設定へ同期する
+### 2.3 着席時の機械装備
 
-現行`room/client.mjs`は起動時envの`PEERTABLE_MODEL`／`PEERTABLE_EFFORT`を登録するため、live変更後も
-古い値を再登録しうる。成功receiptのtargetをroomへupsertするだけでは次回client登録に負ける。
+Codex席を立てる正規経路が、同じroomの`wakeup-bridge`を冪等にensureする。AIや親が手作業でbridgeを補うことを
+正常系にしない。監査専任席はlaunch入力、seat identity、room member metadata、capacity投影で`auditor`を保持し、
+workerのclaim、reclaim、scale-down対象から外す。役割省略時は互換の`worker`とする。
 
-Phase 1では、席を再起動せず、同じsessionの以後のroom登録でも新値が正になる単一の所有面を設ける。
-変更履歴は成功receiptとroom metadataの読返しが揃った後だけ投稿する。metadata同期だけ失敗した場合は
-「設定変更済み・表示同期失敗」を明示し、変更自体を失敗またはrollback済みに見せない。
+### 2.4 作業・試験・監査の試行運用
 
-#### 2.3 一つの卓は複数PLANを扱う
+作業者は自ら必要な試験と自己監査を行い、次工程へ進めてよい完成度まで仕上げ、最終試験結果を監査担当へ渡す。
+監査担当は試験を再実行せず、提出された試験内容と結果が妥当か判断して工程を閉じ、「次の工程に着手してください」
+とだけ指示する。具体的な次工程はLattice正本から作業者が選ぶ。本campaignでこの運用を観察し、恒久規範への反映は
+オーナー裁定後に行う。
 
-`setup-state.json.plan_key`と`PEERTABLE_PLAN`は、初回着任時の既定PLANと互換用の省略値に格下げする。
-これらをclaim可能範囲や卓の所属PLAN数として解釈しない。Claude向け既存フィールド名は変更しない。
+`done.sh`が証跡本文の監査文言や別席receiptを要求するgateは廃止済みである。監査のために成果や証跡を変更し、
+その変更を再監査する自己参照ループを作らない。
 
-メンバーの操作対象は常に完全修飾した`<plan_key>/<task_id>`で扱う。
+### 2.5 非目標
 
-- `lattice todo status --json`の全PLAN横断`active_set`／`next_ready`を読む。
-- roomのclaim・完了報告にはplan keyとtask idを両方含める。
-- `todo start --plan <plan_key> --task <task_id>`を使う。
-- 証跡は`evidence/<plan_key>/<task_id>.md`へ置く。
-- `done.sh`は呼出しごとにPLANを明示できる形を正とし、環境変数は互換省略値としてだけ使う。
-- pull run、receipt、landingは同じplanのrunだけを参照する。
-- phase制限を使う場合はplan keyとphaseの組として表現し、別PLANを暗黙に禁止しない。
-- capacityは全PLAN横断のactive／検証済みreadyを数える現行方針を維持する。
-
-#### 2.4 setupをやり直さずPLANを追加する
-
-既にLattice併用で着卓済みなら、`lattice todo migrate`で新PLANを登録するたびにsetup／teardown／席再起動を
-要求しない。既存のroom、メンバー、bridge、credential、`.mcp.json`をそのまま使う。
-
-役割文書では`setup-state.json.plan_key`を「初回着任時の既定PLAN」と明記する。以後の優先PLANは
-roomでのオーナー裁定とLattice正本から選び、別のPLAN一覧状態を新設せず、既定PLANの書換えも要求しない。
-
-#### 2.5 互換性と非目標
-
-- `setup.sh`の既存`plan_key`位置引数、`setup-state.json.plan_key`、`PEERTABLE_PLAN`、
-  `change-effort.sh`は削除・改名しない。
-- Claude向けroom DB fields、slash command、hook、transcript、baton、resume挙動を変更しない。
 - Lattice、Aiterm、Claude Code、Codex CLI本体は改造しない。
-- npm version bump、publish、本番deployは本campaignに含めない。
-- 旧`t4`のハーネス修理と監査は本campaignに含めない。
-
-#### 2.6 Codex席の起床bridgeは着席時の機械装備にする
-
-Codex席を一席でも含む卓では、`wakeup-bridge`をAIの判断や親の手動復旧に委ねない。
-`launch-seat.sh`がCodex席の着席を成功として返す前に、同じroomを監視するbridgeを冪等にensureし、
-`.team/wakeup-bridge.json`のlive pidと`ready_at`を確認する。bridgeを準備できなければ、Codex席を
-「room新着で起床可能な着席済み席」として成功扱いしない。
-
-setup直後、席の増員後、同じroomへの再着席後のいずれも同じ機械契約を通る。通常運用で親や席が
-`ensure-bridge.sh ... wakeup`を思い出して補う手順は持たない。外部process境界のtyped failureと
-teardownによる停止は既存契約を維持する。
-
-#### 2.7 監査専任席は機械可読な席役割にする
-
-監査専任を着任briefやroomの口頭裁定だけで表現しない。席の正規launch入力、`.team/seats/<name>.json`、
-room member metadataへ`worker`／`auditor`の席役割を機械可読に保持し、省略時は既存互換の`worker`とする。
-
-`auditor`は実装・調査ToDoをclaimせず、具体的に依頼された完成候補の独立監査だけを担う。capacity投影では
-実装worker数、ready reclaim候補、worker縮退候補から除外し、監査capacityとして別に残す。本campaignの
-運用契約はSol監査専任を一席維持することであり、idleであることを理由に実装claimや退席を促さない。
-
-#### 2.8 監査receiptは固定成果SHAへ束縛し、成果証跡を書き換えない
-
-Latticeが`todo done`で要求するのは証跡記述子のpath、blob OID、content digest等であり、証跡本文中の
-監査文ではない。Peertableの`done.sh`が証跡本文を正規表現で走査して`監査`と`DEFECT-FREE`を要求する
-現行gateは廃止する。
-
-完了順序は「実装者が成果と証跡をcommitしてSHA固定 → 別席がそのplan/task/SHAを実測監査 → roomへ
-構造化されたDEFECT-FREE receiptを記録 → 実装者の`done.sh`が別席・完全修飾plan/task・固定SHAの一致を
-検証 → 同じ固定済み証跡の記述子をLatticeへ渡す」とする。監査所見を成果証跡へ追記して新commitを作らず、
-その追記commitを再監査する自己参照ループを作らない。receipt不在、自己監査、別SHA、別plan/taskはtypedに
-拒否し、証跡本文の文言検査へfallbackしない。
-
-#### 2.9 正本に対する責任を負った自由
-
-計画正本とLattice工程が目的・受入条件・所有範囲を定め、円卓メンバーはその内側で対等に発想し、相談し、
-試し、情報を最も持つ者が判断する。規範や機械gateは判断方法・議論内容・試行回数を定型化せず、定型文や
-確認回数への服従を成果条件にしない。
-
-監査は正本の受入条件と実測結果だけに照らして行う。監査者個人の思想、工程外の理想、新しい安全思想・
-追加gate・儀式を完了条件へ持ち込まない。正本自体に欠陥を見つけた場合は、成果物を拘束する前に問題として
-提起し、正式な工程改訂へ還流する。機械が検証するのは、外部境界にある客観的一致（別席、完全修飾
-plan/task、固定SHA、実在するroom receipt）だけとする。
-
-room #1220で発生した「監査文を証跡へ追記して新commitを作り、その新commitを再監査する」往復は、正本の
-受入を増やさずAIの判断を手続きへ置換した再発禁止例である。m3のfocused regressionは、同じ固定SHAを一度の
-peer auditで完了でき、成果を変えない再確認や自己参照ループを要求しないことを固定する。
+- npm version bump、publish、本番deployは行わない。
+- 旧`t4`の修理や監査は行わない。
+- 実証されていない安全装置、追加gate、wrapper、launcher再構築は加えない。
 
 ## 3. Lattice工程
 
@@ -132,164 +56,76 @@ peer auditで完了でき、成果を変えない再確認や自己参照ルー�
 
 - [ ] c1を完了する。
 
-Phase 1。所有は本task用の新規`experiments/` harnessと証跡だけ。製品codeは変更しない。
-
-Aiterm npm/global `0.24.0`、MCP `tools/list`の`agent_configure` schema、現在のPeertable実席descriptor／
-Aiterm session一覧を実測する。現在の正規launchで作ったClaude／Codex席の`session_id`を
-`agent_configure`へ渡せるか、同一session・同一contextを保ってmodel-only／effort-only／同時変更できるかを
-fixtureと破棄可能な実席で測る。失敗時は原因を「Peertableのsession相関不足」「Aiterm公開契約の非対応」
-「対象席busy」へ切り分け、原因未確定の製品修正へ進まない。
-
-受入条件: 現在の実装境界と、Phase 1 product taskが使う正確なsession相関が証跡に固定される。
+完了済み。Aiterm `agent_configure`がAiterm管理下のCodex sessionで、同じ`session_id`を保ったまま
+model-only、effort-only、同時変更を受理する境界を証拠化した。
 
 ### c2 稼働席のmodel／effort変更とroom同期を実装する
 
 - [ ] c2を完了する。
 
-Phase 1。依存: c1。所有: `skill/scripts/change-seat.sh`、必要な新規adapter、`room/client.mjs`、
-`skill/scripts/launch-seat.sh`のうちc1で必要性が実証された最小箇所、Phase 1 focused harness。
+所有: `skill/scripts/change-seat.sh`、必要な最小adapter、`room/client.mjs`、focused harness。
 
-同一vendorのmodel／effort変更では再起動経路を廃止し、Aiterm`agent_configure`を呼ぶ。旧設定取得、busy保護、
-同値no-op、receipt検証、room memberの動的素性同期、保存結果の読返し、履歴の順を実装する。
-vendor変更だけは既存再起動経路を維持する。Aiterm失敗時に旧`leave-seat.sh`／`launch-seat.sh`へfallbackしない。
-
-受入条件: Claude／Codex fixtureでmodel-only、effort-only、同時変更、no-op、busy、unsupported target、
-Aiterm失敗、metadata同期失敗を正負で測り、対象sessionとcontextが維持される。
-
-### c3 Phase 1を実Peertable席で往復確認し、案内を同期する
-
-- [ ] c3を完了する。
-
-Phase 1。依存: c2、m3。所有: Phase 1実席証跡、`skill/SKILL.md`、`skill/templates/member.md`、
-`skill/templates/member-standalone.md`、`skill/templates/parent.md`の設定変更節だけ。
-
-破棄可能なClaude席とCodex席で、初期設定→別model／effort→初期設定の往復を同一sessionで行う。
-room member表示、履歴、会話context継続を実測する。別メンバーのpeer audit後にPhase 1を閉じる。
-
-受入条件: 既存文書から「再起動」「contextを引き継がない」「exact effort DM」の旧案内が現行面に残らず、
-実測済みのAiterm境界だけを説明する。
-
-### m1 単一PLAN束縛の負例と複数PLAN契約をfocused harnessへ固定する
-
-- [ ] m1を完了する。
-
-Phase 2。依存: c3。所有: 本task用の新規`experiments/` harnessと証跡だけ。
-
-現行生成物が`{{PLAN_KEY}}`をstart・evidence・doneへ固定し、`setup-state.json.plan_key`と
-`PEERTABLE_PLAN`を卓の所属PLANとして読ませる負例を固定する。同時にcapacity-advisorが全PLANを既に集計する
-正例、Lattice storeが複数PLANを保持する正例を固定する。
-
-受入条件: 修正前に「旧PLANがactiveのまま、同じ席が新PLANのtaskをstart・doneできない／案内されない」ことが
-REDになり、修正対象がsetup・role・done・launch・案内のどこかを列挙できる。
-
-### m2 setup・launch・roleを複数PLAN対応へする
-
-- [ ] m2を完了する。
-
-Phase 2。依存: m1。所有: `skill/scripts/setup.sh`、`skill/scripts/launch-seat.sh`、
-`skill/scripts/ensure-bridge.sh`、`skill/scripts/capacity-advisor.mjs`、`room/client.mjs`の席役割投影、
-`skill/templates/member.md`、必要なrole生成・wakeup bridge・capacity focused harness。
-
-単数planを既定値へ格下げし、作業ループを全PLAN横断statusと完全修飾taskへ変更する。生成済み席がsetupの
-やり直しなしで新PLANを扱えること、phase制限がplan/phaseの組としてだけ効くこと、旧setup呼出しが引き続き
-成立することを測る。加えてCodex席のlaunchがwakeup bridgeを必ず機械装備し、live pidと`ready_at`を
-確認するまで着席成功を返さないこと、繰返しlaunch／増員でbridgeが一世代だけ維持されることを測る。
-監査専任席はlaunchからroom metadata、seat identity、capacity投影まで同じ`auditor`役割を保持し、
-実装claim・worker reclaim・worker縮退の対象に入らないことも正負で測る。
-
-受入条件: 新PLAN追加にteardown、setup、席再起動、`setup-state.json.plan_key`の破壊的書換えを要求しない。
-Codex席の着席成功後は`.team/wakeup-bridge.json`が必ず存在し、記録pidがlive、`ready_at`があり、roomの
-明示宛DMで対象席が起床する。親や席による手動`ensure-bridge`を正常系の一部にしない。
-Sol監査専任一席がidleでもworker向け`reclaim_idle`／`scale_down`を受けず、実装workerの必要数とは別に
-監査capacityとして維持される。役割未指定の既存launchは`worker`として互換動作する。
+Peertableが席のAiterm `session_id`を保持し、既存の公開`agent_configure`へ渡す。成功時だけroom memberの
+model／effortと履歴を同期し、同一sessionとcontextが維持されることを作業者がfocused testと自己監査で確認する。
+案内同期と実席往復はこの工程へ含める。wrapper、room専用MCP設定、launcher置換は作らない。
 
 ### m3 done・証跡・run操作を呼出しPLANで束縛する
 
 - [ ] m3を完了する。
 
-即時完了gate。依存: c1。所有: `skill/templates/done.sh`、対応focused harness、必要な診断だけ。
+完了済み。`done.sh --plan`がshow、run、evidence、doneを呼出しPLANへ束縛し、証跡本文のpeer audit文言gateを
+削除した。別PLANに同じtask idがあっても明示PLANを使う。
 
-`done.sh`へ呼出し単位のplan指定を追加し、明示値を正、`PEERTABLE_PLAN`を互換省略値とする。task show／done、
-evidence path、active pull run、receipt gate、完了イベントのすべてが同じplan keyへ束縛されることを確認する。
-receipt gateはroomの別席DEFECT-FREE receiptを、完全修飾plan/taskと監査対象commit SHAで検証する。証跡本文へ
-監査語を追記させず、監査前に固定した成果SHAと証跡blobを変更しない。
+### m2 複数PLAN・着席装備・監査席役割を実装する
 
-受入条件: 別PLANに同じtask idが存在しても誤完了・誤証跡・誤receipt参照が起きず、旧呼出しも維持される。
-実装者が監査前に固定したSHAのままdoneでき、監査所見追記commitとその再監査を要求しない。receipt不在、
-実装者本人のreceipt、別SHA、別plan/taskは副作用より前に拒否される。
+- [ ] m2を完了する。
 
-### m4 複数PLANの案内と運用正典を同期する
+依存: c2、m3。所有: setup／launch／role／capacity／案内の必要箇所とfocused harness。
 
-- [ ] m4を完了する。
+この工程は次の三成果だけをまとめて実装する。
 
-Phase 2。依存: m2、m3。所有: `skill/SKILL.md`、`skill/templates/parent.md`、`docs/plan.md`、
-README日英の該当箇所、案内整合focused harness。
+1. 同じroomと席が、setupをやり直さず複数PLANの完全修飾taskを扱う。
+2. Codex席の正規launchが`wakeup-bridge`を機械的に装備する。
+3. `auditor`席をworker capacityと区別し、Sol監査専任席を維持する。
 
-「plan keyは…」「指定なしはplan全体」「この卓のclaim範囲」という単数所属表現を、既定PLANと完全修飾操作の
-説明へ置き換える。setupは卓をLattice storeへ接続する操作であり、PLAN追加のたびに行う操作ではないと明記する。
-WIP規則は実行優先順位であって、room／席／Lattice storeのPLAN収容数制限ではないことも明記する。
+必要な案内・正典の同期と、修正前の原因を再現するfocused testもこの工程に含める。別のdiscovery工程、
+文書だけの完了gate、細分化した確認機構は作らない。
 
-受入条件: 現行案内だけを読んだAIが「新PLANにはteardown／別卓が必要」と解釈する文面が残らない。
-
-### i1 旧t4を保持した同一円卓で新PLANを完了できることを統合実測する
+### i1 旧t4を保持した同一円卓で統合実測する
 
 - [ ] i1を完了する。
 
-Phase 3。依存: m4。所有: 本task用の統合harnessと
-`evidence/live-seat-config-multiplan-20260812/i1.md`だけ。旧`t4`所有fileは変更しない。
+依存: m2。所有: 本campaignの統合証跡だけ。旧`t4`所有fileは変更しない。
 
-`peertable-autonomy-runtime-20260811/t4`をin-progress、既存pull runと未commit差分を保持したまま、同じroom・
-同じメンバー席が本PLANのtaskを完全修飾で選択・start・監査・doneする。途中で一席のmodel／effortを
-Aiterm経由で変更し、同一contextのまま作業継続する。新PLAN完了後も旧`t4`と差分が元の状態で残ることを確認する。
+旧`t4`をin-progressのまま、同じroom・同じ席で本PLANへ到達できることを実測する。途中で一席のmodel／effortを
+Aiterm経由で変更し、同一contextのまま作業を続ける。片方のPLAN操作が他方のtask、run、evidence、未commit差分を
+変更しないことを確認する。
 
-受入条件: teardown、setup、席再起動なしで二つのPLANへ到達でき、片方の完了が他方のtask／run／evidenceを
-変更しない。別メンバーのpeer auditを経て完了する。
-
-### g1 関連回帰・pack・Lattice整合・pushを閉じる
+### g1 関連回帰・Lattice整合・pushを閉じる
 
 - [ ] g1を完了する。
 
-Phase 3。依存: i1。所有: campaign最終証跡だけ。product codeは変更しない。
+依存: i1。所有: campaign最終証跡だけ。
 
-Phase 1／2のfocused testを確認後に関連回帰を一度だけ実行する。`PEERTABLE_URL= node room/client.mjs diagnostics`、
-`npm pack --dry-run`、`lattice todo verify`、本PLANのtask状態、room peer audit、git diff／statusを照合する。
-本campaign対象だけをpathspecでcommitし、fetch後に未push祖先がすべて受理済みであることを確認して通常pushする。
-publish／deployは行わない。
+各工程のfocused test結果を確認し、関連回帰を一度実行する。Lattice整合、roomの試験・監査記録、git差分を照合し、
+本campaign対象だけをpathspecでcommitして通常pushする。publish／deployは行わない。
 
-## 4. 依存グラフと並列化
+## 4. 依存グラフ
 
 ```text
-c1 focused境界（predecessorでdone） -> c2 live設定変更実装 ─┐
-m3 done/evidence/run（revision時にready）─────────────────────┴-> c3 実席往復・Phase 1受入
-                                                               -> m1 単一PLAN負例
-                                                               -> m2 setup/launch/role
-                                                               -> m4 案内・正典
-                                                               -> i1 同一卓複数PLAN実測
-                                                               -> g1 最終gate
+c1（done） -> c2 -> m2 -> i1 -> g1
+                    ^
+m3（done） ----------┘
 ```
 
-c1完了後のrevisionでは、done済みc1のcarry意味論を変えずにm3をready rootとして登録する。時間上の前提は
-predecessorのc1 doneで証明済みであり、successor storeではc2とm3がready／in-progressで並行する。
-c2とm3は書込pathが分離し、一方はlive設定変更、他方は完了gateなので並列候補とする。
-既存dirty worktreeのためLattice independenceを検証済みにできない間は、計画に明記した所有pathをroomで
-相互確認して直接作業し、既存差分をstageしない。c3以降は直列である。
+未着手だった`c3`、`m1`、`m4`は、必要な内容をそれぞれ`c2`と`m2`へ吸収して廃止する。
 
-## 5. F / A / Hと検証
+## 5. 完了条件
 
-- F: Aiterm公開receiptとPeertable session相関、context維持、room metadataの真実性、完全修飾PLAN境界、
-  旧PLANを変更しない統合受入。親が契約を固定し、円卓の別席監査を必須にする。
-- A: focused harness、adapter／script／role／docsの仕様固定実装。正式着席した円卓メンバーが担当する。
-- H: なし。npm publish、本番deploy、force、履歴改変は本PLAN外。
-
-通し試験は各taskのfocused RED／GREENとpeer auditが揃った後、g1で一度だけ行う。失敗した場合は失敗機能の
-局所再現へ戻り、原因確定前にproduct codeを変更しない。
-
-## 6. 完了条件
-
-1. c1〜g1が別席peer auditを経てdoneである。
-2. Claude／Codexのmodel／effort変更がAiterm公開面で同一session・contextを維持して実測済みである。
+1. c1、c2、m3、m2、i1、g1がLatticeでdoneである。
+2. Claude／Codex席のmodel／effort変更がAiterm公開面で同一session・contextを維持して実測済みである。
 3. room memberのmodel／effortと変更履歴が実設定に一致する。
-4. 同じroom・席・Lattice storeが複数PLANを完全修飾して扱い、setupや再起動を要求しない。
-5. 旧`t4`、既存pull run、未commit差分が本campaign開始時の中断状態で保持される。
-6. 関連回帰、diagnostics、pack dry-run、Lattice verifyがgreenである。
-7. 本campaign対象commitがmainへ着地し、通常push済みである。
+4. 同じroom・席・Lattice storeが複数PLANを扱い、setupや再起動を要求しない。
+5. Codex席の着席でwakeup bridgeが自動装備され、Sol監査専任席がworkerと区別される。
+6. 旧`t4`、既存run、未commit差分が中断状態で保持される。
+7. 関連回帰とLattice verifyがgreenで、本campaign対象commitが通常push済みである。
