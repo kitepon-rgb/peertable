@@ -1,6 +1,6 @@
 #!/bin/bash
 # 席を1つ立てる（tmux 作成 → env 注入 → エージェント起動 → 既知ダイアログ通過 → 着席確認）。
-# usage: launch-seat.sh <project_dir> <name> <model> <vendor> <effort> [brief]
+# usage: launch-seat.sh <project_dir> <name> <model> <vendor> <effort> [brief] [role]
 #   vendor: claude / codex
 #   effort: 必須。既定値をコードへ埋めない——席を立てる時に決める（オーナー裁定）
 #   brief:  着席が成立したら送る着任指示（省略時は送らない）
@@ -9,7 +9,7 @@
 # 書込トークンは helper が ~/.config/peertable.env から席別 0600 file へ移し、pathだけを席へ渡す。
 # tmux は aiterm-mcp と同じソケットへ作るので、立てた席はそのまま pty_read / pty_send で読める。
 set -e
-proj="$1"; name="$2"; model="$3"; vendor="$4"; effort="$5"; brief="$6"
+proj="$1"; name="$2"; model="$3"; vendor="$4"; effort="$5"; brief="$6"; role="${7:-worker}"
 [ -n "$proj" ] && [ -n "$name" ] && [ -n "$model" ] && [ -n "$vendor" ] && [ -n "$effort" ] || {
   echo "usage: launch-seat.sh <project_dir> <name> <model> <vendor> <effort> [brief]" >&2; exit 1;
 }
@@ -19,6 +19,7 @@ if [ "$vendor" = "claude" ]; then
     *) echo "unknown effort: ${effort}（claude は low|medium|high|xhigh|max）" >&2; exit 1 ;;
   esac
 fi
+case "$role" in worker|auditor) ;; *) echo "unknown seat role: ${role}（worker / auditor）" >&2; exit 1 ;; esac
 
 if [ -n "${PEERTABLE_MEMBER:-}" ]; then
   echo "SEAT_LAUNCH_DELEGATED_CHILD_FORBIDDEN: PEERTABLE_MEMBER=${PEERTABLE_MEMBER} を継承した呼出元からの席起動を拒否" >&2
@@ -276,7 +277,7 @@ seat_tmux_pane=$(tmux -S "$sock" display-message -p -t "$sess" '#{pane_id}')
 # 素性は席の env にも入れる。client が**登録のたびに**載せるので、member の状態が失われても戻る
 credential_shell=$(printf '%q' "$credential_file")
 env_line="export PEERTABLE_URL=$url PEERTABLE_ROOM=$room PEERTABLE_MEMBER=$name PEERTABLE_CREDENTIAL_FILE=$credential_shell"
-env_line="$env_line PEERTABLE_VENDOR=$vendor PEERTABLE_MODEL=$model"
+env_line="$env_line PEERTABLE_VENDOR=$vendor PEERTABLE_MODEL=$model PEERTABLE_ROLE=$role"
 [ -n "$effort" ] && env_line="$env_line PEERTABLE_EFFORT=$effort"
 if [ "$mode" = "lattice" ]; then
   env_line="$env_line PEERTABLE_PLAN=$plan LATTICE_TODO_ACTOR_HOST=${LATTICE_TODO_ACTOR_HOST:-mac} LATTICE_TODO_ACTOR_SESSION=$name LATTICE_TODO_ACTOR_AGENT=$name"
@@ -550,6 +551,15 @@ if PEERTABLE_CREDENTIAL_FILE="$credential_file" "$(dirname "$0")/ensure-bridge.s
   echo "seat-status-bridge: 起動確認済み"
 else
   echo "seat-status-bridge の起動確認に失敗した（席は着席済み）" >&2
+fi
+
+if [ "$vendor" = codex ]; then
+  if PEERTABLE_CREDENTIAL_FILE="$credential_file" "$(dirname "$0")/ensure-bridge.sh" "$proj" wakeup; then
+    echo "wakeup-bridge: 起動確認済み"
+  else
+    echo "SEAT_WAKEUP_BRIDGE_NOT_READY: Codex席の起床bridgeを準備できない" >&2
+    exit 1
+  fi
 fi
 
 if [ -z "$brief" ]; then brief_completed=true; fi

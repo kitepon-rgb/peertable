@@ -168,6 +168,7 @@ const IDENTITY = Object.fromEntries(Object.entries({
   vendor: process.env.PEERTABLE_VENDOR,
   model: process.env.PEERTABLE_MODEL,
   effort: process.env.PEERTABLE_EFFORT,
+  role: process.env.PEERTABLE_ROLE,
   aiterm_session_id: process.env.AITERM_SESSION_ID,
   observe,
 }).filter(([, v]) => v))
