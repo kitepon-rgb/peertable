@@ -6,7 +6,6 @@
   "tasks": {
     "g1": {
       "owns": [
-        {"path": "experiments/witness-companion-plan-repro.mjs", "creates": true},
         {"path": "evidence/peertable-autonomy-runtime-fx3-20260811/g1.md", "creates": true}
       ],
       "reads": ["docs/plan_peertable-autonomy-runtime-fx3-20260811.md"]
