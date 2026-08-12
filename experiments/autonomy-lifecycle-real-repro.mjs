@@ -1,16 +1,12 @@
 #!/usr/bin/env node
 
 /**
- * t4: 実円卓のライフサイクルを、使い捨て room/project と実席で測る。
+ * t4: 現行規範を、使い捨てroom/projectと実Codex席で一周する。
  *
- * 実測するもの:
- *   - 自然文相当の席変更（依頼文の完全一致を再送しない）
- *   - 再起動された席の role / 工程 / room log からの再着任
- *   - 親の抑制的な発言後も active 席が報告し ready claim すること
- *   - audit-before-done、親の役割境界、green item の親無通知
- *
- * 実席の失敗を fixture の成功で覆わない。live 部分が失敗した場合は
- * 非ゼロ終了し、結果を部分成功として出さない。
+ * - 親だけが自然文のmodel / effort依頼をtargetへ変換する
+ * - 席を再起動し、role・議題・room履歴から再着任する
+ * - 作業者が試験と自己監査を終え、最終結果だけを監査担当へ渡す
+ * - 監査担当は試験を再実行せず、妥当性判断・close・抽象的な次着手だけを行う
  */
 
 import assert from "node:assert/strict";
@@ -27,15 +23,20 @@ const roomServer = join(repo, "room", "server.mjs");
 const launchSeat = join(repo, "skill", "scripts", "launch-seat.sh");
 const changeSeat = join(repo, "skill", "scripts", "change-seat.sh");
 const leaveSeat = join(repo, "skill", "scripts", "leave-seat.sh");
+const parentJoin = join(repo, "skill", "scripts", "parent-join.sh");
+const tmuxSocket = join(repo, "skill", "scripts", "tmux-socket.mjs");
 const wakeupBridge = join(repo, "skill", "scripts", "wakeup-bridge.mjs");
 const memberTemplate = join(repo, "skill", "templates", "member-standalone.md");
 const parentTemplate = join(repo, "skill", "templates", "parent.md");
 const charterTemplate = join(repo, "skill", "templates", "charter.md");
 
-const seatModel = process.env.T4_REAL_MODEL || "gpt-5.6-sol";
-const seatEffort = process.env.T4_REAL_EFFORT || "high";
+const workerModelBefore = process.env.T4_WORKER_MODEL_BEFORE || "gpt-5.6-terra";
+const workerModelAfter = process.env.T4_WORKER_MODEL_AFTER || "gpt-5.6-sol";
+const workerEffortBefore = process.env.T4_WORKER_EFFORT_BEFORE || "high";
+const workerEffortAfter = process.env.T4_WORKER_EFFORT_AFTER || "max";
+const auditorModel = process.env.T4_AUDITOR_MODEL || "gpt-5.6-sol";
+const auditorEffort = process.env.T4_AUDITOR_EFFORT || "high";
 const timeoutMs = Number(process.env.T4_TIMEOUT_MS || 240_000);
-
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function command(file, args, options = {}) {
@@ -54,6 +55,7 @@ function command(file, args, options = {}) {
       });
     });
     child.on("error", () => {});
+    child.stdin?.end();
   });
 }
 
@@ -66,7 +68,7 @@ function commandSync(file, args, options = {}) {
   });
 }
 
-async function waitFor(label, predicate, timeout = 90_000, interval = 500) {
+async function waitFor(label, predicate, timeout = timeoutMs, interval = 500) {
   const deadline = Date.now() + timeout;
   let lastError;
   while (Date.now() < deadline) {
@@ -96,14 +98,8 @@ async function jsonFetch(url, options = {}) {
   const response = await fetch(url, options);
   const body = await response.text();
   let parsed;
-  try {
-    parsed = JSON.parse(body);
-  } catch {
-    parsed = { raw: body };
-  }
-  if (!response.ok) {
-    throw new Error(`${options.method || "GET"} ${url} -> ${response.status}: ${body}`);
-  }
+  try { parsed = JSON.parse(body); } catch { parsed = { raw: body }; }
+  if (!response.ok) throw new Error(`${options.method || "GET"} ${url} -> ${response.status}: ${body}`);
   return parsed;
 }
 
@@ -124,13 +120,10 @@ async function startRoom({ dataDir, token, port, room }) {
   let output = "";
   child.stdout.on("data", (chunk) => { output += String(chunk); });
   child.stderr.on("data", (chunk) => { output += String(chunk); });
-  await waitFor("使い捨て room", async () => {
+  await waitFor("使い捨てroom", async () => {
     try {
-      const status = await jsonFetch(`http://127.0.0.1:${port}/api/${encodeURIComponent(room)}/summary`);
-      return status.room === room;
-    } catch {
-      return false;
-    }
+      return (await jsonFetch(`http://127.0.0.1:${port}/api/${encodeURIComponent(room)}/summary`)).room === room;
+    } catch { return false; }
   }, 30_000);
   return { child, output: () => output };
 }
@@ -138,31 +131,14 @@ async function startRoom({ dataDir, token, port, room }) {
 async function stopProcess(child) {
   if (!child || child.exitCode !== null) return;
   child.kill("SIGTERM");
-  await Promise.race([
-    new Promise((resolve) => child.once("exit", resolve)),
-    sleep(5_000),
-  ]);
+  await Promise.race([new Promise((resolve) => child.once("exit", resolve)), sleep(5_000)]);
   if (child.exitCode === null) child.kill("SIGKILL");
 }
 
 async function postRoom(base, token, payload) {
   return jsonFetch(`${base}/messages`, {
     method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "X-Peertable-Token": token,
-    },
-    body: JSON.stringify(payload),
-  });
-}
-
-async function registerMember(base, token, payload) {
-  return jsonFetch(`${base}/members`, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "X-Peertable-Token": token,
-    },
+    headers: { "content-type": "application/json", "X-Peertable-Token": token },
     body: JSON.stringify(payload),
   });
 }
@@ -172,51 +148,34 @@ async function messages(base) {
   return Array.isArray(result) ? result : (result.messages || result.items || []);
 }
 
-function pane(socket, session) {
-  try {
-    return commandSync("tmux", ["-S", socket, "capture-pane", "-p", "-t", session, "-S", "-120"]);
-  } catch {
-    return "";
-  }
+async function members(base) {
+  const result = await jsonFetch(`${base}/members`);
+  return Array.isArray(result) ? result : (result.members || result.items || []);
 }
 
-async function runSupportFixture(script) {
-  const result = await command(process.execPath, [join(repo, "experiments", script)], {
-    timeout: 120_000,
-  });
+function pane(socket, session) {
+  try { return commandSync("tmux", ["-S", socket, "capture-pane", "-p", "-t", session, "-S", "-80"]); }
+  catch { return ""; }
+}
+
+async function waitForIdle(socket, session) {
+  let idleSince = 0;
+  await waitFor(`${session} idle`, () => {
+    if (pane(socket, session).includes("esc to interrupt")) {
+      idleSince = 0;
+      return false;
+    }
+    if (idleSince === 0) idleSince = Date.now();
+    return Date.now() - idleSince >= 4_000;
+  }, 120_000, 1_000);
+}
+
+async function runSupport(script) {
+  const result = await command(process.execPath, [join(repo, "experiments", script)], { timeout: 120_000 });
   if (result.code !== 0) {
     throw new Error(`${script} が失敗しました (code=${result.code})\n${result.stdout}\n${result.stderr}`);
   }
-  return {
-    script,
-    passed: true,
-    tail: `${result.stdout}\n${result.stderr}`.trim().split("\n").slice(-4).join("\n"),
-  };
-}
-
-function assertProtocolOrder() {
-  // 実席とは別に、受入順序の最小契約を同じ実行に束縛する。
-  // green item は親への完了通知を持たず、intentional defect のみ返す。
-  const green = [
-    "claim",
-    "progress",
-    "audit_request",
-    "audit_pass",
-    "lattice_done",
-  ];
-  const defect = [
-    "claim",
-    "progress",
-    "audit_request",
-    "audit_defect",
-    "parent_reject",
-    "lattice_done",
-  ];
-  assert.ok(green.indexOf("audit_pass") < green.indexOf("lattice_done"));
-  assert.equal(green.includes("parent_comment"), false);
-  assert.ok(defect.indexOf("audit_defect") < defect.indexOf("parent_reject"));
-  assert.ok(defect.indexOf("parent_reject") < defect.indexOf("lattice_done"));
-  return { name: "protocol-order", passed: true };
+  return { script, passed: true, tail: `${result.stdout}\n${result.stderr}`.trim().split("\n").slice(-4).join("\n") };
 }
 
 async function liveLifecycle() {
@@ -224,178 +183,212 @@ async function liveLifecycle() {
   const dataDir = join(root, "room-data");
   const project = join(root, "project");
   const tokenFile = join(root, "post-token.env");
-  const socket = join(root, "tmux.sock");
+  const socket = commandSync(process.execPath, [tmuxSocket]).trim();
+  const invocationLog = join(project, ".team", "t4-test-invocations.jsonl");
   const room = `t4-live-${process.pid}`;
   const token = `t4-token-${process.pid}-${Date.now()}`;
   const port = await freePort();
   const serverUrl = `http://127.0.0.1:${port}`;
   const base = `${serverUrl}/api/${encodeURIComponent(room)}`;
   let roomProcess;
-  let bridgeProcess;
-  let launched = false;
-  let memberSeen = false;
-  const result = {
-    room,
-    project,
-    model: seatModel,
-    effort_before_change: seatEffort,
-    effort_after_change: "max",
-    checks: [],
-  };
+  let workerBridge;
+  let auditorBridge;
+  let workerPresent = false;
+  let auditorPresent = false;
+  let parentPresent = false;
   const env = {
     ...process.env,
-    PEERTABLE_TMUX_SOCKET: socket,
     PEERTABLE_TOKEN_SOURCE_FILE: tokenFile,
   };
   delete env.PEERTABLE_POST_TOKEN;
   delete env.PEERTABLE_MEMBER;
+  const parentEnv = {
+    ...env,
+    PEERTABLE_POST_TOKEN: token,
+    PEERTABLE_URL: serverUrl,
+    PEERTABLE_ROOM: room,
+    PEERTABLE_ROOM_API: base,
+    PEERTABLE_PARENT_NAME: "bell",
+    PEERTABLE_PARENT_HOST: "codex",
+  };
+  const workerBrief = `あなたは使い捨てroomの作業者 t4-live-worker です。.team/roles/member.md、.team/tasks.md、room履歴を正本として行動してください。起動ターンでは正本を読んで [t4-live-seat-ready] をbellへ送り、そのターンを終了してください。以後は各DMの処理を投稿したらそのターンを終了し、自分で待機処理を呼ばないでください。
+- [t4-live-boot] DMでは [t4-live-boot-ok] をbellへ返す。
+- [t4-live-suppressive-parent] DMでも作業を止めず、全体へ [t4-live-progress] と [claim] t4-live-work を投稿する。
+- [t4-live-change] DMでは、作業が複雑になったのでSolへ変更し推論も最大にしてほしい旨を、定型文へ言い直さず自然文でbellだけへ [t4-live-change-request] として送る。
+- [t4-live-rejoin] DMではrole・tasks・room履歴を読み直し、全体へ [t4-live-rejoin-ok] を投稿する。
+- [t4-live-finalize] DMでは node .team/t4-self-test.mjs を自分で実行し、出力と対象を自己監査する。途中確認や監査依頼は投稿せず、最終的な試験内容・結果・自己監査だけを t4-live-auditor へ [t4-live-final-results] としてDMする。作業者自身はcloseしない。`;
+  const auditorBrief = `あなたはSol監査専任席 t4-live-auditor です。.team/roles/member.md、.team/tasks.md、room履歴を読み、親から明示DMで渡される監査任務を待ってください。`;
+  const auditorAssignment = `[t4-live-auditor-start] あなたはSol監査専任席です。正本を読み、まず [t4-live-auditor-ready] をbellへ送ってこのターンを終了してください。以後、作業者の [t4-live-final-results] が届いたら、試験を実行せず、報告された試験内容と結果が妥当かだけを判断してください。妥当なら全体へ順に [t4-live-audit-accepted]、[done] t4-live-work、次の工程に着手してください と投稿し、そのターンを終了してください。具体的な次工程、追加試験、改善案、差し戻しは書かず、自分で待機処理を呼ばないでください。`;
 
   try {
     await mkdir(dataDir, { recursive: true });
     await mkdir(join(project, ".team", "roles"), { recursive: true });
     await writeFile(tokenFile, `PEERTABLE_POST_TOKEN=${token}\n`, { mode: 0o600 });
     await writeFile(join(project, ".team", "setup-state.json"), `${JSON.stringify({
-      project,
-      room,
-      server_url: serverUrl,
-      public_url: serverUrl,
-      mode: "standalone",
-      plan_key: "",
-      parent: "bell",
-      created_at: new Date().toISOString(),
-      added_root_mcp: true,
+      project, room, server_url: serverUrl, public_url: serverUrl, mode: "standalone",
+      plan_key: "", parent: "bell", created_at: new Date().toISOString(), added_root_mcp: true,
     }, null, 2)}\n`);
     await writeFile(join(project, ".mcp.json"), `${JSON.stringify({
-      mcpServers: {
-        peertable: {
-          command: process.execPath,
-          args: [join(repo, "room", "client.mjs")],
-          env: { PEERTABLE_SERVER_URL: serverUrl, PEERTABLE_ROOM: room },
-        },
-      },
+      mcpServers: { peertable: { command: process.execPath, args: [join(repo, "room", "client.mjs")],
+        env: { PEERTABLE_SERVER_URL: serverUrl, PEERTABLE_ROOM: room } } },
     }, null, 2)}\n`);
     await writeFile(join(project, ".team", "CLAUDE.md"), "@roles/member.md\n");
     await writeFile(join(project, ".team", "roles", "member.md"), await readFile(memberTemplate));
     await writeFile(join(project, ".team", "roles", "parent.md"), await readFile(parentTemplate));
     await writeFile(join(project, ".team", "charter.md"), await readFile(charterTemplate));
+    await writeFile(join(project, ".team", "tasks.md"), "# t4 live tasks\n\n- t4-live-work\n");
+    await writeFile(join(project, ".team", "t4-deliverable.txt"), "t4-ready\n");
+    await writeFile(join(project, ".team", "t4-self-test.mjs"), `import assert from "node:assert/strict";
+import { appendFileSync, readFileSync } from "node:fs";
+assert.equal(readFileSync(new URL("./t4-deliverable.txt", import.meta.url), "utf8"), "t4-ready\\n");
+appendFileSync(new URL("./t4-test-invocations.jsonl", import.meta.url), JSON.stringify({ member: process.env.PEERTABLE_MEMBER || null, result: "1/1" }) + "\\n");
+console.log("t4-self-test: 1/1 green");
+`);
 
     roomProcess = await startRoom({ dataDir, token, port, room });
-    await registerMember(base, token, {
-      name: "bell",
-      vendor: "codex",
-      model: "fixture-parent",
-      role: "parent",
-      status: "active",
-      delivery: { kind: "parent_watch" },
+    const joined = await command("bash", [parentJoin, project, "bell", auditorModel, auditorEffort, "codex"], {
+      env: parentEnv, timeout: 120_000,
+    });
+    assert.equal(joined.code, 0, `${joined.stdout}\n${joined.stderr}`);
+    parentPresent = true;
+    const parent = (await members(base)).find((item) => item.name === "bell");
+    assert.equal(parent?.delivery?.kind, "parent_watch");
+
+    const beforeParentTurn = (await messages(base)).length;
+    const parentTurn = await command("codex", [
+      "exec", "--json", "--model", auditorModel, "--dangerously-bypass-approvals-and-sandbox",
+      "--skip-git-repo-check",
+      "あなたはこの使い捨てroomの親bellです。.team/roles/parent.mdを読み、親が技術監査・通常工程操作・配車・作業者や監査担当の代行をしないことを確認してください。room投稿、コード変更、試験実行はせず、最後にT4_PARENT_ROLE_READYだけを回答してください。",
+    ], { cwd: project, env: parentEnv, timeout: timeoutMs });
+    assert.equal(parentTurn.code, 0, `${parentTurn.stdout}\n${parentTurn.stderr}`);
+    assert.match(parentTurn.stdout, /T4_PARENT_ROLE_READY/);
+    assert.equal((await messages(base)).length, beforeParentTurn);
+
+    let launch = await command("bash", [launchSeat, project, "t4-live-worker", workerModelBefore,
+      "codex", workerEffortBefore, workerBrief, "worker"], { env, timeout: timeoutMs });
+    assert.equal(launch.code, 0, `${launch.stdout}\n${launch.stderr}`);
+    workerPresent = true;
+    await waitFor("作業席member登録", async () => (await members(base)).some((item) => item.name === "t4-live-worker"));
+    await waitFor("作業席起動完了", async () => (await messages(base)).some((item) =>
+      item.from === "t4-live-worker" && item.body?.includes("[t4-live-seat-ready]")));
+    await waitForIdle(socket, "peer-t4-live-worker");
+    workerBridge = spawn(process.execPath, [wakeupBridge, project, "t4-live-worker"], {
+      cwd: repo, env, stdio: ["ignore", "pipe", "pipe"],
     });
 
-    const launch = await command("bash", [launchSeat, project, "t4-live-worker", seatModel, "codex", seatEffort,
-      "あなたは使い捨て room の t4 実測席です。着任時に .team/roles/member.md と .team/CLAUDE.md を読み、room の履歴を確認してください。DM に [t4-live-boot] が来たら room.read_unread 相当で内容を読み、room.post で bell に [t4-live-boot-ok] と返してください。コード変更はせず、他の指示を待ってください。"], { env, timeout: timeoutMs });
-    if (launch.code !== 0) {
-      throw new Error(`実席の起動に失敗しました (code=${launch.code})\n${launch.stdout}\n${launch.stderr}`);
-    }
-    launched = true;
+    await postRoom(base, token, { from: "bell", to: "t4-live-worker", body: "[t4-live-boot] 再着任内容を返してください。" });
+    await waitFor("boot応答", async () => (await messages(base)).some((item) =>
+      item.from === "t4-live-worker" && item.body?.includes("[t4-live-boot-ok]")));
+    await waitForIdle(socket, "peer-t4-live-worker");
 
-    await waitFor("実席 member 登録", async () => {
-      const list = await jsonFetch(`${base}/members`);
-      const members = Array.isArray(list) ? list : (list.members || list.items || []);
-      const worker = members.find((item) => item.name === "t4-live-worker");
-      memberSeen = Boolean(worker);
-      return worker;
-    }, 90_000);
-
-    bridgeProcess = spawn(process.execPath, [wakeupBridge, project, "t4-live-worker"], {
-      cwd: repo,
-      env,
-      stdio: ["ignore", "pipe", "pipe"],
+    await postRoom(base, token, { from: "bell", to: "t4-live-worker", body: "[t4-live-suppressive-parent] 親への応答後も自律作業を続けてください。" });
+    await waitFor("自律progress/claim", async () => {
+      const log = (await messages(base)).filter((item) => item.from === "t4-live-worker");
+      return log.some((item) => item.body?.includes("[t4-live-progress]"))
+        && log.some((item) => item.body?.includes("[claim] t4-live-work"));
     });
-    let bridgeOutput = "";
-    bridgeProcess.stdout.on("data", (chunk) => { bridgeOutput += String(chunk); });
-    bridgeProcess.stderr.on("data", (chunk) => { bridgeOutput += String(chunk); });
-    await waitFor("実席 wakeup bridge", async () => {
-      return bridgeOutput.includes("起動") || bridgeOutput.includes("ready") || bridgeOutput.includes("listening") || bridgeOutput.length > 0;
-    }, 30_000);
+    await waitForIdle(socket, "peer-t4-live-worker");
+    assert.equal((await messages(base)).some((item) => item.from === "bell" && item.body?.includes("[配車]")), false);
 
-    await postRoom(base, token, {
-      from: "bell",
-      to: "t4-live-worker",
-      body: "[t4-live-boot] role・工程正本・roomログから再着任し、確認結果を返してください。",
-    });
-    await waitFor("実席の DM 読み取りと返信", async () => {
-      const items = await messages(base);
-      return items.some((item) => item.from === "t4-live-worker" && item.body?.includes("[t4-live-boot-ok]"));
-    }, 120_000);
-    result.checks.push({ name: "real-dm-read-and-reply", passed: true });
-
-    // 親からの抑制的な発言があっても、席自身が progress と ready claim を行う。
-    await postRoom(base, token, {
-      from: "bell",
-      to: "t4-live-worker",
-      body: "[t4-live-suppressive-parent] 親向けの返事は簡潔で構いません。ただし member の基底 loop は止めず、room に [t4-live-progress] を全体宛てで報告し、続けて [claim] t4-live-ready を自分で投稿してください。親からの配車は待たないでください。",
-    });
-    await waitFor("実席の自律 progress / claim", async () => {
-      const items = await messages(base);
-      const workerItems = items.filter((item) => item.from === "t4-live-worker");
-      return workerItems.some((item) => item.body?.includes("[t4-live-progress]"))
-        && workerItems.some((item) => item.body?.includes("[claim] t4-live-ready"));
-    }, 150_000);
-    const activeMessages = await messages(base);
-    assert.equal(activeMessages.some((item) => item.from === "bell" && item.body?.includes("[配車]")), false);
-    result.checks.push({ name: "real-active-progress-and-self-claim", passed: true });
-
-    // launch-seat 自身は同名 member を残したままの置換を拒否する。これは安全な負例であり、
-    // change-seat が先に leave-seat の正規境界を通す必要を固定する。
-    const staleLaunch = await command("bash", [launchSeat, project, "t4-live-worker", seatModel, "codex", "max",
-      "t4 stale-member negative"], { env, timeout: timeoutMs });
-    if (staleLaunch.code === 0 || !staleLaunch.stderr.includes("SEAT_ROOM_MEMBER_CONFLICT")) {
-      throw new Error(`同名member負例が期待どおり拒否されませんでした (code=${staleLaunch.code})\n${staleLaunch.stdout}\n${staleLaunch.stderr}`);
-    }
-    result.checks.push({ name: "real-stale-member-launch-negative", passed: true });
-
-    // 依頼文を再送せず、自然文の判断を済ませた結果だけを seat change に渡す。
-    let idleSince = 0;
-    await waitFor("席変更前の実席 idle", () => {
-      if (pane(socket, "peer-t4-live-worker").includes("esc to interrupt")) {
-        idleSince = 0;
-        return false;
-      }
-      if (idleSince === 0) idleSince = Date.now();
-      return Date.now() - idleSince >= 5_000;
-    }, 120_000, 1_000);
+    await postRoom(base, token, { from: "bell", to: "t4-live-worker", body: "[t4-live-change] 現在の作業量に合う席設定を自然文で相談してください。" });
+    const changeRequest = await waitFor("自然文の変更依頼", async () => (await messages(base)).find((item) =>
+      item.from === "t4-live-worker" && item.to === "bell" && item.body?.includes("[t4-live-change-request]")));
+    await waitForIdle(socket, "peer-t4-live-worker");
     const change = await command("bash", [changeSeat, project, "t4-live-worker",
-      "--effort", "max", "--parent", "bell", "--reason", "自然文の作業量依頼を親が意味判断し、対象席の推論強度だけを変更する"], { env, timeout: timeoutMs });
-    if (change.code !== 0) {
-      throw new Error(`実席の席変更に失敗しました (code=${change.code})\n${change.stdout}\n${change.stderr}`);
-    }
-    assert.equal(change.stdout.includes("[effort変更依頼]"), false);
-    await waitFor("席変更後の member metadata", async () => {
-      const list = await jsonFetch(`${base}/members`);
-      const members = Array.isArray(list) ? list : (list.members || list.items || []);
-      const worker = members.find((item) => item.name === "t4-live-worker");
-      return worker && (worker.effort === "max" || worker.reason?.includes("自然文"));
-    }, 120_000);
-    result.checks.push({ name: "real-natural-seat-change", passed: true });
+      "--model", workerModelAfter, "--effort", workerEffortAfter, "--parent", "bell",
+      "--reason", "作業者の自然文相談を親が判断し、Solと最大推論をtargetとして確定"], { env, timeout: timeoutMs });
+    assert.equal(change.code, 0, `${change.stdout}\n${change.stderr}`);
+    assert.equal(change.stdout.includes(changeRequest.body), false);
+    const configured = (await members(base)).find((item) => item.name === "t4-live-worker");
+    assert.equal(configured?.model, workerModelAfter);
+    assert.equal(configured?.effort, workerEffortAfter);
 
-    await postRoom(base, token, {
-      from: "bell",
-      to: "t4-live-worker",
-      body: "[t4-live-rejoin] 再起動された席として .team/roles/member.md、工程正本、room log を読み直し、再着任後の確認を [t4-live-rejoin-ok] で返してください。",
+    await waitForIdle(socket, "peer-t4-live-worker");
+    await stopProcess(workerBridge);
+    workerBridge = null;
+    const left = await command("bash", [leaveSeat, project, "t4-live-worker"], { env, timeout: 60_000 });
+    assert.equal(left.code, 0, `${left.stdout}\n${left.stderr}`);
+    workerPresent = false;
+    const readyBeforeRestart = (await messages(base)).filter((item) =>
+      item.from === "t4-live-worker" && item.body?.includes("[t4-live-seat-ready]")).length;
+    launch = await command("bash", [launchSeat, project, "t4-live-worker", workerModelAfter,
+      "codex", workerEffortAfter, workerBrief, "worker"], { env, timeout: timeoutMs });
+    assert.equal(launch.code, 0, `${launch.stdout}\n${launch.stderr}`);
+    workerPresent = true;
+    await waitFor("再起動した作業席の起動完了", async () => (await messages(base)).filter((item) =>
+      item.from === "t4-live-worker" && item.body?.includes("[t4-live-seat-ready]")).length > readyBeforeRestart);
+    await waitForIdle(socket, "peer-t4-live-worker");
+    workerBridge = spawn(process.execPath, [wakeupBridge, project, "t4-live-worker"], {
+      cwd: repo, env, stdio: ["ignore", "pipe", "pipe"],
     });
-    await waitFor("席変更後の再着任返信", async () => {
-      const items = await messages(base);
-      return items.some((item) => item.from === "t4-live-worker" && item.body?.includes("[t4-live-rejoin-ok]"));
-    }, 150_000);
-    result.checks.push({ name: "real-rejoin-from-role-plan-log", passed: true });
+    await postRoom(base, token, { from: "bell", to: "t4-live-worker", body: "[t4-live-rejoin] role・tasks・room履歴から再着任してください。" });
+    await waitFor("再着任応答", async () => (await messages(base)).some((item) =>
+      item.from === "t4-live-worker" && item.body?.includes("[t4-live-rejoin-ok]")));
+    await waitForIdle(socket, "peer-t4-live-worker");
 
-    const finalMessages = await messages(base);
-    result.message_count = finalMessages.length;
-    result.bridge_output_tail = bridgeOutput.trim().split("\n").slice(-4).join("\n");
-    result.room_output_tail = roomProcess.output().trim().split("\n").slice(-4).join("\n");
-    return result;
+    const auditLaunch = await command("bash", [launchSeat, project, "t4-live-auditor", auditorModel,
+      "codex", auditorEffort, auditorBrief, "auditor"], { env, timeout: timeoutMs });
+    assert.equal(auditLaunch.code, 0, `${auditLaunch.stdout}\n${auditLaunch.stderr}`);
+    auditorPresent = true;
+    await waitFor("監査席member登録", async () => (await members(base)).some((item) =>
+      item.name === "t4-live-auditor" && item.role === "auditor"));
+    await postRoom(base, token, { from: "bell", to: "t4-live-auditor", body: auditorAssignment });
+    await waitFor("監査席起動完了", async () => (await messages(base)).some((item) =>
+      item.from === "t4-live-auditor" && item.body?.includes("[t4-live-auditor-ready]")));
+    await waitForIdle(socket, "peer-t4-live-auditor");
+    auditorBridge = spawn(process.execPath, [wakeupBridge, project, "t4-live-auditor"], {
+      cwd: repo, env, stdio: ["ignore", "pipe", "pipe"],
+    });
+
+    await postRoom(base, token, { from: "bell", to: "t4-live-worker", body: "[t4-live-finalize] 自己試験・自己監査を完了し、最終結果だけを監査担当へ渡してください。" });
+    const finalResults = await waitFor("最終試験結果", async () => (await messages(base)).find((item) =>
+      item.from === "t4-live-worker" && item.to === "t4-live-auditor"
+      && item.body?.includes("[t4-live-final-results]") && item.body?.includes("1/1")));
+    const accepted = await waitFor("監査受理", async () => (await messages(base)).find((item) =>
+      item.from === "t4-live-auditor" && item.body?.includes("[t4-live-audit-accepted]")));
+    const closed = await waitFor("監査担当close", async () => (await messages(base)).find((item) =>
+      item.from === "t4-live-auditor" && item.body?.includes("[done] t4-live-work")));
+    const next = await waitFor("抽象的な次着手", async () => (await messages(base)).find((item) =>
+      item.from === "t4-live-auditor" && item.body === "次の工程に着手してください"));
+    assert.ok(finalResults.seq < accepted.seq && accepted.seq < closed.seq && closed.seq < next.seq);
+    const roomLog = await messages(base);
+    assert.equal(roomLog.some((item) => item.from === "t4-live-worker"
+      && /途中確認|監査依頼/u.test(item.body || "")), false);
+    assert.equal(roomLog.some((item) => item.from === "bell"
+      && /\[t4-live-audit-accepted\]|\[done\]/u.test(item.body || "")), false);
+    assert.equal(roomLog.some((item) => item.seq > closed.seq && item.from === "t4-live-auditor"
+      && item.body !== "次の工程に着手してください"), false);
+
+    const invocations = (await readFile(invocationLog, "utf8")).trim().split("\n").map(JSON.parse);
+    assert.ok(invocations.some((item) => item.member === "t4-live-worker"));
+    assert.equal(invocations.some((item) => item.member === "t4-live-auditor"), false);
+    assert.equal(invocations.every((item) => item.result === "1/1"), true);
+    return {
+      room,
+      models: { worker_before: workerModelBefore, worker_after: workerModelAfter, auditor: auditorModel },
+      efforts: { worker_before: workerEffortBefore, worker_after: workerEffortAfter, auditor: auditorEffort },
+      checks: [
+        "real-parent-role-boundary",
+        "real-active-progress-and-self-claim",
+        "real-natural-model-effort-change-by-parent",
+        "real-restart-and-rejoin-from-role-task-room",
+        "real-worker-self-test-self-audit-final-results-only",
+        "real-auditor-no-retest-close-and-generic-next",
+      ],
+      sequence: { final_results: finalResults.seq, accepted: accepted.seq, closed: closed.seq, next: next.seq },
+      test_invocations: invocations,
+      message_count: roomLog.length,
+      room_output_tail: roomProcess.output().trim().split("\n").slice(-4).join("\n"),
+    };
   } finally {
-    if (bridgeProcess) await stopProcess(bridgeProcess);
-    if (launched || memberSeen) {
-      await command("bash", [leaveSeat, project, "t4-live-worker"], { env, timeout: 60_000 });
+    if (workerBridge) await stopProcess(workerBridge);
+    if (auditorBridge) await stopProcess(auditorBridge);
+    if (workerPresent) await command("bash", [leaveSeat, project, "t4-live-worker"], { env, timeout: 60_000 });
+    if (auditorPresent) await command("bash", [leaveSeat, project, "t4-live-auditor"], { env, timeout: 60_000 });
+    if (parentPresent) {
+      await fetch(`${base}/members/${encodeURIComponent("bell")}`, {
+        method: "DELETE", headers: { "X-Peertable-Token": token },
+      }).catch(() => {});
     }
     if (roomProcess) await stopProcess(roomProcess.child);
     await rm(root, { recursive: true, force: true });
@@ -403,35 +396,23 @@ async function liveLifecycle() {
 }
 
 async function main() {
-  const startedAt = new Date().toISOString();
-  const protocol = assertProtocolOrder();
   const support = [];
-  for (const script of [
-    "member-autonomy-role-repro.mjs",
-    "parent-role-repro.mjs",
-    "codex-parent-delivery-repro.mjs",
-    "done-receipt-gate-repro.mjs",
-    "seat-change-repro.mjs",
-    "effort-change-repro.mjs",
-  ]) {
-    support.push(await runSupportFixture(script));
+  for (const script of ["seat-change-repro.mjs", "parent-role-repro.mjs"]) {
+    support.push(await runSupport(script));
   }
   const live = await liveLifecycle();
-  const report = {
-    schema: "peertable.t4.autonomy-lifecycle.v1",
-    started_at: startedAt,
-    finished_at: new Date().toISOString(),
-    protocol,
+  console.log(JSON.stringify({
+    schema: "peertable.t4.autonomy-lifecycle.v2",
+    started_at: new Date().toISOString(),
     support,
     live,
     passed: true,
-  };
-  console.log(JSON.stringify(report, null, 2));
+  }, null, 2));
 }
 
 main().catch((error) => {
   console.error(JSON.stringify({
-    schema: "peertable.t4.autonomy-lifecycle.v1",
+    schema: "peertable.t4.autonomy-lifecycle.v2",
     passed: false,
     error: error.stack || String(error),
   }, null, 2));

@@ -71,8 +71,8 @@ script は内部で Aiterm の公開 `codex_agent` / `claude_agent` を呼び、
    - ログは `.team/wakeup-bridge.log`。**0件でも0件と出す**ので、起こせているか・取りこぼしていないかはログを見れば分かる。再現ハーネスは `experiments/bridge-catchup-repro.mjs`
 
 6.5 **席の稼働状態ブリッジ（setup.sh が自動で起こす）**: 手順3の scaffold が `ensure-bridge.sh <project> seat-status` で起こすので、**AI が手で叩く段は無い**。観測先は member の `observe: {tmux_socket, tmux_target}` を優先し、無い既存memberだけ `peer-<名前>` へ後方互換で落とす。socket は明示env → aiterm POSIX既定 → 検証済み`/tmp/aiterm-*.sock`1本 → 既定パスの順で解決し、bashからは`tmux-socket.mjs`を呼ぶ。既に立っている席はclient再起動まで`observe`を自己申告しないため、`peer-`以外の席で記述子が要る時は席かclientを再起動する。WSLではbridgeが読む**WSL側**の版が正で、Windows側だけの更新では直らない。
-6.7 **effort変更（本人要請→親実行）**: 本人は親だけへ`[effort変更依頼] <level>`を明示DMする。親は席がidleなのを確認して`env -u PEERTABLE_POST_TOKEN skill/scripts/change-effort.sh <project> <member> <level> [parent_name]`を実行する。短命control processにも平文tokenを初期envとして渡さない。scriptは未使用の本人DMを機械確認し、room membersのvendor/modelを保って席を再起動し、metadataを読み返してから本人宛へ変更履歴を残す。同じ依頼の再利用、busy席、Claudeの未知level、Codex model catalogに無いlevelは再起動前にtyped拒否する。新設定での起動失敗時は旧effortで1回だけ明示rollbackし、両方失敗なら手動復旧が必要だと非0で出す。
-   - **会話contextは引き継がない**。本人は作業を安全に中断できる時だけ依頼し、再起動後はrole・工程正本・roomログから再着任する。変更できたのに履歴記録だけ失敗した場合も成功へ丸めず、`EFFORT_CHANGE_CHANGED_BUT_HISTORY_FAILED`で現在状態を明示する
+6.7 **model / effort変更（本人要請→親実行）**: 本人は希望と理由を自然文で親だけへDMする。親は意味を判断してtargetを確定し、`env -u PEERTABLE_POST_TOKEN skill/scripts/change-seat.sh <project> <member> [--model <model>] [--effort <effort>] [--parent <name>] [--reason <text>]`を実行する。定型文への言い直し、完全一致の再送、本人DMの機械検査は行わない。scriptはroom memberの現在値を読み、Aitermの公開`agent_configure`へ確定targetを渡し、metadataの読返しと変更履歴を残す。targetはlive catalogで検証し、変更後の記録に失敗した場合も成功へ丸めない。
+   - 同じvendor内のmodel / effort変更はAitermが同一sessionと会話contextを保って行う。vendor変更だけは再起動を伴うため、本人はrole・工程正本・roomログから再着任する
 
 7. **親の着卓**（このセッション）: `scripts/parent-join.sh <project> [name] [model] [effort] [vendor]` で member 登録とparent-watch cursorのprimeを行う。**`effort` は任意のまま据え置く**——席は `launch-seat.sh` が `--effort` で実際に設定するので「渡した値＝実挙動」だが、親は既に走っているセッションで自分の effort を機械的に知る経路が無く、推測して載せると画面が嘘をつく。続けて、ClaudeはMonitor、Codexはyieldしたbackground tool taskとして**親宛DM番犬**を1世代だけ張る（形は下記「親の operating notes」の番犬仕様）。broadcastのkickoffは廃止済み。以後の post も API 直（同 notes）
 8. **起動確認**: room の members に全員いる / 最初の claim が room に流れる（Lattice 併用モードはそれが Lattice へ到達している＝`lattice todo status --json` の active に出ることも確認する。単独モードは room の claim 宣言だけが到達の証拠）/ Web UI で観測できる、をチェックして報告する
@@ -199,7 +199,7 @@ witness をどう生成するかは**対象 project 側の作法に従う**（La
   - **世代は常に1匹**。Claudeは旧MonitorをTaskStop、Codexは旧background taskを停止してから張り替える。
     `watch_error`は親へ通知し、沈黙死させない
   - claimと工程完了は`to: "all"`、ターン終了時の次の行動は自分宛DM、誰かへの用事はその人宛DM、誰に聞くか分からない時は`to: "all"`を使う
-- **effort変更依頼**: 本人からexactな`[effort変更依頼] <level>` DMが来た時だけ上記6.7のscriptを使う。親が本人の代わりに依頼文を投稿しない。busy拒否は「失敗したから直接tmuxを落とす」理由にならず、本人がidleになるまで待つ
+- **model / effort変更依頼**: 本人の自然文DMを親が判断し、確定したtargetだけを上記6.7のscriptへ渡す。本人に定型文や完全一致の再送を求めず、親が本人の代わりに依頼文を投稿しない
 - 親の権能は進行・督促・オーナーとの接点だけ。作業者や監査担当を代行しない
 - **作業者は自ら必要な試験と自己監査を行い、工程を次に進めてよい水準まで完成させる。** 完成したら最終的な試験内容と試験結果を監査担当へ渡し、自分では工程をクローズしない
 - **後続工程の着手後に先行工程由来の不具合が判明しても、先行工程をreopenせず、前担当者へ戻さず、修正工程も追加しない（決定82）。** 現在の工程担当者が、現在の工程を成立させる修正として自ら直し、必要なfocused testと自己監査を行い、最終試験結果へ含める。親自身が工程担当者である場合も同じである
