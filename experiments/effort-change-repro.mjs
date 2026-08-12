@@ -53,6 +53,10 @@ printf '%s|%s|%s|%s|%s|%s\\n' "$1" "$2" "$3" "$4" "$5" "$6" >> "$LAUNCH_LOG"
 payload=$(python3 -c 'import json,sys;print(json.dumps({"name":sys.argv[1],"vendor":sys.argv[2],"model":sys.argv[3],"effort":sys.argv[4]}))' "$2" "$4" "$3" "$5")
 curl -sf -o /dev/null -X POST "$PEERTABLE_URL/api/fixture/members" -H "X-Peertable-Token: ${token}" -H 'content-type: application/json' -d "$payload"
 `)
+await writeFile(join(scripts, 'leave-seat.sh'), `#!/bin/bash
+name="$2"
+curl -sf -X DELETE "$PEERTABLE_URL/api/fixture/members/$name" -H "X-Peertable-Token: ${token}" >/dev/null
+`)
 await writeFile(credentialHelper, `#!/usr/bin/env node
 const [action, ...args] = process.argv.slice(2)
 if (action === 'path') process.stdout.write(args[0] + '/.team/fixture.token\\n')
@@ -62,7 +66,7 @@ else if (action === 'request') {
 } else process.exit(2)
 `)
 await Promise.all(['tmux', 'claude'].map(name => chmod(join(bin, name), 0o755)))
-await chmod(join(scripts, 'launch-seat.sh'), 0o755)
+await Promise.all(['launch-seat.sh', 'leave-seat.sh'].map(name => chmod(join(scripts, name), 0o755)) )
 
 const server = spawn(process.execPath, [join(REPO, 'room/server.mjs')], {
   env: { ...process.env, PEERTABLE_PORT: String(port), PEERTABLE_DATA: data, PEERTABLE_POST_TOKEN: token },

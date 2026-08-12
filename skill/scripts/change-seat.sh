@@ -15,7 +15,8 @@ set -eu
 
 # token値はこの制御processや再起動する席へ継承しない。launch後のroom記録も席別file経由で行う。
 unset PEERTABLE_POST_TOKEN
-credential_helper="${PEERTABLE_CREDENTIAL_HELPER:-$(dirname "$0")/seat-credential.mjs}"
+script_dir=$(cd "$(dirname "$0")" && pwd -P)
+credential_helper="${PEERTABLE_CREDENTIAL_HELPER:-$script_dir/seat-credential.mjs}"
 
 proj="${1:-}"; name="${2:-}"
 shift 2 2>/dev/null || true
@@ -155,7 +156,13 @@ if [ "$effort" != "$old_effort" ]; then
   changes="${changes}effort ${old_effort:-default} → ${effort}"
 fi
 
-launch="$(dirname "$0")/launch-seat.sh"
+leave="$script_dir/leave-seat.sh"
+if ! "$leave" "$proj" "$name"; then
+  echo "SEAT_CHANGE_RESTART_PREPARE_FAILED: ${name} の旧席を安全に撤去できないため再起動しない" >&2
+  exit 1
+fi
+
+launch="$script_dir/launch-seat.sh"
 brief="席設定が変更され（${changes}）、席を再起動しました。.team/roles/member.mdと工程正本・roomログから再着任し、進行中taskを続けてください。"
 if ! "$launch" "$proj" "$name" "$model" "$vendor" "$effort" "$brief"; then
   echo "SEAT_CHANGE_RESTART_FAILED: ${changes}。旧設定（vendor=${old_vendor} / model=${old_model} / effort=${old_effort:-default}）へrollbackする" >&2

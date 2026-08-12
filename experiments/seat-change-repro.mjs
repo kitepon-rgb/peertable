@@ -31,7 +31,7 @@ const token = 'test-token'
 
 await Promise.all([mkdir(join(project, '.team'), { recursive: true }), mkdir(scripts), mkdir(bin), mkdir(data)])
 await writeFile(join(project, '.team/setup-state.json'), JSON.stringify({ room: 'fixture', server_url: base }) + '\n')
-for (const script of ['change-seat.sh', 'change-effort.sh']) {
+for (const script of ['change-seat.sh', 'change-effort.sh', 'leave-seat.sh']) {
   await cp(join(REPO, 'skill/scripts', script), join(scripts, script))
   await chmod(join(scripts, script), 0o755)
 }
@@ -40,6 +40,8 @@ await writeFile(screen, 'idle\n')
 await writeFile(join(bin, 'tmux'), `#!/bin/bash
 case " $* " in
   *" has-session "*) [ -f "$SEAT_MISSING" ] && exit 1; exit 0 ;;
+  *" kill-session "*) touch "$SEAT_MISSING"; exit 0 ;;
+  *" list-sessions "*) exit 0 ;;
   *" capture-pane "*) cat "$FAKE_SCREEN"; exit 0 ;;
 esac
 exit 1
@@ -69,6 +71,7 @@ exit 1
 await writeFile(join(scripts, 'launch-seat.sh'), `#!/bin/bash
 printf '%s|%s|%s|%s|%s|%s\\n' "$1" "$2" "$3" "$4" "$5" "$6" >> "$LAUNCH_LOG"
 if [ -f "$FAIL_MODEL" ] && [ "$3" = "$(cat "$FAIL_MODEL")" ]; then exit 9; fi
+rm -f "$SEAT_MISSING"
 vendor="$4"
 effort="$5"
 [ -n "\${STALE_VENDOR:-}" ] && vendor="\$STALE_VENDOR"
@@ -79,6 +82,8 @@ curl -sf -o /dev/null -X POST "$PEERTABLE_URL/api/fixture/members" -H "X-Peertab
 await writeFile(credentialHelper, `#!/usr/bin/env node
 const [action, ...args] = process.argv.slice(2)
 if (action === 'path') process.stdout.write(args[0] + '/.team/fixture.token\\n')
+else if (action === 'prepare') process.stdout.write(args[0] + '/.team/fixture.token\\n')
+else if (action === 'remove') process.exit(0)
 else if (action === 'request') {
   const response = await fetch(args[2], { method: args[1], headers: { 'content-type': 'application/json', 'X-Peertable-Token': ${JSON.stringify(token)} }, ...(args[3] ? { body: args[3] } : {}) })
   if (!response.ok) process.exit(1)
@@ -117,7 +122,7 @@ assert.equal(ready, true, 'fixture room serverが起動する')
 
 const member = body => api('members', {
   method: 'POST', headers: { 'content-type': 'application/json', 'X-Peertable-Token': token },
-  body: JSON.stringify({ name: 'koharu', ...body }),
+  body: JSON.stringify({ name: 'koharu', observe: { tmux_socket: env.PEERTABLE_TMUX_SOCKET, tmux_target: 'peer-koharu' }, ...body }),
 })
 const seat = async () => (await api('members')).members.find(x => x.name === 'koharu')
 const run = (args, extra = {}) => spawnSync(join(scripts, 'change-seat.sh'), [project, 'koharu', ...args], {
@@ -296,9 +301,12 @@ try {
     assert.notEqual(result.status, 0)
     assert.match(result.stderr, /SEAT_CHANGE_ROLLBACK_FAILED/)
   })
+  assert.equal(await seat(), undefined, 'rollback失敗後に旧memberを生存扱いしない')
   await rm(failModel, { force: true })
 
   // 11. metadata の読み返しが target と食い違えば成功にしない
+  await member({ vendor: 'claude', model: 'opus', effort: 'high' })
+  await rm(join(root, 'seat-missing'), { force: true })
   result = run(['--effort', 'low'], { STALE_META: 'high' })
   check('metadata が target と違えば成功扱いにしない', () => {
     assert.notEqual(result.status, 0)
