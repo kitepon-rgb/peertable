@@ -31,10 +31,12 @@ fi
 unset PEERTABLE_POST_TOKEN
 credential_helper="${PEERTABLE_CREDENTIAL_HELPER:-$(dirname "$0")/seat-credential.mjs}"
 room_mcp_helper="${PEERTABLE_ROOM_MCP_HELPER:-$(dirname "$0")/ensure-room-mcp.mjs}"
+aiterm_launch_helper="${PEERTABLE_AITERM_LAUNCH_HELPER:-$(dirname "$0")/aiterm-launch.mjs}"
 peertable_repo=$(cd "$(dirname "$0")/../.." && pwd -P)
 peertable_client="$peertable_repo/room/client.mjs"
 credential_file=""
 credential_persist=false
+aiterm_session_id=""
 
 # brief は tmux のコマンド引数へ直接載せない。長さを着席前に検証してから一時 file へ置き、
 # tmux の buffer 経由で貼る。入力を受理できない時は model preflight・tmux・member 登録を
@@ -42,6 +44,7 @@ credential_persist=false
 brief_file=""
 brief_max_bytes=65536
 brief_completed=false
+brief_dispatched=false
 seat_created=false
 rollback_done=false
 # ready を観測できないだけの不確実性は、投入後の真失敗と分ける。これは
@@ -146,7 +149,7 @@ on_exit() {
   exit "$exit_rc"
 }
 trap on_exit EXIT
-if [ -n "$brief" ]; then
+if [ -n "$brief" ] && [ "$brief_dispatched" != true ]; then
   brief_bytes=$(printf '%s' "$brief" | LC_ALL=C wc -c | tr -d '[:space:]')
   case "$brief_bytes" in
     ''|*[!0-9]*) echo "LAUNCH_BRIEF_INVALID: brief の byte 長を測定できない（席は立てない）" >&2; exit 2 ;;
@@ -219,12 +222,10 @@ if [ "$mode" = lattice ] && [ -z "$lattice_cli" ]; then
   lattice_cli="${LATTICE_CLI:-lattice}"
 fi
 
-if [ "$vendor" = claude ]; then
-  mcp_ownership=$(python3 -c "import json;d=json.load(open('$state'));print('managed' if d.get('added_root_mcp', d.get('root_mcp_json_fallback', False)) else 'preexisting')")
-  if ! node "$room_mcp_helper" "$proj" "$peertable_repo" "$mcp_ownership"; then
-    echo "SEAT_ROOM_MCP_INVALID: Claude席のroom clientをcurrent treeへ束縛できない（席は立てない）" >&2
-    exit 1
-  fi
+mcp_ownership=$(python3 -c "import json;d=json.load(open('$state'));print('managed' if d.get('added_root_mcp', d.get('root_mcp_json_fallback', False)) else 'preexisting')")
+if ! node "$room_mcp_helper" "$proj" "$peertable_repo" "$mcp_ownership"; then
+  echo "SEAT_ROOM_MCP_INVALID: Aiterm席のroom clientをcurrent treeへ束縛できない（席は立てない）" >&2
+  exit 1
 fi
 
 if ! credential_file=$(env -u PEERTABLE_POST_TOKEN node "$credential_helper" prepare "$proj" "$room" "$name"); then
@@ -258,61 +259,52 @@ case "$stale_member_rc" in
     ;;
 esac
 
-# 前の卓の残骸を回収してから立てる（同名セッションが残ると起動が黙って古い席に化ける）
+# 前の卓の残骸を回収してから、Aiterm の公開 agent launcher を唯一の席起動経路として呼ぶ。
+# direct CLI launch へ戻るfallbackは置かない。Aiterm が作る同名PTYと launch receipt が、
+# 以後の `pty_read` / `agent_configure` / room metadata を同じsessionへ束縛する。
 tmux -S "$sock" kill-session -t "$sess" 2>/dev/null || true
-
-# 素性記録（.team/seats/<name>.json）の掃除は**ここ**でやる。席を起こす経路は全席が必ず通るので、
-# 死んだ記録がここで必ず消える（ADR 0157）。teardown や人が叩くコマンドに置くと、誰も叩かず溜まる。
-# **消すのは同名の自分の分だけ**——`peer-*` を一括で消すと同じマシンの別卓を巻き込む。
 rm -f "$proj/.team/seats/$name.json"
-# tmux serverは起動時のglobal envを保持する。旧手順のtokenが残っていても、新sessionでは
-# 明示的に空で上書きし、shell/model/clientへ再注入させない。
-tmux -S "$sock" new-session -d -s "$sess" -x 200 -y 50 -c "$proj" -e PEERTABLE_POST_TOKEN=
-seat_created=true
-# Codex の closed env には launcher 自身でなく、今作った session の識別子を渡す。
-# 自己申告の observe が別 pane を指すと、稼働状態・起床とも別席を誤操作する。
-seat_tmux=$(tmux -S "$sock" display-message -p -t "$sess" '#{socket_path}')
-seat_tmux_pane=$(tmux -S "$sock" display-message -p -t "$sess" '#{pane_id}')
 
-# 素性は席の env にも入れる。client が**登録のたびに**載せるので、member の状態が失われても戻る
-credential_shell=$(printf '%q' "$credential_file")
-env_line="export PEERTABLE_URL=$url PEERTABLE_ROOM=$room PEERTABLE_MEMBER=$name PEERTABLE_CREDENTIAL_FILE=$credential_shell"
-env_line="$env_line PEERTABLE_VENDOR=$vendor PEERTABLE_MODEL=$model PEERTABLE_ROLE=$role"
-[ -n "$effort" ] && env_line="$env_line PEERTABLE_EFFORT=$effort"
+launch_env=(
+  "PEERTABLE_URL=$url"
+  "PEERTABLE_ROOM=$room"
+  "PEERTABLE_MEMBER=$name"
+  "PEERTABLE_CREDENTIAL_FILE=$credential_file"
+  "PEERTABLE_VENDOR=$vendor"
+  "PEERTABLE_MODEL=$model"
+  "PEERTABLE_EFFORT=$effort"
+  "PEERTABLE_ROLE=$role"
+  "PEERTABLE_TMUX_SOCKET=$sock"
+)
 if [ "$mode" = "lattice" ]; then
-  env_line="$env_line PEERTABLE_PLAN=$plan LATTICE_TODO_ACTOR_HOST=${LATTICE_TODO_ACTOR_HOST:-mac} LATTICE_TODO_ACTOR_SESSION=$name LATTICE_TODO_ACTOR_AGENT=$name"
-  [ -n "$lattice_cli" ] && env_line="$env_line LATTICE_CLI=$lattice_cli"
+  launch_env+=(
+    "PEERTABLE_PLAN=$plan"
+    "LATTICE_TODO_ACTOR_HOST=${LATTICE_TODO_ACTOR_HOST:-mac}"
+    "LATTICE_TODO_ACTOR_SESSION=$name"
+    "LATTICE_TODO_ACTOR_AGENT=$name"
+  )
+  [ -n "$lattice_cli" ] && launch_env+=("LATTICE_CLI=$lattice_cli")
 fi
-tmux -S "$sock" send-keys -t "$sess" "$env_line" Enter
-sleep 1
-
-case "$vendor" in
-  claude)
-    cmd="claude --model $model"
-    [ -n "$effort" ] && cmd="$cmd --effort $effort"
-    cmd="$cmd --dangerously-skip-permissions --dangerously-load-development-channels server:room"
-    ;;
-  codex)
-    # Codex には channels が無いので room は stdio MCP として差す。
-    # `[mcp_servers.X.env]` は closed mode（親 env を継がない）ので全変数を明示列挙する
-    # （caveat `codex-cli-v0-130-0-mcp-servers-x-env-block-is-closed-mode-parent-env-not-inherited`）。
-    envtbl="PATH=\\\"$PATH\\\",PEERTABLE_URL=\\\"$url\\\",PEERTABLE_ROOM=\\\"$room\\\",PEERTABLE_MEMBER=\\\"$name\\\",PEERTABLE_CREDENTIAL_FILE=\\\"$credential_file\\\",TMUX=\\\"$seat_tmux\\\",TMUX_PANE=\\\"$seat_tmux_pane\\\""
-    cmd="codex --model $model -C $proj --dangerously-bypass-approvals-and-sandbox"
-    # Codexのeffortは環境変数だけでは適用されない。member metadataへ表示する値と、
-    # 実際の推論設定を同じ引数から渡して食い違わせない。
-    [ -n "$effort" ] && cmd="$cmd -c 'model_reasoning_effort=\"$effort\"'"
-    cmd="$cmd -c 'mcp_servers.room.command=\"node\"'"
-    cmd="$cmd -c 'mcp_servers.room.args=[\"$peertable_client\"]'"
-    cmd="$cmd -c \"mcp_servers.room.env={$envtbl}\""
-    if [ "$mode" = lattice ]; then
-      cmd="$cmd -c 'mcp_servers.aiterm.env_vars=[\"PEERTABLE_MEMBER\",\"PEERTABLE_PLAN\",\"LATTICE_CLI\",\"LATTICE_TODO_ACTOR_HOST\",\"LATTICE_TODO_ACTOR_SESSION\",\"LATTICE_TODO_ACTOR_AGENT\"]'"
-    fi
-    ;;
-  # 変数展開の直後に全角括弧を置かない（bash が高位バイトを変数名の一部として食い、
-  # 変数が空になって黙って情報が消える。2026-08-08 実測）。必ず ${var} で閉じる
-  *) echo "unknown vendor: ${vendor}（claude / codex）" >&2; exit 1 ;;
-esac
-tmux -S "$sock" send-keys -t "$sess" "$cmd" Enter
+launch_receipt=$(env -u PEERTABLE_POST_TOKEN "${launch_env[@]}" node "$aiterm_launch_helper" "$sess" "$vendor" "$model" "$effort" "$proj" "$brief") || {
+  echo "SEAT_AITERM_LAUNCH_FAILED: ${name} をAiterm公開launcherで起動できない（direct CLI fallbackなし）" >&2
+  exit 1
+}
+if ! python3 - "$launch_receipt" "$sess" <<'PY'
+import json, sys
+try:
+    receipt = json.loads(sys.argv[1])
+except Exception:
+    raise SystemExit(1)
+raise SystemExit(0 if receipt.get('schema') == 'aiterm.agent-launch-result.v1' and receipt.get('session_id') == sys.argv[2] else 1)
+PY
+then
+  echo "SEAT_AITERM_LAUNCH_RECEIPT_INVALID: ${name} のsession_idを確定できない" >&2
+  exit 1
+fi
+aiterm_session_id="$sess"
+seat_created=true
+brief_dispatched=true
+seat_tmux=$(tmux -S "$sock" display-message -p -t "$sess" '#{socket_path}')
 
 # 既知ダイアログ（実測 2026-08-08・Claude Code v2.1.226 / Codex CLI v0.146.0）:
 #   claude ① 未信頼ディレクトリの workspace trust「1. Yes, I trust this folder」
@@ -369,8 +361,12 @@ if [ "$room_ready" != true ]; then
   exit 1
 fi
 echo "room ready: ${room}/${name}"
+if [ "$brief_dispatched" = true ]; then
+  brief_completed=true
+  echo "briefed: ${sess}（Aiterm launch prompt）"
+fi
 
-if [ -n "$brief" ]; then
+if [ -n "$brief" ] && [ "$brief_dispatched" != true ]; then
   # Codex はヘッダを描いた後も MCP 初期化を続ける。Aiterm の ready 契約に合わせ、
   # 同じ可視 pane 内に入力候補行とモデルフッタがある構造を連続して観測する。
   # hook / MCP warning の更新で画面全体が変わっても、入力欄周辺が ready なら通す。
@@ -509,10 +505,11 @@ fi
 # **欄が無い登録で既存の素性を消さない**（upsert）ことが前提である。
 # effort は渡された時だけ入れる——欄が無い＝「不明」ではなく「CLI 既定で走っている」。
 # ここが失敗しても席は着席済みなので落とさない。ただし黙っては飲まない。
-meta=$(python3 - "$name" "$vendor" "$model" "$effort" "$sock" "$sess" <<'PY'
+meta=$(python3 - "$name" "$vendor" "$model" "$effort" "$sock" "$sess" "$role" "$aiterm_session_id" <<'PY'
 import json, sys
-name, vendor, model, effort, sock, sess = sys.argv[1:7]
-body = {'name': name, 'vendor': vendor, 'model': model, 'observe': {'tmux_socket': sock, 'tmux_target': sess}}
+name, vendor, model, effort, sock, sess, role, aiterm_session_id = sys.argv[1:9]
+body = {'name': name, 'vendor': vendor, 'model': model, 'role': role, 'aiterm_session_id': aiterm_session_id,
+        'observe': {'tmux_socket': sock, 'tmux_target': sess}}
 if effort:
     body['effort'] = effort
 print(json.dumps(body))
@@ -535,7 +532,7 @@ try:
 except Exception:
     members = []
 m = next((x for x in members if x.get('name') == sys.argv[1]), {})
-print('yes' if m.get('model') and m.get('observe', {}).get('tmux_target') else 'no')
+print('yes' if m.get('model') and m.get('role') and m.get('aiterm_session_id') and m.get('observe', {}).get('tmux_target') else 'no')
 PY
 )
   if [ "$stored" = yes ]; then

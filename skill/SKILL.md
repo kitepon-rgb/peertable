@@ -33,8 +33,10 @@ Peertableのメンバー席は、aiterm-mcpの外部PTYに長寿命で着席さ�
 Latticeの`todo`で行う。通常shellのために開いた短命PTYと、メンバーが着席する長寿命PTYは別物である。
 
 親が円卓メンバーを増やす時の入口は、Peertable正式手順（`scripts/launch-seat.sh`）で作るAiterm長寿命席だけである。
-親は`mcp__aiterm__codex_agent` / `mcp__aiterm__claude_agent`、Claude Codeの`Task` / `Agent`、その他のnative
-sub-agentを円卓メンバーの代用にしない。通常shell用の短命PTYと、room・工程正本へ着席する長寿命PTYを混同しない。
+script は内部で Aiterm の公開 `codex_agent` / `claude_agent` を呼び、返された managed session_id を
+同じ room member へ記録する。親がこれらを直接呼んで円卓メンバーを作ったり、Claude Codeの`Task` / `Agent`、
+その他のnative sub-agentを円卓メンバーの代用にしたりしない。通常shell用の短命PTYと、room・工程正本へ着席する
+長寿命PTYを混同しない。
 
 正式着席したメンバーは、工程遂行の方法としてnative sub-agent、Aiterm外部agent、相談agent、自己実装を自由に
 選べる。親は二次委譲の手段を禁止・指定しない。メンバーが呼んだ子は自動的に円卓メンバーにはならず、工程所有・
