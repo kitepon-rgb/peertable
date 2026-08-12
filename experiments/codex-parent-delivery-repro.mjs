@@ -85,7 +85,7 @@ try {
     method: 'POST', headers,
     body: JSON.stringify({ from: 'hinata', to: 'departed-seat', body: '退席済み宛は起床不能なので履歴だけ残す' }),
   })
-  const body = '[メンバーturn完了] hinata'
+  const body = '[確認依頼] 通常DMが親へ届くこと'
   const posted = await (await fetch(`${api}/messages`, {
     method: 'POST', headers,
     body: JSON.stringify({ from: 'hinata', to: 'bell', body }),
