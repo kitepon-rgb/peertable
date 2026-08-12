@@ -306,42 +306,10 @@ seat_created=true
 brief_dispatched=true
 seat_tmux=$(tmux -S "$sock" display-message -p -t "$sess" '#{socket_path}')
 
-# 既知ダイアログ（実測 2026-08-08・Claude Code v2.1.226 / Codex CLI v0.146.0）:
-#   claude ① 未信頼ディレクトリの workspace trust「1. Yes, I trust this folder」
-#          ② 開発 channel 警告「1. I am using this for local development」
-#   codex  ① ディレクトリ trust「1. Yes, continue」
-# いずれも既定の選択肢が正なので、文言を確認してから Enter を送る。信頼済みディレクトリでは
-# trust が出ないので、出た時だけ通す（順不同・出ないものは待たない）。
-# 着席の判定は claude=channels バナー / codex=セッションヘッダ。出なければ画面ごと出して落ちる。
-deadline=$((SECONDS + 90))
-seated=false
-while [ $SECONDS -lt $deadline ]; do
-  screen=$(tmux -S "$sock" capture-pane -t "$sess" -p)
-  if [ "$vendor" = "claude" ]; then
-    case "$screen" in *"Channels (experimental)"*"server:room"*) seated=true; break ;; esac
-  else
-    case "$screen" in *"OpenAI Codex (v"*) seated=true; break ;; esac
-  fi
-  case "$screen" in
-    # Codex の更新案内だけは既定（1. Update now）が誤り——立卓の途中で
-    # `npm install -g @openai/codex` が走る。1つ下の「2. Skip」を選ぶ
-    *"1. Update now"*)
-      tmux -S "$sock" send-keys -t "$sess" Down
-      sleep 1
-      tmux -S "$sock" send-keys -t "$sess" Enter ;;
-    *"1. Yes, I trust this folder"*|*"1. I am using this for local development"*|*"1. Yes, continue"*)
-      tmux -S "$sock" send-keys -t "$sess" Enter ;;
-  esac
-  sleep 2
-done
-
-if [ "$seated" != "true" ]; then
-  echo "着席しなかった: ${sess}（最後の画面を出す）" >&2
-  tmux -S "$sock" capture-pane -t "$sess" -p >&2
-  exit 1
-fi
-
-echo "seated: ${sess}（${vendor} / ${model}${effort:+ / $effort} / room=${room} / mode=${mode}）"
+# Aiterm管理席の process 起動は公開launch receiptで確定している。旧direct CLI launch向けの
+# ヘッダ/trust dialog待機をここへ重ねると、brief turnでヘッダが画面外へ流れた正常席をrollbackする。
+# 必須room MCPの成立は、次の member登録readbackだけで判定する。
+echo "launched: ${sess}（${vendor} / ${model}${effort:+ / $effort} / room=${room} / mode=${mode}）"
 
 # CodexのヘッダはCLIが起動した証拠であって、必須room MCPが初期化された証拠ではない。
 # 無関係MCPのwarningが画面へ出ても、room clientがmember登録まで到達した席だけを着席として扱う。
