@@ -111,9 +111,26 @@ Latticeが`todo done`で要求するのは証跡記述子のpath、blob OID、co
 その追記commitを再監査する自己参照ループを作らない。receipt不在、自己監査、別SHA、別plan/taskはtypedに
 拒否し、証跡本文の文言検査へfallbackしない。
 
+#### 2.9 正本に対する責任を負った自由
+
+計画正本とLattice工程が目的・受入条件・所有範囲を定め、円卓メンバーはその内側で対等に発想し、相談し、
+試し、情報を最も持つ者が判断する。規範や機械gateは判断方法・議論内容・試行回数を定型化せず、定型文や
+確認回数への服従を成果条件にしない。
+
+監査は正本の受入条件と実測結果だけに照らして行う。監査者個人の思想、工程外の理想、新しい安全思想・
+追加gate・儀式を完了条件へ持ち込まない。正本自体に欠陥を見つけた場合は、成果物を拘束する前に問題として
+提起し、正式な工程改訂へ還流する。機械が検証するのは、外部境界にある客観的一致（別席、完全修飾
+plan/task、固定SHA、実在するroom receipt）だけとする。
+
+room #1220で発生した「監査文を証跡へ追記して新commitを作り、その新commitを再監査する」往復は、正本の
+受入を増やさずAIの判断を手続きへ置換した再発禁止例である。m3のfocused regressionは、同じ固定SHAを一度の
+peer auditで完了でき、成果を変えない再確認や自己参照ループを要求しないことを固定する。
+
 ## 3. Lattice工程
 
 ### c1 Aiterm公開面へのPeertable実席接続をfocused testで確定する
+
+- [ ] c1を完了する。
 
 Phase 1。所有は本task用の新規`experiments/` harnessと証跡だけ。製品codeは変更しない。
 
@@ -127,6 +144,8 @@ fixtureと破棄可能な実席で測る。失敗時は原因を「Peertableのs
 
 ### c2 稼働席のmodel／effort変更とroom同期を実装する
 
+- [ ] c2を完了する。
+
 Phase 1。依存: c1。所有: `skill/scripts/change-seat.sh`、必要な新規adapter、`room/client.mjs`、
 `skill/scripts/launch-seat.sh`のうちc1で必要性が実証された最小箇所、Phase 1 focused harness。
 
@@ -139,6 +158,8 @@ Aiterm失敗、metadata同期失敗を正負で測り、対象sessionとcontext�
 
 ### c3 Phase 1を実Peertable席で往復確認し、案内を同期する
 
+- [ ] c3を完了する。
+
 Phase 1。依存: c2、m3。所有: Phase 1実席証跡、`skill/SKILL.md`、`skill/templates/member.md`、
 `skill/templates/member-standalone.md`、`skill/templates/parent.md`の設定変更節だけ。
 
@@ -150,6 +171,8 @@ room member表示、履歴、会話context継続を実測する。別メンバ�
 
 ### m1 単一PLAN束縛の負例と複数PLAN契約をfocused harnessへ固定する
 
+- [ ] m1を完了する。
+
 Phase 2。依存: c3。所有: 本task用の新規`experiments/` harnessと証跡だけ。
 
 現行生成物が`{{PLAN_KEY}}`をstart・evidence・doneへ固定し、`setup-state.json.plan_key`と
@@ -160,6 +183,8 @@ Phase 2。依存: c3。所有: 本task用の新規`experiments/` harnessと証�
 REDになり、修正対象がsetup・role・done・launch・案内のどこかを列挙できる。
 
 ### m2 setup・launch・roleを複数PLAN対応へする
+
+- [ ] m2を完了する。
 
 Phase 2。依存: m1。所有: `skill/scripts/setup.sh`、`skill/scripts/launch-seat.sh`、
 `skill/scripts/ensure-bridge.sh`、`skill/scripts/capacity-advisor.mjs`、`room/client.mjs`の席役割投影、
@@ -180,6 +205,8 @@ Sol監査専任一席がidleでもworker向け`reclaim_idle`／`scale_down`を�
 
 ### m3 done・証跡・run操作を呼出しPLANで束縛する
 
+- [ ] m3を完了する。
+
 即時完了gate。依存: c1。所有: `skill/templates/done.sh`、対応focused harness、必要な診断だけ。
 
 `done.sh`へ呼出し単位のplan指定を追加し、明示値を正、`PEERTABLE_PLAN`を互換省略値とする。task show／done、
@@ -193,6 +220,8 @@ receipt gateはroomの別席DEFECT-FREE receiptを、完全修飾plan/taskと監
 
 ### m4 複数PLANの案内と運用正典を同期する
 
+- [ ] m4を完了する。
+
 Phase 2。依存: m2、m3。所有: `skill/SKILL.md`、`skill/templates/parent.md`、`docs/plan.md`、
 README日英の該当箇所、案内整合focused harness。
 
@@ -203,6 +232,8 @@ WIP規則は実行優先順位であって、room／席／Lattice storeのPLAN�
 受入条件: 現行案内だけを読んだAIが「新PLANにはteardown／別卓が必要」と解釈する文面が残らない。
 
 ### i1 旧t4を保持した同一円卓で新PLANを完了できることを統合実測する
+
+- [ ] i1を完了する。
 
 Phase 3。依存: m4。所有: 本task用の統合harnessと
 `evidence/live-seat-config-multiplan-20260812/i1.md`だけ。旧`t4`所有fileは変更しない。
@@ -215,6 +246,8 @@ Aiterm経由で変更し、同一contextのまま作業継続する。新PLAN完
 変更しない。別メンバーのpeer auditを経て完了する。
 
 ### g1 関連回帰・pack・Lattice整合・pushを閉じる
+
+- [ ] g1を完了する。
 
 Phase 3。依存: i1。所有: campaign最終証跡だけ。product codeは変更しない。
 
