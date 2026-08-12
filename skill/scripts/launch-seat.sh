@@ -228,11 +228,6 @@ if ! node "$room_mcp_helper" "$proj" "$peertable_repo" "$mcp_ownership"; then
   echo "SEAT_ROOM_MCP_INVALID: Aiterm席のroom clientをcurrent treeへ束縛できない（席は立てない）" >&2
   exit 1
 fi
-if [ "$vendor" = codex ] && ! node "$codex_room_mcp_helper" ensure "$proj" "$peertable_repo"; then
-  echo "SEAT_CODEX_ROOM_MCP_INVALID: Codexのproject設定へroom clientを装備できない（席は立てない）" >&2
-  exit 1
-fi
-
 if ! credential_file=$(env -u PEERTABLE_POST_TOKEN node "$credential_helper" prepare "$proj" "$room" "$name"); then
   echo "SEAT_CREDENTIAL_PREPARE_FAILED: 席別credentialを用意できない（席は立てない）" >&2
   exit 1
@@ -289,6 +284,11 @@ if [ "$mode" = "lattice" ]; then
     "LATTICE_TODO_ACTOR_AGENT=$name"
   )
   [ -n "$lattice_cli" ] && launch_env+=("LATTICE_CLI=$lattice_cli")
+fi
+if [ "$vendor" = codex ] \
+  && ! env -u PEERTABLE_POST_TOKEN "${launch_env[@]}" node "$codex_room_mcp_helper" ensure "$proj" "$peertable_repo"; then
+  echo "SEAT_CODEX_ROOM_MCP_INVALID: Codexのproject設定へseat固有room clientを装備できない（席は立てない）" >&2
+  exit 1
 fi
 launch_receipt=$(env -u PEERTABLE_POST_TOKEN "${launch_env[@]}" node "$aiterm_launch_helper" "$sess" "$vendor" "$model" "$effort" "$proj" "$brief") || {
   echo "SEAT_AITERM_LAUNCH_FAILED: ${name} をAiterm公開launcherで起動できない（direct CLI fallbackなし）" >&2

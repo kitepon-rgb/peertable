@@ -9,8 +9,24 @@ import { join, resolve } from 'node:path'
 
 const root = resolve(new URL('..', import.meta.url).pathname)
 const helper = resolve(root, 'skill/scripts/ensure-codex-room-mcp.mjs')
+const seatEnv = {
+  ...process.env,
+  PEERTABLE_URL: 'http://127.0.0.1:18860',
+  PEERTABLE_ROOM: 'fixture-room',
+  PEERTABLE_MEMBER: 'fixture-member',
+  PEERTABLE_CREDENTIAL_FILE: '/tmp/fixture-credential',
+  PEERTABLE_VENDOR: 'codex',
+  PEERTABLE_MODEL: 'gpt-5.6-terra',
+  PEERTABLE_EFFORT: 'high',
+  PEERTABLE_ROLE: 'worker',
+  PEERTABLE_PLAN: 'fixture-plan',
+  LATTICE_CLI: '/tmp/lattice',
+  LATTICE_TODO_ACTOR_HOST: 'mac',
+  LATTICE_TODO_ACTOR_SESSION: 'fixture-member',
+  LATTICE_TODO_ACTOR_AGENT: 'fixture-member',
+}
 const run = (action, project, repo = root) => execFileSync(
-  process.execPath, [helper, action, project, repo], { encoding: 'utf8' },
+  process.execPath, [helper, action, project, repo], { encoding: 'utf8', env: seatEnv },
 )
 
 const fixture = mkdtempSync(join(tmpdir(), 'peertable-r3-'))
@@ -25,7 +41,8 @@ try {
   assert.ok(configured.startsWith(`${original}\n# BEGIN PEERTABLE ROOM MCP added_newline=1`))
   assert.match(configured, /^\[mcp_servers\.room\]$/mu)
   assert.match(configured, /room\/client\.mjs/)
-  assert.match(configured, /"PEERTABLE_MEMBER"/)
+  assert.match(configured, /PEERTABLE_MEMBER = "fixture-member"/)
+  assert.match(configured, /PEERTABLE_CREDENTIAL_FILE = "\/tmp\/fixture-credential"/)
   assert.match(configured, /"TMUX_PANE"/)
   const exclude = readFileSync(join(fixture, '.git/info/exclude'), 'utf8')
   assert.match(exclude, /# peertable:codex-room-mcp\n\/\.codex\/config\.toml/)
@@ -37,11 +54,9 @@ try {
   rmSync(fixture, { recursive: true, force: true })
 }
 
-const setup = readFileSync(resolve(root, 'skill/scripts/setup.sh'), 'utf8')
 const launch = readFileSync(resolve(root, 'skill/scripts/launch-seat.sh'), 'utf8')
 const teardown = readFileSync(resolve(root, 'skill/scripts/teardown.sh'), 'utf8')
-assert.match(setup, /ensure-codex-room-mcp\.mjs" ensure/)
-assert.match(launch, /\[ "\$vendor" = codex \].*ensure "\$proj"/)
+assert.match(launch, /"\$\{launch_env\[@\]\}" node "\$codex_room_mcp_helper" ensure/)
 assert.match(teardown, /ensure-codex-room-mcp\.mjs" remove/)
 
 try {

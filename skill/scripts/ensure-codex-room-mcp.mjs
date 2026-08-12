@@ -21,12 +21,13 @@ const configFile = join(configDir, 'config.toml')
 const startPattern = /^# BEGIN PEERTABLE ROOM MCP added_newline=([01])$/mu
 const endMarker = '# END PEERTABLE ROOM MCP'
 const roomHeader = /^\s*\[mcp_servers\.room\]\s*$/mu
-const envVars = [
+const seatEnvNames = [
   'PEERTABLE_URL', 'PEERTABLE_ROOM', 'PEERTABLE_MEMBER', 'PEERTABLE_CREDENTIAL_FILE',
   'PEERTABLE_VENDOR', 'PEERTABLE_MODEL', 'PEERTABLE_EFFORT', 'PEERTABLE_ROLE',
   'PEERTABLE_PLAN', 'LATTICE_CLI', 'LATTICE_TODO_ACTOR_HOST',
-  'LATTICE_TODO_ACTOR_SESSION', 'LATTICE_TODO_ACTOR_AGENT', 'TMUX', 'TMUX_PANE',
+  'LATTICE_TODO_ACTOR_SESSION', 'LATTICE_TODO_ACTOR_AGENT',
 ]
+const requiredSeatEnv = seatEnvNames.slice(0, 8)
 
 function atomicWrite(file, body, mode = 0o644) {
   mkdirSync(dirname(file), { recursive: true })
@@ -60,12 +61,17 @@ function markerRange(text) {
 
 function expectedBlock(addedNewline) {
   const client = resolve(peertableRepo, 'room', 'client.mjs')
+  const explicitEnv = seatEnvNames
+    .filter((name) => process.env[name] !== undefined && process.env[name] !== '')
+    .map((name) => `${name} = ${JSON.stringify(process.env[name])}`)
   return [
     `# BEGIN PEERTABLE ROOM MCP added_newline=${addedNewline ? '1' : '0'}`,
     '[mcp_servers.room]',
     'command = "node"',
     `args = [${JSON.stringify(client)}]`,
-    `env_vars = [${envVars.map(JSON.stringify).join(', ')}]`,
+    'env_vars = ["TMUX", "TMUX_PANE"]',
+    '[mcp_servers.room.env]',
+    ...explicitEnv,
     endMarker,
     '',
   ].join('\n')
@@ -106,6 +112,9 @@ function removeExclude() {
 
 try {
   if (action === 'ensure') {
+    const missing = requiredSeatEnv.filter((name) => !process.env[name])
+    if (missing.length > 0)
+      fail('SEAT_CODEX_ROOM_MCP_ENV_MISSING', `seat環境が無い: ${missing.join(',')}`)
     const current = existsSync(configFile) ? readFileSync(configFile, 'utf8') : ''
     const range = markerRange(current)
     let next

@@ -96,7 +96,7 @@ model／effortと履歴を同期し、同一sessionとcontextが維持される�
 
 - [ ] i1を完了する。
 
-依存: r1、r2、r3。所有: 本campaignの統合証跡だけ。旧`t4`所有fileは変更しない。
+依存: r1、r2、r3、r4。所有: 本campaignの統合証跡だけ。旧`t4`所有fileは変更しない。
 
 旧`t4`をin-progressのまま、同じroom・同じ席で本PLANへ到達できることを実測する。途中で一席のmodel／effortを
 親だけがPeertableの入口からAiterm経由で変更し、対象メンバーは変更操作をせず、同一contextのまま作業を続けた
@@ -143,10 +143,24 @@ typed failureにし、briefが継続中であることを未着席理由にし�
 `SEAT_ROOM_MCP_NOT_READY`でrollbackした。`.mcp.json`はCodexの`mcp list`へ現れず、同じcwdの
 `.codex/config.toml`へ定義したroom MCPは現れることを親が実測済みである。
 
-Peertableのsetup／launch／teardown装備を、Codexが読むproject設定へ最小結線する。room clientはcurrent treeへ
+Peertableの正規launch／teardown装備を、Codexが読むproject設定へ最小結線する。room clientはcurrent treeへ
 束縛し、seat固有のroom・member・credential環境を明示して渡す。既存roomはteardown／再setupせず追補でき、
-新規setupでは自動装備され、teardownはPeertableが所有する追加だけを戻す。Aiterm本体、Codex launcher、wrapperは
-変更しない。作業者はfocused testと自己監査までを行い、現在の実席を変更しない。live確認はi1で親だけが行う。
+新規setup後も最初のCodex着席で自動装備され、teardownはPeertableが所有する追加だけを戻す。Aiterm本体、
+Codex launcher、wrapperは変更しない。作業者はfocused testと自己監査までを行い、現在の実席を変更しない。
+live確認はi1で親だけが行う。
+
+### r4 Codex room MCPへseat固有環境を明示する
+
+- [ ] r4を完了する。
+
+r3後の親live実測でCodexはprojectのroom MCPを起動したが、initialize前にclientが終了した。破棄可能なAiterm診断席の
+実起動コマンドから、Aitermは新しいtmuxへ`AITERM_*`を渡す一方、launcher呼出しprocessの`PEERTABLE_*`はCodex子へ
+継承しないため、`env_vars`だけではroom clientの必須環境が欠けることを確定した。
+
+正規launchはCodexを起こす直前に、project room MCPの明示env tableへseat固有のroom、member、credential file path、
+vendor、model、effort、role、Lattice actorを固定する。token値は書かず、`TMUX`／`TMUX_PANE`だけをCodex席の実環境から
+継承する。席ごとのMCPは起動時に自分の設定を保持し、次席の設定更新へ影響されない。Aiterm本体とlauncherは変更しない。
+親は診断席のroom member登録まで実測済みで、正式な全席再着席とmodel／effort変更はi1で続ける。
 
 ### g1 関連回帰・Lattice整合・pushを閉じる
 
@@ -165,14 +179,15 @@ c1（done） -> c2 -> m2（done） -------> i1 -> g1
 m3（done） ----------┘                   |
 r1（done） -----------------------------┤
 r2（done） -----------------------------┤
-r3 -------------------------------------┘
+r3（done） -----------------------------┤
+r4 -------------------------------------┘
 ```
 
 未着手だった`c3`、`m1`、`m4`は、必要な内容をそれぞれ`c2`と`m2`へ吸収して廃止する。
 
 ## 5. 完了条件
 
-1. c1、c2、m3、m2、r1、r2、r3、i1、g1がLatticeでdoneである。
+1. c1、c2、m3、m2、r1、r2、r3、r4、i1、g1がLatticeでdoneである。
 2. 親がClaude／Codex席のmodel／effort変更をAiterm公開面で行い、同一session・contextの維持を実測済みである。
 3. room memberのmodel／effortと変更履歴が実設定に一致する。
 4. 同じroom・席・Lattice storeが複数PLANを扱い、setupや再起動を要求しない。

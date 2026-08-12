@@ -127,11 +127,6 @@ else
   added_root_mcp=true
 fi
 
-# CodexはClaude用の.mcp.jsonを読まない。projectの.codex/config.tomlへPeertable所有blockを置き、
-# Aiterm公開launcherが起こすCodex席にも同じroom MCPを機械装備する。既存設定の他blockは保持し、
-# 同名room blockとの衝突だけは上書きせずtypedに止める。
-node "$repo/skill/scripts/ensure-codex-room-mcp.mjs" ensure "$proj" "$repo"
-
 added_exclude=false
 if [ -d "$proj/.git" ] && ! grep -qx '\.team/' "$proj/.git/info/exclude" 2>/dev/null; then
   mkdir -p "$proj/.git/info"
