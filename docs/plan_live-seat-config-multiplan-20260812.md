@@ -57,14 +57,14 @@ Codex席を立てる正規経路が、同じroomの`wakeup-bridge`を冪等にen
 
 ### c1 Aiterm公開面へのPeertable実席接続をfocused testで確定する
 
-- [ ] c1を完了する。
+- Lattice正本を参照。
 
 完了済み。Aiterm `agent_configure`がAiterm管理下のCodex sessionで、同じ`session_id`を保ったまま
 model-only、effort-only、同時変更を受理する境界を証拠化した。
 
 ### c2 稼働席のmodel／effort変更とroom同期を実装する
 
-- [ ] c2を完了する。
+- Lattice正本を参照。
 
 所有: `skill/scripts/change-seat.sh`、必要な最小adapter、`room/client.mjs`、focused harness。
 
@@ -74,14 +74,14 @@ model／effortと履歴を同期し、同一sessionとcontextが維持される�
 
 ### m3 done・証跡・run操作を呼出しPLANで束縛する
 
-- [ ] m3を完了する。
+- Lattice正本を参照。
 
 完了済み。`done.sh --plan`がshow、run、evidence、doneを呼出しPLANへ束縛し、証跡本文のpeer audit文言gateを
 削除した。別PLANに同じtask idがあっても明示PLANを使う。
 
 ### m2 複数PLAN・着席装備・監査席役割を実装する
 
-- [ ] m2を完了する。
+- Lattice正本を参照。
 
 依存: c2、m3。所有: setup／launch／role／案内の必要箇所とfocused harness。
 
@@ -96,7 +96,7 @@ model／effortと履歴を同期し、同一sessionとcontextが維持される�
 
 ### i1 旧t4を保持した同一円卓で統合実測する
 
-- [ ] i1を完了する。
+- Lattice正本を参照。
 
 依存: r1、r2、r3、r4。所有: 本campaignの統合証跡だけ。旧`t4`所有fileは変更しない。
 
@@ -111,7 +111,7 @@ ReiをSol/highの`auditor`として最新規範で再着席する。全席のroo
 
 ### r1 Aiterm管理sessionを正規着席へ結線する
 
-- [ ] r1を完了する。
+- Lattice正本を参照。
 
 前提のm2は完了済み。所有: 正規launchとroom member登録の最小配線、対応focused harness、必要な案内同期。
 
@@ -126,7 +126,7 @@ wakeup bridgeの既存契約を維持する。
 
 ### r2 Aiterm管理席の着席判定をlive挙動へ合わせる
 
-- [ ] r2を完了する。
+- Lattice正本を参照。
 
 親のi1実測で、Aiterm launch receiptが成功しbrief turnも開始した後、旧direct-launch用の現在画面ヘッダ判定が
 ヘッダの画面外流出を未着席と誤判定し、正常席をrollbackした。所有は`skill/scripts/launch-seat.sh`、この原因を
@@ -139,7 +139,7 @@ typed failureにし、briefが継続中であることを未着席理由にし�
 
 ### r3 Codex管理席へroom MCPをproject設定から装備する
 
-- [ ] r3を完了する。
+- Lattice正本を参照。
 
 親のi1実測で、Aiterm launch receiptは成功したがCodex席のroom member登録が起きず、
 `SEAT_ROOM_MCP_NOT_READY`でrollbackした。`.mcp.json`はCodexの`mcp list`へ現れず、同じcwdの
@@ -153,7 +153,7 @@ live確認はi1で親だけが行う。
 
 ### r4 Codex room MCPへseat固有環境を明示する
 
-- [ ] r4を完了する。
+- Lattice正本を参照。
 
 r3後の親live実測でCodexはprojectのroom MCPを起動したが、initialize前にclientが終了した。破棄可能なAiterm診断席の
 実起動コマンドから、Aitermは新しいtmuxへ`AITERM_*`を渡す一方、launcher呼出しprocessの`PEERTABLE_*`はCodex子へ
@@ -166,7 +166,7 @@ vendor、model、effort、role、Lattice actorを固定する。token値は書�
 
 ### g1 関連回帰・Lattice整合・pushを閉じる
 
-- [ ] g1を完了する。
+- Lattice正本を参照。
 
 依存: i1。所有: campaign最終証跡だけ。
 
