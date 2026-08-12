@@ -25,6 +25,20 @@
   - skill bundle 22 files: pass
 - `git diff --check`: green
 
+## 公開・導入後確認
+
+- release commit: `24c6a3f5a815`
+- npm: `peertable@0.3.10`を公開
+- registry shasum: `a3f0730603466438f3953fdd9e7503a9f34a164f`
+- registry integrity: `sha512-0QQ8oIo94HpAGw+Xxnkt0fgnrKXyHlbVozd+jz5TrOmr2S9/jV0HrCoA0vkMiMzKQLvLMH6nri6BpxncDmsnrg==`
+- tag: `v0.3.10`をoriginへpush
+- global install: `/opt/homebrew/lib/node_modules/peertable`が0.3.10
+- installed `peertable-client diagnostics`: ready、必須22 filesを確認
+- installed packageから使い捨てのLattice併用卓を生成し、生成された`.team/scripts/done.sh`で`todo done`を実行
+- `todo show`でevidence descriptorと`test_result`を同時取得し、`test_result`がevidence本文とbyte単位で一致
+- 一時入力`.ev-s1.json`と`.test-result-smoke-s1.md`は完了後に残らない
+- smoke用project・bare remote・bridge sessionは確認後に撤去済み
+
 ## 自己監査
 
 公開契約`lattice.todo_test_result.v1`へ薄く結線するだけの差分であり、計画が禁止したroom API変更、試験結果の自動生成・採点、別台帳、単独円卓モード変更は含まない。監査担当へ渡した最終結果とLatticeへ残す本文は、同じcommit済みevidenceを入力にするため二重の正本にならない。
