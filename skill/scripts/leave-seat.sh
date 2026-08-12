@@ -23,6 +23,14 @@ $(python3 -c "import json;d=json.load(open('$state'));print(d['room'],d['server_
 EOF
 
 credential_file=$(env -u PEERTABLE_POST_TOKEN node "$credential_helper" path "$proj" "$room" "$name") || exit 1
+# 旧席などでcredentialだけ欠けている時は、sessionを止める前に復元する。
+# ここで失敗すれば席は生きたままなので、member登録だけ残る半退席を作らない。
+if [ ! -r "$credential_file" ] || [ ! -s "$credential_file" ]; then
+  credential_file=$(env -u PEERTABLE_POST_TOKEN node "$credential_helper" prepare "$proj" "$room" "$name") || {
+    echo "SEAT_LEAVE_CREDENTIAL_PREPARE_FAILED: $name" >&2
+    exit 1
+  }
+fi
 default_socket=$(node "$script_dir/tmux-socket.mjs" 2>/dev/null || true)
 members=$(curl -sf "$url/api/$room/members" 2>/dev/null || true)
 read -r member_socket target <<EOF

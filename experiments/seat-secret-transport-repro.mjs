@@ -210,6 +210,34 @@ exit 1
   const membersAfterLeave = await fetch(`http://127.0.0.1:${port}/api/${ROOM}/members`).then(r => r.json())
   assert.ok(!membersAfterLeave.members.some(member => member.name === 'leaver'), '通常退席後にroom memberが残った')
 
+  // 旧席などでcredentialだけ欠けていても、sessionを止める前に設定fileから復元して
+  // session / member / identity / credentialを同じ退席境界で畳む。
+  const missingLeaver = 'missing-leaver'
+  await fetch(`http://127.0.0.1:${port}/api/${ROOM}/members`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Peertable-Token': TOKEN },
+    body: JSON.stringify({ name: missingLeaver }),
+  })
+  const missingCredentialPath = await run(process.execPath, [HELPER, 'path', project, ROOM, missingLeaver], cleanEnv)
+  assert.equal(missingCredentialPath.code, 0, missingCredentialPath.stderr)
+  const missingCredential = missingCredentialPath.stdout.trim()
+  assert.throws(() => statSync(missingCredential), /ENOENT/, 'fixture開始前から欠損credentialが存在する')
+  const missingIdentity = join(project, '.team', 'seats', `${missingLeaver}.json`)
+  writeFileSync(missingIdentity, '{}\n', { mode: 0o600 })
+  const missingTmuxMarker = join(root, 'tmux-killed-missing-credential')
+  const missingLeft = await run('/bin/bash', [LEAVE, project, missingLeaver], {
+    ...cleanEnv,
+    PATH: `${fakeBin}:${process.env.PATH}`,
+    PEERTABLE_TMUX_SOCKET: join(root, 'tmux.sock'),
+    TMUX_MARKER: missingTmuxMarker,
+  })
+  assert.equal(missingLeft.code, 0, missingLeft.stderr)
+  assert.equal(readFileSync(missingTmuxMarker, 'utf8'), '', 'credential欠損席のsessionを畳んでいない')
+  assert.throws(() => statSync(missingCredential), /ENOENT/, '退席用に復元したcredentialが残った')
+  assert.throws(() => statSync(missingIdentity), /ENOENT/, 'credential欠損席のidentityが残った')
+  const membersAfterMissingLeave = await fetch(`http://127.0.0.1:${port}/api/${ROOM}/members`).then(r => r.json())
+  assert.ok(!membersAfterMissingLeave.members.some(member => member.name === missingLeaver), 'credential欠損席のroom memberが残った')
+
   const stuck = await run(process.execPath, [HELPER, 'prepare', project, ROOM, 'stuck'], cleanEnv)
   assert.equal(stuck.code, 0, stuck.stderr)
   const stuckCredential = stuck.stdout.trim()
