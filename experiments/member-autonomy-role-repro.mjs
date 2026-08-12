@@ -27,6 +27,7 @@ const check = (name, pass, detail) => { console.log(`  ${pass ? 'pass' : 'FAIL'}
 const member = await read('skill/templates/member.md')
 const standalone = await read('skill/templates/member-standalone.md')
 const charter = await read('skill/templates/charter.md')
+const skill = await read('skill/SKILL.md')
 
 // 1. member.md: 監査依頼(room へ監査依頼を一行投稿する)が done.sh 実行より先に出現する
 {
@@ -82,6 +83,31 @@ check('charter.md: turn終了時の次の行動は自分宛と明記',
   charter.includes('ターン終了時の次の行動は `post(to: "<自分の名前>")`'))
 check('charter.md: 待機宣言は最終手段として親だけへDMすると明記',
   charter.includes('待機宣言は最終手段として親だけへDMし、`all`へ送らない'))
+
+// 8. 実装監査は監査済み計画とToDoの実現確認だけに限定し、思想で計画を再審議しない
+check('member.md: 元PLANと工程正本を絶対の正本として固定',
+  member.includes('元PLANの当該節・そのPLANから作られた工程正本のToDo・明記された受入条件・実成果だけ')
+    && member.includes('元PLANと工程正本を絶対の正本として扱う'))
+check('member.md: 個人の思想・異論・代替案を監査へ持ち込まない',
+  member.includes('円卓メンバー個人の思想・異論・代替案は求められていない'))
+check('member.md: 計画外改善を監査所見・差し戻し・起票・工程追加へ混ぜない',
+  member.includes('監査所見・差し戻し・`todo note`・課題起票・工程追加のどこにも混ぜない'))
+check('member.md: 従えない監査者は監査を降りて退席',
+  member.includes('従えないなら監査を降りて退席する'))
+check('member.md: 親の監査は制限対象外',
+  member.includes('この制限は円卓メンバーの監査だけに適用し、親の監査には適用しない'))
+check('standalone.md: 議題の思想監査と計画外改善の混入を禁止',
+  standalone.includes('元PLAN（単独円卓では監査済み議題）')
+    && standalone.includes('正本へ逆らわず')
+    && standalone.includes('監査所見・差し戻し・課題起票・議題追加へ混ぜない'))
+check('charter.md: 絶対の正本・退席・親監査除外を明記',
+  charter.includes('元PLANと、そのPLANから作られた工程正本のToDo')
+    && charter.includes('従えない監査者は監査を降りて退席する')
+    && charter.includes('親の監査には適用しない'))
+check('SKILL.md: 円卓監査を正本へ拘束し親監査を除外',
+  skill.includes('監査済みの元PLAN')
+    && skill.includes('正本へ逆らわず')
+    && skill.includes('親の監査には適用しない'))
 
 console.log(ok ? 'member audit-before-done repro: green' : 'member audit-before-done repro: RED')
 process.exit(ok ? 0 : 1)
