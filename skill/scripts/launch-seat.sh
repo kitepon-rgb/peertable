@@ -222,6 +222,9 @@ EOF
 # （release 前の source tree では、PATH の install は pull 系 command を持たない）。
 # 無い卓（旧 setup-state）では空になり、席は既定どおり `lattice` を使う。
 lattice_cli=$(python3 -c "import json;print(json.load(open('$state')).get('lattice_cli') or '')")
+if [ "$mode" = lattice ] && [ -z "$lattice_cli" ]; then
+  lattice_cli="${LATTICE_CLI:-lattice}"
+fi
 
 if [ "$vendor" = claude ]; then
   mcp_ownership=$(python3 -c "import json;d=json.load(open('$state'));print('managed' if d.get('added_root_mcp', d.get('root_mcp_json_fallback', False)) else 'preexisting')")
@@ -352,6 +355,9 @@ PY
     cmd="$cmd -c 'mcp_servers.room.command=\"node\"'"
     cmd="$cmd -c 'mcp_servers.room.args=[\"$peertable_client\"]'"
     cmd="$cmd -c \"mcp_servers.room.env={$envtbl}\""
+    if [ "$mode" = lattice ]; then
+      cmd="$cmd -c 'mcp_servers.aiterm.env_vars=[\"PEERTABLE_MEMBER\",\"PEERTABLE_PLAN\",\"LATTICE_CLI\",\"LATTICE_TODO_ACTOR_HOST\",\"LATTICE_TODO_ACTOR_SESSION\",\"LATTICE_TODO_ACTOR_AGENT\"]'"
+    fi
     ;;
   # 変数展開の直後に全角括弧を置かない（bash が高位バイトを変数名の一部として食い、
   # 変数が空になって黙って情報が消える。2026-08-08 実測）。必ず ${var} で閉じる
