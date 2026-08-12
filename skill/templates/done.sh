@@ -186,13 +186,98 @@ if [ "$#" = 3 ]; then
   }
 fi
 
+# completed は「done が通った」だけの通知ではない。実装者以外の席による
+# defect-free 監査所見を証跡へ束縛した後だけ、終了イベントへ進める。
+f="evidence/$PEERTABLE_PLAN/$t.md"
+src="${evidence_from:-$f}"
+[ -f "$src" ] || { echo "ERROR: 証跡が見つからない: $src" >&2; exit 1; }
+audit_state=$(python3 - "$src" <<'PY' 2>/dev/null
+import re
+import sys
+
+text = open(sys.argv[1], encoding="utf-8").read()
+has_audit = re.search(r"監査|peer\s+audit", text, re.IGNORECASE)
+has_defect_free = re.search(r"欠陥なし|defect[- ]free|no\s+defects", text, re.IGNORECASE)
+print("yes" if has_audit and has_defect_free else "no")
+PY
+) || audit_state="no"
+[ "$audit_state" = yes ] || {
+  echo "ERROR: completed通知を送らない: defect-free監査所見が証跡に無い: $src" >&2
+  exit 1
+}
+
+done_gate_cli="${LATTICE_CLI:-lattice}"
+[ -n "${PEERTABLE_PLAN:-}" ] || {
+  echo "ERROR: completed通知を送らない: PEERTABLE_PLAN が無い" >&2
+  exit 1
+}
+event_url="${PEERTABLE_URL:-}"
+event_room="${PEERTABLE_ROOM:-}"
+event_actor="${PEERTABLE_MEMBER:-}"
+event_credential="${PEERTABLE_CREDENTIAL_FILE:-}"
+[ -n "$event_url" ] || { echo "ERROR: completed通知を送らない: PEERTABLE_URL が無い" >&2; exit 1; }
+[ -n "$event_room" ] || { echo "ERROR: completed通知を送らない: PEERTABLE_ROOM が無い" >&2; exit 1; }
+[ -n "$event_actor" ] || { echo "ERROR: completed通知を送らない: PEERTABLE_MEMBER が無い" >&2; exit 1; }
+[ -f "$event_credential" ] && [ -s "$event_credential" ] || {
+  echo "ERROR: completed通知を送らない: PEERTABLE_CREDENTIAL_FILE が読めない" >&2
+  exit 1
+}
+
+# 再試行では既に done の ToDoへ todo done を重ねず、同じ done_at から同じ
+# transition idを再構成する。reopen 後は done_at が更新されるため別遷移になる。
+task_state_json=""
+task_state_json=$("$done_gate_cli" todo show --plan "$PEERTABLE_PLAN" --task "$t" --json 2>&1) || {
+  echo "ERROR: completed通知を送らない: todo show が失敗: $task_state_json" >&2
+  exit 1
+}
+task_field() {
+  local field="$1"
+  printf '%s' "$task_state_json" | python3 -c '
+import json
+import sys
+
+report = json.load(sys.stdin)
+state = report.get("state")
+task = report.get("task")
+if not isinstance(state, dict) or not isinstance(task, dict):
+    raise SystemExit("todo show の state/task が不正")
+field = sys.argv[1]
+if field == "status":
+    value = state.get("status")
+elif field == "done_at":
+    value = state.get("done_at") or ""
+elif field == "title":
+    value = task.get("title")
+else:
+    raise SystemExit(f"未知のtask field: {field}")
+if not isinstance(value, str):
+    raise SystemExit(f"task fieldが文字列でない: {field}")
+print(value)
+' "$field"
+}
+task_status=""
+task_status=$(task_field status 2>&1) || {
+  echo "ERROR: completed通知を送らない: ToDo状態を読めない: $task_status" >&2
+  exit 1
+}
+task_title=""
+task_title=$(task_field title 2>&1) || {
+  echo "ERROR: completed通知を送らない: ToDo titleを読めない: $task_title" >&2
+  exit 1
+}
+already_done=no
+case "$task_status" in
+  done) already_done=yes ;;
+  in-progress) ;;
+  *) echo "ERROR: completed通知を送らない: ToDoが完了可能状態でない: $task_status" >&2; exit 1 ;;
+esac
+
 # **receipt が未 accept のまま done を打たせない。** 実行層に載せた task の成果の正本は
 # Lattice が撮った observed diff（accepted receipt）であって、ToDo の done ではない。
 # 2026-08-11 実測: accept が `RUNTIME_CONFLICT_HOLD` で止まっているのに done は通り、
 # 「ToDo は完了・成果はどこにも着地していない」状態が親の事後照合まで誰にも見えなかった
 # （そして landing-only mode は receipt が無ければ 0 本＝無言になる）。
 # **実行層に載っていない task は素通しする**——pull run の利用は任意で、載っていない卓を止めない。
-done_gate_cli="${LATTICE_CLI:-lattice}"
 gate_runs=$("$done_gate_cli" run list --json 2>&1) || {
   echo "ERROR: receipt の状態を読めない（run list が失敗）: $gate_runs" >&2; exit 1;
 }
@@ -279,21 +364,48 @@ done
 
 # descriptor の path は repo 内の相対（repo 外の絶対 path は --evidence が INVALID_ARGUMENTS で弾く）。
 # worktree でも canonical でも同じ相対 path に置く規約なので、この値は両者で一致する。
-f="evidence/$PEERTABLE_PLAN/$t.md"
-src="${evidence_from:-$f}"
-[ -f "$src" ] || { echo "ERROR: 証跡が見つからない: $src" >&2; exit 1; }
-oid=$(git hash-object -w "$src")
-digest=$(shasum -a 256 "$src" | cut -d' ' -f1)
-tmp=".ev-$t.json"
-# **失敗しても記述子を残さない。** `set -e` の下で `todo done` が落ちると、後段の `rm` へ
-# 到達せず repo に `.ev-<task>.json` が残る（自分の負側 test で実測。TASK_NOT_FOUND の後に
-# untracked file が残った）。次に `git status` を撮った人が、それを誰かの作業中変更と読む。
-trap 'rm -f "$tmp"' EXIT
-printf '{"evidence_id":"ev-%s","repo_id":"self","path":"%s","git_blob_oid":"%s","content_digest":"%s","media_type":"text/markdown","anchor_digest":null}\n' "$t" "$f" "$oid" "$digest" > "$tmp"
-# **PATH の `lattice` へ黙って逸れない。** setup が解決した CLI を席 env の `LATTICE_CLI` で受け、
-# 無い時だけ PATH を使う（bridge の `--lattice` / teardown の `LATTICE_CLI` と同じ選択規律）。
-"${LATTICE_CLI:-lattice}" todo done --plan "$PEERTABLE_PLAN" --task "$t" --evidence "$tmp"
-rm -f "$tmp"
+if [ "$already_done" = no ]; then
+  oid=$(git hash-object -w "$src")
+  digest=$(shasum -a 256 "$src" | cut -d' ' -f1)
+  tmp=".ev-$t.json"
+  # **失敗しても記述子を残さない。** `set -e` の下で `todo done` が落ちると、後段の `rm` へ
+  # 到達せず repo に `.ev-<task>.json` が残る（自分の負側 test で実測。TASK_NOT_FOUND の後に
+  # untracked file が残った）。次に `git status` を撮った人が、それを誰かの作業中変更と読む。
+  trap 'rm -f "$tmp"' EXIT
+  printf '{"evidence_id":"ev-%s","repo_id":"self","path":"%s","git_blob_oid":"%s","content_digest":"%s","media_type":"text/markdown","anchor_digest":null}\n' "$t" "$f" "$oid" "$digest" > "$tmp"
+  # **PATH の `lattice` へ黙って逸れない。** setup が解決した CLI を席 env の `LATTICE_CLI` で受け、
+  # 無い時だけ PATH を使う（bridge の `--lattice` / teardown の `LATTICE_CLI` と同じ選択規律）。
+  done_output=""
+  done_rc=0
+  done_output=$("$done_gate_cli" todo done --plan "$PEERTABLE_PLAN" --task "$t" --evidence "$tmp" 2>&1) || done_rc=$?
+  printf '%s\n' "$done_output"
+  [ "$done_rc" -eq 0 ] || exit "$done_rc"
+  rm -f "$tmp"
+else
+  echo "todo done は既に記録済み: $t" >&2
+fi
+
+# todo done の直後（または再試行時の既存done）に、工程正本が本当に done か再確認する。
+task_state_json=$("$done_gate_cli" todo show --plan "$PEERTABLE_PLAN" --task "$t" --json 2>&1) || {
+  echo "ERROR: completed通知を送らない: done後のToDo状態を読めない: $task_state_json" >&2
+  exit 1
+}
+task_status=$(task_field status 2>&1) || {
+  echo "ERROR: completed通知を送らない: done後の状態を読めない: $task_status" >&2
+  exit 1
+}
+[ "$task_status" = done ] || {
+  echo "ERROR: completed通知を送らない: todo done後も状態がdoneでない: $task_status" >&2
+  exit 1
+}
+task_done_at=$(task_field done_at 2>&1) || {
+  echo "ERROR: completed通知を送らない: done時刻を読めない: $task_done_at" >&2
+  exit 1
+}
+[ -n "$task_done_at" ] || {
+  echo "ERROR: completed通知を送らない: done時刻が空" >&2
+  exit 1
+}
 
 # 完了の定義は「repo 内の変更は push まで」。done を打つ瞬間はそれが成り立っていなければ
 # ならない唯一の時点で、かつ全員が必ず通る場所である。publish 経路の機械 gate は tarball
@@ -301,10 +413,189 @@ rm -f "$tmp"
 # 成果物が取り残される（2026-08-08 実測。卓の全員が立っていた穴で、親の監査が見つけた）。
 # 出すだけで止めない: push 既定でない repo も、まとめて push する運用も壊さないため。
 # upstream 未設定・git 管理外でも done.sh 自体は死なせない（set -e の下なので必ずガードする）。
-unpushed=$(git rev-list --count '@{u}..HEAD' 2>/dev/null || true)
-if [ -n "$unpushed" ] && [ "$unpushed" != 0 ]; then
+upstream_ref=$(git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null || true)
+[ -n "$upstream_ref" ] || {
+  echo "ERROR: completed通知を送らない: canonical upstream が無い" >&2
+  exit 1
+}
+unpushed=$(git rev-list --count "${upstream_ref}..HEAD" 2>/dev/null || true)
+[ -n "$unpushed" ] || {
+  echo "ERROR: completed通知を送らない: canonical landing 状態を読めない" >&2
+  exit 1
+}
+if [ "$unpushed" != 0 ]; then
   echo "未push ${unpushed}本: この done の成果物はまだ upstream へ着地していない" >&2
+  echo "ERROR: completed通知を送らない: canonical landing 不足" >&2
+  exit 1
 fi
+git merge-base --is-ancestor HEAD "$upstream_ref" || {
+  echo "ERROR: completed通知を送らない: HEAD が canonical upstream の祖先でない" >&2
+  exit 1
+}
+
+# pull run を使った task は、accept 済みで、かつこの task の receipt が
+# canonical branch へ着地したことまで確認する。別 task の未着地だけでは
+# この task の completed を止めない。
+for gate_ref in $gate_refs; do
+  gate_obs=""
+  gate_obs=$("$done_gate_cli" run observe --run "$gate_ref" 2>&1) || {
+    echo "ERROR: completed通知を送らない: run observe が失敗: $gate_ref: $gate_obs" >&2
+    exit 1
+  }
+  gate_state=$(printf '%s' "$gate_obs" | python3 -c '
+import json, sys
+task = sys.argv[1]
+report = json.load(sys.stdin)
+if report.get("schema") != "lattice.pull_run_observation.v1":
+    raise SystemExit("run observe の schema が違う")
+intakes = report.get("intakes")
+if not isinstance(intakes, list):
+    raise SystemExit("run observe に intakes 配列が無い")
+seen = set()
+found = None
+for intake in intakes:
+    if not isinstance(intake, dict) or not isinstance(intake.get("task_id"), str):
+        raise SystemExit("run observe の intake が不正")
+    task_id = intake["task_id"]
+    if task_id in seen:
+        raise SystemExit(f"run observe の intake が重複: {task_id}")
+    seen.add(task_id)
+    if "accepted_head_sha" not in intake:
+        raise SystemExit(f"run observe に accepted_head_sha が無い: {task_id}")
+    if task_id == task:
+        found = intake
+if found is None:
+    print("absent")
+elif found.get("accepted_head_sha"):
+    print("accepted")
+else:
+    print("pending")
+' "$t" 2>&1) || {
+    echo "ERROR: completed通知を送らない: run observeのtask状態を読めない: $gate_ref: $gate_state" >&2
+    exit 1
+  }
+  [ "$gate_state" = absent ] && continue
+  [ "$gate_state" = accepted ] || {
+    echo "ERROR: completed通知を送らない: receipt が未accept: ${t} @ ${gate_ref}" >&2
+    exit 1
+  }
+  landing_report=""
+  landing_report=$("$done_gate_cli" run landing --run "$gate_ref" 2>&1) || {
+    echo "ERROR: completed通知を送らない: run landing が失敗: $gate_ref: $landing_report" >&2
+    exit 1
+  }
+  landing_task=$(printf '%s' "$landing_report" | python3 -c '
+import json, sys
+task = sys.argv[1]
+report = json.load(sys.stdin)
+if report.get("schema") != "lattice.run_landing_report.v1":
+    raise SystemExit("run landing の schema が違う")
+if not isinstance(report.get("landed"), bool):
+    raise SystemExit("run landing の landed が真偽値でない")
+receipts = report.get("accepted_receipts")
+if not isinstance(receipts, list):
+    raise SystemExit("run landing に accepted_receipts 配列が無い")
+found = None
+for receipt in receipts:
+    if not isinstance(receipt, dict):
+        raise SystemExit("accepted receipt がobjectでない")
+    if receipt.get("task_id") == task:
+        if found is not None:
+            raise SystemExit(f"accepted receipt が重複: {task}")
+        found = receipt
+if found is None:
+    print("missing")
+elif not isinstance(found.get("landed"), bool):
+    raise SystemExit("task receipt の landed が真偽値でない")
+else:
+    print("landed" if found["landed"] else "unlanded")
+' "$t" 2>&1) || {
+    echo "ERROR: completed通知を送らない: task landing状態を読めない: $gate_ref: $landing_task" >&2
+    exit 1
+  }
+  [ "$landing_task" = landed ] || {
+    echo "ERROR: completed通知を送らない: task receipt がcanonical landing済みでない: ${t} @ ${gate_ref}" >&2
+    exit 1
+  }
+done
+
+# done_at は Lattice の一つの完了遷移を表す。room 側の transition_id
+# 冪等性へ渡すことで、送信再試行は同じ遷移、reopen後は別遷移になる。
+transition_digest=$(printf '%s\n' "$PEERTABLE_PLAN" "$t" "$task_done_at" | shasum -a 256 | cut -d' ' -f1)
+transition_id="completed:${transition_digest}"
+TASK_EVENT_URL="$event_url" \
+TASK_EVENT_ROOM="$event_room" \
+TASK_EVENT_ACTOR="$event_actor" \
+TASK_EVENT_PLAN="$PEERTABLE_PLAN" \
+TASK_EVENT_TASK="$t" \
+TASK_EVENT_TITLE="$task_title" \
+TASK_EVENT_TRANSITION="$transition_id" \
+PEERTABLE_CREDENTIAL_FILE="$event_credential" \
+node --input-type=module <<'NODE'
+import { readFileSync } from 'node:fs'
+
+const env = process.env
+const required = [
+  'TASK_EVENT_URL', 'TASK_EVENT_ROOM', 'TASK_EVENT_ACTOR', 'TASK_EVENT_PLAN',
+  'TASK_EVENT_TASK', 'TASK_EVENT_TITLE', 'TASK_EVENT_TRANSITION',
+  'PEERTABLE_CREDENTIAL_FILE',
+]
+for (const key of required) {
+  if (!env[key]) {
+    console.error(`ERROR: completed task eventの${key}が無い`)
+    process.exit(1)
+  }
+}
+
+let token
+try {
+  token = readFileSync(env.PEERTABLE_CREDENTIAL_FILE, 'utf8').trim()
+} catch {
+  console.error('ERROR: completed task eventのcredential fileを読めない')
+  process.exit(1)
+}
+if (!token) {
+  console.error('ERROR: completed task eventのcredential fileが空')
+  process.exit(1)
+}
+
+let response
+try {
+  response = await fetch(`${env.TASK_EVENT_URL.replace(/\/+$/, '')}/api/${encodeURIComponent(env.TASK_EVENT_ROOM)}/task-events`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Peertable-Token': token },
+    body: JSON.stringify({
+      kind: 'completed',
+      actor: env.TASK_EVENT_ACTOR,
+      plan_key: env.TASK_EVENT_PLAN,
+      task_id: env.TASK_EVENT_TASK,
+      title: env.TASK_EVENT_TITLE,
+      transition_id: env.TASK_EVENT_TRANSITION,
+    }),
+  })
+} catch (error) {
+  console.error(`ERROR: completed task eventを送れない: ${error.message}`)
+  process.exit(1)
+}
+
+const raw = await response.text()
+let event
+try {
+  event = JSON.parse(raw)
+} catch {
+  console.error(`ERROR: completed task eventの応答がJSONでない: HTTP ${response.status}`)
+  process.exit(1)
+}
+if (!response.ok) {
+  console.error(`ERROR: completed task eventが拒否された: HTTP ${response.status}`)
+  process.exit(1)
+}
+if (event.type !== 'task_event' || event.event_kind !== 'completed') {
+  console.error('ERROR: completed task eventの応答型が不正')
+  process.exit(1)
+}
+console.log(`${event.idempotent ? 'already sent' : 'sent'} [${event.seq}] ${event.type}:${event.event_kind}`)
+NODE
 
 # 外部ペインの喪失検出。Lattice 併用モードの卓は、公開工程表の右ペインに円卓が出ているのが正常。
 # 2026-08-08、受入検証が本番のコネクタを「外して痕跡ゼロ」まで確かめて終わり、差し直しが人の記憶
