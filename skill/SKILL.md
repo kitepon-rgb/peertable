@@ -178,6 +178,10 @@ witness をどう生成するかは**対象 project 側の作法に従う**（La
   command は対象外。実測: nagi, 2026-08-11）。複数席が同時に作業している卓では、compile 前に
   room で一声かけて各自の作業中変更を対象限定 commit してもらう必要がある（決定71の宛先規律に
   従い、今すぐ動く必要がある相手だけへ依頼する）。
+- **隔離実行層へ載せる前提**: companion planでも、current HEADへ束縛された
+  witness と `independence compile` が揃ってから `lattice run intake` を実行する。
+  `coverage=missing` / `stale` のままではleaseを受けず、canonical共有木での作業と
+  隔離runを混同しない。
 - **task 単位の push はできない。** git の push は連続した history の先頭までを送る操作であり、
   途中の特定 commit だけを選んで送ることはできない（実測・結論: nagi, 2026-08-11）。ある task の
   受理済み成果を push すると、**その手前にある他 task の未監査 commit も一緒に origin へ運ばれる**
