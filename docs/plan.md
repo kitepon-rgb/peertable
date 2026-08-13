@@ -1347,6 +1347,7 @@ focused testと自己監査を行う。最終試験結果へ、発見した不�
 
 - 本人は model / effort の希望と理由を自然文で親へDMし、親が意味を判断して target を確定する。定型文や完全一致の再送は求めない。
 - 同一vendor内の model / effort 変更は、親が Aiterm の公開 `agent_configure` を通じて同一sessionへ適用する。この経路では会話contextを保持する。vendor変更だけは再起動し、role・工程正本・roomログから再着任する。
+- 正規着席はAitermの公開agent launcherだけを使い、Peertableの薄いadapterが`env_vars`へ席のidentityとLattice actorの変数名を渡す。Aitermは現在のMCP processにある指定値だけをagentへ継承するため、先に存在したtmux serverでも席固有値を失わない。
 - 作業者は focused test と自己監査を完了してから、最終試験内容・結果だけを監査担当へ渡す。監査担当は試験を再実行せず、その提出が元PLAN・工程正本・受入条件に照らして妥当かを判断し、妥当なら ToDo をcloseして「次の工程に着手してください」とだけ投稿する。
 - 親は設定変更の実行、進行・督促、オーナーとの接点だけを担い、作業・工程内監査・closeを代行しない。
 

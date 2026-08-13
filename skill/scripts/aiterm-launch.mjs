@@ -10,6 +10,15 @@ if (!session_name || !['claude', 'codex'].includes(vendor) || !model || !reasoni
 
 const client = new Client({ name: 'peertable-seat-launch', version: '0.3.10' })
 await client.connect(new StdioClientTransport({ command: 'aiterm-mcp', env: process.env }))
+const env_vars = [
+  'PEERTABLE_URL', 'PEERTABLE_ROOM', 'PEERTABLE_MEMBER', 'PEERTABLE_CREDENTIAL_FILE',
+  'PEERTABLE_VENDOR', 'PEERTABLE_MODEL', 'PEERTABLE_EFFORT', 'PEERTABLE_ROLE',
+  'PEERTABLE_TMUX_SOCKET',
+]
+if (process.env.PEERTABLE_PLAN) env_vars.push(
+  'PEERTABLE_PLAN', 'LATTICE_CLI', 'LATTICE_TODO_ACTOR_HOST',
+  'LATTICE_TODO_ACTOR_SESSION', 'LATTICE_TODO_ACTOR_AGENT',
+)
 const result = await client.callTool({
   name: `${vendor}_agent`,
   arguments: {
@@ -17,6 +26,7 @@ const result = await client.callTool({
     cwd,
     model,
     reasoning_effort,
+    env_vars,
     ...(prompt ? { prompt } : {}),
   },
 })

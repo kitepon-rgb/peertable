@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { delimiter, join, resolve } from 'node:path'
 
@@ -12,11 +12,13 @@ const sdkServer = import.meta.resolve('@modelcontextprotocol/sdk/server/index.js
 const sdkStdio = import.meta.resolve('@modelcontextprotocol/sdk/server/stdio.js')
 const sdkTypes = import.meta.resolve('@modelcontextprotocol/sdk/types.js')
 const fake = join(fixture, 'aiterm-mcp')
+const argsFile = join(fixture, 'call-args.json')
 
 writeFileSync(fake, `#!/usr/bin/env node
 import { Server } from ${JSON.stringify(sdkServer)}
 import { StdioServerTransport } from ${JSON.stringify(sdkStdio)}
 import { ListToolsRequestSchema, CallToolRequestSchema } from ${JSON.stringify(sdkTypes)}
+import { writeFileSync } from 'node:fs'
 const residue = process.env.FIXTURE_RESIDUE === 'true' ? true
   : process.env.FIXTURE_RESIDUE === 'false' ? false : null
 const receipt = {
@@ -25,9 +27,11 @@ const receipt = {
 }
 const server = new Server({ name: 'fixture', version: '1' }, { capabilities: { tools: {} } })
 server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: [] }))
-server.setRequestHandler(CallToolRequestSchema, async () => ({
-  content: [{ type: 'text', text: JSON.stringify(receipt) }], structuredContent: receipt,
-}))
+server.setRequestHandler(CallToolRequestSchema, async (request) => {
+  if (process.env.FIXTURE_ARGS_FILE)
+    writeFileSync(process.env.FIXTURE_ARGS_FILE, JSON.stringify(request.params.arguments))
+  return { content: [{ type: 'text', text: JSON.stringify(receipt) }], structuredContent: receipt }
+})
 await server.connect(new StdioServerTransport())
 `)
 chmodSync(fake, 0o755)
@@ -36,7 +40,15 @@ const run = (extra = {}) => spawnSync(process.execPath, [
   adapter, 'peer-fixture', 'codex', 'gpt-5.6-terra', 'high', root, '着任指示',
 ], {
   encoding: 'utf8',
-  env: { ...process.env, PATH: `${fixture}${delimiter}${process.env.PATH}`, ...extra },
+  env: {
+    ...process.env,
+    PATH: `${fixture}${delimiter}${process.env.PATH}`,
+    FIXTURE_ARGS_FILE: argsFile,
+    PEERTABLE_MEMBER: 'fixture-member',
+    PEERTABLE_PLAN: 'fixture-plan',
+    LATTICE_TODO_ACTOR_SESSION: 'fixture-member',
+    ...extra,
+  },
 })
 
 try {
@@ -46,12 +58,16 @@ try {
     const receipt = JSON.parse(result.stdout)
     assert.equal(receipt.submit_residue, value === 'true' ? true : value === 'false' ? false : null)
   }
+  const callArgs = JSON.parse(readFileSync(argsFile, 'utf8'))
+  assert.ok(callArgs.env_vars.includes('PEERTABLE_MEMBER'))
+  assert.ok(callArgs.env_vars.includes('PEERTABLE_PLAN'))
+  assert.ok(callArgs.env_vars.includes('LATTICE_TODO_ACTOR_SESSION'))
 
   const invalid = run({ FIXTURE_INVALID: '1' })
   assert.notEqual(invalid.status, 0)
   assert.match(invalid.stderr, /SEAT_AITERM_LAUNCH_RECEIPT_INVALID/)
 
-  console.log('live-seat-config i1 launch receipt: 4/4 green')
+  console.log('live-seat-config i1 launch receipt/env: 7/7 green')
 } finally {
   rmSync(fixture, { recursive: true, force: true })
 }
