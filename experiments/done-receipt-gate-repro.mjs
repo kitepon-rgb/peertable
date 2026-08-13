@@ -210,20 +210,20 @@ try {
     assert.match(result.stderr, /task receipt がcanonical landing済みでない/)
   })
 
-  // 6. canonical landing前はdone後でも完了処理を止め、push後の再試行を通す
+  // 6. push状態は工程closeを止めず、未push件数だけを案内する
   assert.equal(git('commit', '--allow-empty', '-q', '-m', 'unlanded fixture').status, 0)
   await setMode('accepted', { done_seq: 1 })
   await resetLog()
   result = run('x1')
-  check('canonical landing前は完了処理を止める', () => {
-    assert.notEqual(result.status, 0)
-    assert.match(result.stderr, /canonical landing 不足/)
+  check('未pushでも完了処理を通して件数だけ案内する', () => {
+    assert.equal(result.status, 0, result.stderr)
+    assert.match(result.stderr, /未push 1本/)
   })
   assert.equal((await doneCalls()).length, 1)
   assert.equal(git('push', '-q').status, 0)
   await resetLog()
   result = run('x1')
-  check('push後の再試行を通す', () => {
+  check('push後の再試行も通す', () => {
     assert.equal(result.status, 0, result.stderr)
   })
 

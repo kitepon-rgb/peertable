@@ -21,6 +21,9 @@
 # evidence verifier は descriptor.path の working tree 実在を見ず、object DB の blob と digest、
 # 読み出し時の `rev-list --all` 到達性を見る（mio が実 repo で確認・room [1016]）。
 set -e
+# LatticeのJSONをcommand substitutionで受けるため、親shellの色指定を持ち込まない。
+unset FORCE_COLOR
+export NO_COLOR=1
 
 show_usage() {
   cat <<'USAGE'
@@ -344,7 +347,7 @@ if [ "$already_done" = no ]; then
   # 無い時だけ PATH を使う（bridge の `--lattice` / teardown の `LATTICE_CLI` と同じ選択規律）。
   done_output=""
   done_rc=0
-  done_output=$("$done_gate_cli" todo done --plan "$plan" --task "$t" --evidence "$tmp" --test-result "$test_result_tmp" 2>&1) || done_rc=$?
+  done_output=$("$done_gate_cli" todo done --plan "$plan" --task "$t" --evidence "$tmp" --test-result "$test_result_tmp" --commit-store 2>&1) || done_rc=$?
   printf '%s\n' "$done_output"
   [ "$done_rc" -eq 0 ] || exit "$done_rc"
   rm -f "$tmp" "$test_result_tmp"
@@ -366,31 +369,14 @@ task_status=$(task_field status 2>&1) || {
   exit 1
 }
 
-# 完了の定義は「repo 内の変更は push まで」。done を打つ瞬間はそれが成り立っていなければ
-# ならない唯一の時点で、かつ全員が必ず通る場所である。publish 経路の機械 gate は tarball
-# しか見ないので、docs・証跡・experiments はその外側にある——黙ると誰も見ていない場所へ
-# 成果物が取り残される（2026-08-08 実測。卓の全員が立っていた穴で、親の監査が見つけた）。
-# 出すだけで止めない: push 既定でない repo も、まとめて push する運用も壊さないため。
-# upstream 未設定・git 管理外でも done.sh 自体は死なせない（set -e の下なので必ずガードする）。
+# pushは工程closeの前提ではない。upstreamがある時だけ未push件数を案内する。
 upstream_ref=$(git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null || true)
-[ -n "$upstream_ref" ] || {
-  echo "ERROR: 完了処理を続けられない: canonical upstream が無い" >&2
-  exit 1
-}
-unpushed=$(git rev-list --count "${upstream_ref}..HEAD" 2>/dev/null || true)
-[ -n "$unpushed" ] || {
-  echo "ERROR: 完了処理を続けられない: canonical landing 状態を読めない" >&2
-  exit 1
-}
-if [ "$unpushed" != 0 ]; then
-  echo "未push ${unpushed}本: この done の成果物はまだ upstream へ着地していない" >&2
-  echo "ERROR: 完了処理を続けられない: canonical landing 不足" >&2
-  exit 1
+if [ -n "$upstream_ref" ]; then
+  unpushed=$(git rev-list --count "${upstream_ref}..HEAD" 2>/dev/null || true)
+  if [ -n "$unpushed" ] && [ "$unpushed" != 0 ]; then
+    echo "未push ${unpushed}本: この done の成果物はまだ upstream へ着地していない" >&2
+  fi
 fi
-git merge-base --is-ancestor HEAD "$upstream_ref" || {
-  echo "ERROR: 完了処理を続けられない: HEAD が canonical upstream の祖先でない" >&2
-  exit 1
-}
 
 # pull run を使った task は、accept 済みで、かつこの task の receipt が
 # canonical branch へ着地したことまで確認する。別 task の未着地だけでは
