@@ -5,8 +5,8 @@
 親（オーケストレーター）に最終判断が集中しない、メンバー並列型のマルチエージェント作業システム。
 
 作成日: 2026-08-08
-状態: 設計確定 / V0〜V3 通過・V4 封印（決定41）/ スキル化完了 / GitHub・npm 公開済み。Grok 4.6正規席を含む`0.4.0`公開準備中（決定84・85）
-リポジトリ: github.com/kitepon/peertable（**公開済み 2026-08-08・MIT・public**）/ npm: **peertable@0.3.11 公開済み**（`0.4.0`公開準備中）
+状態: 設計確定 / V0〜V3 通過・V4 封印（決定41）/ スキル化完了 / GitHub・npm 公開済み。Grok 4.6正規席を含む`0.4.0`出荷完了（決定84・85）
+リポジトリ: github.com/kitepon/peertable（**公開済み 2026-08-08・MIT・public**）/ npm: **peertable@0.4.0 公開済み**（2026-08-14）
 工場: dotagents 開発工場の管理対象（**自作コア11製品の1つ**・wire v7 の固定15製品目）。統合契約は dotagents 側が所有し、本 repo の source・state・skill 配布・release は Peertable が所有し続ける
 
 ---
@@ -1375,3 +1375,12 @@ Grok専用の状態・launcher・再試行経路を追加しない。`0.4.0`は�
 公開前にGrok 4.6実席で着席、room参加、同一sessionの4.6→4.5→4.6変更、DM起床を確認し、
 関連focused testと4環境full CIを通す。npm公開後はregistry由来global installでversion、bin、diagnostics、
 Grok席の公開ファイル同梱を確認して受入を閉じる。
+
+公開対象commit `27942635d9209fecc6ac9939224f6cfe4317f718`を`v0.4.0`へ固定した。main CI
+[`31762977080`](https://github.com/kitepon/peertable/actions/runs/31762977080)はmacOS native・Linux native・
+Windows native・WSL2の同一fullを通過。npmのintegrityは
+`sha512-iGmkTsw5cRy1aXPtVGhqj4JCLGMVwqaTTHwCOUSlFd/cayXXZkxtEPrFvIg6tLx+7LdCyyuOpROsH9u82LqD/Q==`、
+shasumは`56c30f004319aac951821907b40e480c6718ce0a`で、41 filesを公開した。
+[GitHub Release](https://github.com/kitepon/peertable/releases/tag/v0.4.0)はdraft／prereleaseでない。
+npm由来global installは0.4.0の非symlink packageで、2 bins、diagnostics ready、Grok着席・設定変更・
+wakeup実装の配布source一致を確認した。これを`0.4.0`の公開受入とする。
