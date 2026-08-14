@@ -18,9 +18,10 @@ check('正規launchは席名からAiterm session targetを作る', () => {
   assert.match(launch, /node "\$aiterm_launch_helper" "\$sess" "\$vendor" "\$model" "\$effort" "\$proj" "\$brief"/)
 })
 
-check('Claude／Codexのdirect CLI launchへfallbackしない', () => {
+check('Claude／Codex／Grokのdirect CLI launchへfallbackしない', () => {
   assert.doesNotMatch(launch, /cmd="claude --model \$model"/)
   assert.doesNotMatch(launch, /cmd="codex --model \$model -C \$proj/)
+  assert.doesNotMatch(launch, /cmd="grok --model \$model/)
 })
 
 check('room metadataはAiterm sessionとtmux観測記述子を保持する', () => {

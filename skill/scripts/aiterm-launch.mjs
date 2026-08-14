@@ -4,7 +4,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 
 const [session_name, vendor, model, reasoning_effort, cwd, prompt = ''] = process.argv.slice(2)
-if (!session_name || !['claude', 'codex'].includes(vendor) || !model || !reasoning_effort || !cwd) {
+if (!session_name || !['claude', 'codex', 'grok'].includes(vendor) || !model || !reasoning_effort || !cwd) {
   throw new Error('SEAT_AITERM_LAUNCH_ARGS_INVALID')
 }
 

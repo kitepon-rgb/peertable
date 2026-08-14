@@ -33,7 +33,7 @@ Peertableのメンバー席は、aiterm-mcpの外部PTYに長寿命で着席さ�
 Latticeの`todo`で行う。通常shellのために開いた短命PTYと、メンバーが着席する長寿命PTYは別物である。
 
 親が円卓メンバーを増やす時の入口は、Peertable正式手順（`scripts/launch-seat.sh`）で作るAiterm長寿命席だけである。
-script は内部で Aiterm の公開 `codex_agent` / `claude_agent` を呼び、返された managed session_id を
+script は内部で Aiterm の公開 `claude_agent` / `codex_agent` / `grok_agent` を呼び、返された managed session_id を
 同じ room member へ記録する。親がこれらを直接呼んで円卓メンバーを作ったり、Claude Codeの`Task` / `Agent`、
 その他のnative sub-agentを円卓メンバーの代用にしたりしない。通常shell用の短命PTYと、room・工程正本へ着席する
 長寿命PTYを混同しない。
@@ -61,12 +61,13 @@ script は内部で Aiterm の公開 `codex_agent` / `claude_agent` を呼び、
 4. **Lattice plan（Lattice 併用モードのみ・単独はこの手順ごとスキップ）**: `lattice status --json` で正本を判定する。`uninitialized` なら聞き取ったタスクを JSON へ落として `scripts/make-plan-input.mjs <tasks.json> --project <project>` で `plan create` 入力を生成し、`lattice plan create --input .lattice/plan-create.json` を打つ。初期化済みなら `todo migrate` の作法（Lattice 正典）に従う。設計メモは各タスクに必ず書く
    - `make-plan-input.mjs` が digest 計算と `hard_dependencies` の `(from,to)` 昇順ソートを持つ（**手書きで2回踏んだ罠**。順序が崩れると `INPUT_INVALID / pointer:"/"` としか言われない）。`project_id` の既定は project ディレクトリ名で、`external-pane.mjs` が書く `project.json` の既定と一致させてある——**両者がずれると Lattice が identity 検証で落ちる**
    - 単独モードのタスク正本は手順3で生成した `.team/tasks.md` だけである。状態（誰が持っているか・何が終わったか）は持たせない——claim と完了は room の宣言だけが正（決定48 の延長）。ミニタスクトラッカーを別途作らない（決定36）
-5. **メンバー起動**: メンバーごとに `env -u PEERTABLE_POST_TOKEN scripts/launch-seat.sh <project> <name> <model> <claude|codex> <effort> [着任指示]` を実行する。launcher自身の初期process envも観測対象なので、script内の`unset`だけに頼らず入口から平文tokenを渡さない。**vendor・effort とも必須引数**（未指定は usage を出して非ゼロ終了。既定値をコードへ埋めない——席を立てる時に決める）。tmux 作成（aiterm と同じソケットなので、立った席はそのまま `pty_read`/`pty_send` で読める）→ credential file path注入 → 起動 → 既知ダイアログ通過 → 着席確認まで1回で行き、着席しなければ最後の画面を出して非ゼロで落ちる（黙って進まない）
+5. **メンバー起動**: メンバーごとに `env -u PEERTABLE_POST_TOKEN scripts/launch-seat.sh <project> <name> <model> <claude|codex|grok> <effort> [着任指示]` を実行する。launcher自身の初期process envも観測対象なので、script内の`unset`だけに頼らず入口から平文tokenを渡さない。**vendor・effort とも必須引数**（未指定は usage を出して非ゼロ終了。既定値をコードへ埋めない——席を立てる時に決める）。tmux 作成（aiterm と同じソケットなので、立った席はそのまま `pty_read`/`pty_send` で読める）→ credential file path注入 → 起動 → 既知ダイアログ通過 → 着席確認まで1回で行き、着席しなければ最後の画面を出して非ゼロで落ちる（黙って進まない）
    - 起動前に `pty_list` で既存の `peer-*` 席を確認する（前の卓の残骸を99席実測したことがある）。同名の席は launch-seat.sh が落としてから立て直す
    - 着任指示を第6引数に渡すと着席後に送る。文面: 「あなたは「<日本語名>」。.team/roles/member.md を読んで着任し、作業ループを開始せよ。全タスク完了の宣言まで自律的に続けること。」
    - 席が読む env は script が組み立てる（`PEERTABLE_URL` / `PEERTABLE_ROOM` / `PEERTABLE_MEMBER` / `PEERTABLE_CREDENTIAL_FILE`、Lattice 併用なら `PEERTABLE_PLAN` と actor 3点）。token値は席別`0600` fileにだけ置き、pathだけを席へ渡す。**channels は `--mcp-config` の MCP server を解決しない**（実測 2026-08-08・Claude Code v2.1.226・決定44）ため、room の MCP 定義は setup.sh が project root へ置く `.mcp.json` が正。Peertable管理下fileはlaunch時にもcurrent-tree clientへ同期する。project に既存 `.mcp.json` があった場合は無断更新せず`SEAT_ROOM_MCP_STALE`で止まるので、AI がroom定義を手動mergeしてteardownで復元する
    - **Codex 席**（`vendor=codex`）: Codex には channels が無いので、room は `-c` 上書きの stdio MCPとして、同じPeertable treeの`node room/client.mjs`を差す。**env は closed mode で親環境を継がない**ので `PATH`と非秘密値、credential file pathを明示列挙する。effortはmember metadataだけでなく`model_reasoning_effort`へも同じ値を渡す。モデル名は ChatGPT アカウントで使える slug を渡す（`~/.codex/config.toml` の `model` が既定値の参考。使えない slug は起動後の最初のターンで 400 になって初めて分かる）。Codex 席を混ぜたら**必ず起床ブリッジを立てる**（下記）——立てないと room の新着で起きない
-6. **起床ブリッジ（Codex 席がある時だけ）**: `scripts/ensure-bridge.sh <project> wakeup <codex席名>…`。room の SSE を購読し、明示的にその席宛の新着（自分の発言は除く）だけを tmux へ素送信して起こす。ensure は専用 tmux session で起動し、bridge の `ready_at` を待つ。確認できなければログ末尾を出して非ゼロで終わる。**Codex はターン実行中でも素送信を受け付け、その文言をそのターンの中で読む**（実測）ので idle 待ちはしない。停止は `node scripts/wakeup-bridge.mjs <project> --stop`（teardown.sh が自動で行う）
+   - **Grok 席**（`vendor=grok`）: project rootの`.mcp.json`をGrok Buildが読み、同じroom clientと席固有envをAitermが渡す。model / effortはAitermの`grok_agent`へそのまま渡し、`grok models`のlive catalogに無いmodelは着席前に失敗する。初めて開くtreeの既知workspace trustは着席処理が通す。channelsは無いのでCodexと同じ起床ブリッジを使う
+6. **起床ブリッジ（Codex / Grok 席がある時）**: `scripts/ensure-bridge.sh <project> wakeup <席名>…`。room の SSE を購読し、明示的にその席宛の新着（自分の発言は除く）だけを tmux へ素送信して起こす。ensure は専用 tmux session で起動し、bridge の `ready_at` を待つ。確認できなければログ末尾を出して非ゼロで終わる。idle待ちは置かず、通常TUI入力として配送する。停止は `node scripts/wakeup-bridge.mjs <project> --stop`（teardown.sh が自動で行う）
    - **黙って止まらないための三段**（決定58 の受信側の作法）: ①75秒なにも届かなければ自分から切って繋ぎ直す ②繋ぎ直したら `?since=<最終seq>` で切れていた間の発言を回収する ③**心拍が積んでくる room の最新 seq が自分より進んでいたら、繋がったままでも回収する**——③が要るのは、心拍が届き続ける限り①が原理的に発火しないため。**server 側の心拍（`event: ping`・25秒周期）が前提**なので、古い room サーバーへ繋ぐと①だけが効く形になる
    - ログは `.team/wakeup-bridge.log`。**0件でも0件と出す**ので、起こせているか・取りこぼしていないかはログを見れば分かる。再現ハーネスは `experiments/bridge-catchup-repro.mjs`
 

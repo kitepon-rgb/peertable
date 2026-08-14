@@ -73,6 +73,14 @@ if [ "$1 $2" = "debug models" ]; then
 fi
 exit 1
 `)
+await writeFile(join(bin, 'grok'), `#!/bin/bash
+if [ "$1" = "models" ]; then
+  [ -n "\${GROK_CATALOG_BROKEN:-}" ] && exit 1
+  printf '%s\n' 'You are logged in with grok.com.' '' 'Default model: grok-4.5' '' 'Available models:' '  - grok-4.6' '  * grok-4.5 (default)'
+  exit 0
+fi
+exit 1
+`)
 // 席の再起動は launch-seat.sh が担う。ここでは呼ばれ方（引数）と、席の素性がroomへ載ることだけを模す。
 // FAIL_MODEL に書いた model での起動だけ失敗する＝「catalog上は正しいが live では起動しない model」。
 await writeFile(join(scripts, 'launch-seat.sh'), `#!/bin/bash
@@ -105,7 +113,7 @@ else if (action === 'request') {
   }
 } else process.exit(2)
 `)
-await Promise.all(['tmux', 'claude', 'codex'].map(name => chmod(join(bin, name), 0o755)))
+await Promise.all(['tmux', 'claude', 'codex', 'grok'].map(name => chmod(join(bin, name), 0o755)))
 await chmod(join(scripts, 'launch-seat.sh'), 0o755)
 
 const server = spawn(process.execPath, [join(REPO, 'room/server.mjs')], {
@@ -391,16 +399,37 @@ try {
     assert.match(result.stderr, /SEAT_CHANGE_MODEL_CATALOG_UNAVAILABLE/)
   })
 
-  // 15. 席が居なければ何もしない
+  // 16. Grok席もlive catalogとAiterm同一session変更を使う
+  await member({ vendor: 'grok', model: 'grok-4.5', effort: 'high' })
+  result = run(['--model', 'grok-4.6', '--effort', 'high'])
+  check('grok-4.6へ同一sessionのまま変更できる', () => {
+    assert.equal(result.status, 0, result.stderr)
+    assert.match(result.stdout, /model grok-4\.5 → grok-4\.6/)
+  })
+  assert.equal((await configureLines()).at(-1), 'peer-koharu|--model|grok-4.6|--effort|high')
+  assert.equal((await seat()).vendor, 'grok')
+  assert.equal((await seat()).model, 'grok-4.6')
+  result = run(['--model', 'grok-9-unknown'])
+  check('grok live catalogに無いmodelは席を触らず拒否する', () => {
+    assert.notEqual(result.status, 0)
+    assert.match(result.stderr, /SEAT_CHANGE_MODEL_UNSUPPORTED: grok/)
+  })
+  result = run(['--effort', 'max'], { GROK_CATALOG_BROKEN: '1' })
+  check('grok catalogを読めない時は席を触らずに止まる', () => {
+    assert.notEqual(result.status, 0)
+    assert.match(result.stderr, /SEAT_CHANGE_MODEL_CATALOG_UNAVAILABLE: grok models/)
+  })
+
+  // 17. 席が居なければ何もしない
   await writeFile(join(root, 'seat-missing'), 'yes\n')
-  result = run(['--effort', 'high'])
+  result = run(['--effort', 'low'])
   check('席が無ければ SEAT_CHANGE_SEAT_MISSING で止まる', () => {
     assert.notEqual(result.status, 0)
     assert.match(result.stderr, /SEAT_CHANGE_SEAT_MISSING/)
   })
   await rm(join(root, 'seat-missing'), { force: true })
 
-  // 16. 互換入口（配布済み change-effort.sh）が DM 無しで動く
+  // 18. 互換入口（配布済み change-effort.sh）が DM 無しで動く
   await member({ vendor: 'claude', model: 'opus', effort: 'high' })
   const beforeCompat = (await configureLines()).length
   const compat = runCompat('max')
@@ -411,7 +440,7 @@ try {
   assert.equal((await configureLines()).length, beforeCompat + 1)
   assert.equal((await seat()).effort, 'max')
 
-  // 17. 配布面: diagnostics が両入口の梱包漏れを検出する
+  // 19. 配布面: diagnostics が両入口の梱包漏れを検出する
   const clientSource = await readFile(join(REPO, 'room/client.mjs'), 'utf8')
   check('diagnostics が change-seat.sh / change-effort.sh を必須にする', () => {
     assert.match(clientSource, /'scripts\/change-seat\.sh'/)

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Claude channelsが読むproject rootのroom MCPを、同じPeertable treeのclientへ束縛する。
+// Claude channelsとGrok Buildが読むproject rootのroom MCPを、同じPeertable treeのclientへ束縛する。
 import {
   closeSync, fsyncSync, openSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync,
 } from 'node:fs'

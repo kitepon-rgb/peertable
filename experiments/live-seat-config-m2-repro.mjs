@@ -9,7 +9,7 @@ const client = await readFile(resolve(root, 'room/client.mjs'), 'utf8')
 
 assert.match(launch, /role="\$\{7:-worker\}"/)
 assert.match(launch, /PEERTABLE_ROLE=\$role/)
-assert.match(launch, /if \[ "\$vendor" = codex \]; then[\s\S]*ensure-bridge\.sh" "\$proj" wakeup/)
+assert.match(launch, /if \[ "\$vendor" = codex \] \|\| \[ "\$vendor" = grok \]; then[\s\S]*ensure-bridge\.sh" "\$proj" wakeup/)
 assert.match(launch, /SEAT_WAKEUP_BRIDGE_NOT_READY/)
 assert.match(client, /role: process\.env\.PEERTABLE_ROLE/)
 assert.match(await readFile(resolve(root, 'skill/templates/member.md'), 'utf8'), /初回着任時の既定PLAN/)

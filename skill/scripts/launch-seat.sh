@@ -1,7 +1,7 @@
 #!/bin/bash
 # 席を1つ立てる（tmux 作成 → env 注入 → エージェント起動 → 既知ダイアログ通過 → 着席確認）。
 # usage: launch-seat.sh <project_dir> <name> <model> <vendor> <effort> [brief] [role]
-#   vendor: claude / codex
+#   vendor: claude / codex / grok
 #   effort: 必須。既定値をコードへ埋めない——席を立てる時に決める（オーナー裁定）
 #   brief:  着席が成立したら送る着任指示（省略時は送らない）
 #
@@ -178,7 +178,8 @@ preflight_dir="${TMPDIR:-/tmp}"
 case "$vendor" in
   claude) preflight_cmd=(claude --model "$model" -p "ping") ;;
   codex)  preflight_cmd=(codex exec --model "$model" --skip-git-repo-check "ping") ;;
-  *) echo "unknown vendor: ${vendor}（claude / codex）" >&2; exit 1 ;;
+  grok)   preflight_cmd=(grok --model "$model" --reasoning-effort "$effort" -p "ping") ;;
+  *) echo "unknown vendor: ${vendor}（claude / codex / grok）" >&2; exit 1 ;;
 esac
 preflight_log=$(mktemp "${TMPDIR:-/tmp}/peertable-preflight.XXXXXX")
 ( cd "$preflight_dir" && "${preflight_cmd[@]}" >"$preflight_log" 2>&1 </dev/null ) &
@@ -323,7 +324,25 @@ echo "launched: ${sess}（${vendor} / ${model}${effort:+ / $effort} / room=${roo
 # 登録が無ければ「着席済み」と丸めず、on_exitのrollbackへ渡す。
 room_ready_deadline=$((SECONDS + 30))
 room_ready=false
+grok_trust_accepted=false
 while [ $SECONDS -lt "$room_ready_deadline" ]; do
+  # Grok Build は初めて開く作業treeで、room MCPを初期化する前にworkspace trustを尋ねる。
+  # Peertableが正式に着席させるtreeなので、この既知文言だけを一度通す。未知の確認画面を
+  # 汎用的に承認するfallbackにはしない。承認後のMCP初期化時間は改めて30秒確保する。
+  if [ "$vendor" = grok ] && [ "$grok_trust_accepted" != true ]; then
+    grok_screen=$(tmux -S "$sock" capture-pane -t "$sess" -p 2>/dev/null || true)
+    case "$grok_screen" in
+      *"Do you trust the contents of this directory?"*)
+        if ! tmux -S "$sock" send-keys -t "$sess" y; then
+          echo "SEAT_GROK_TRUST_FAILED: workspace trustへ応答できない" >&2
+          exit 1
+        fi
+        grok_trust_accepted=true
+        room_ready_deadline=$((SECONDS + 30))
+        echo "grok workspace trust: accepted"
+        ;;
+    esac
+  fi
   room_members=$(curl -sf "$url/api/$room/members" 2>/dev/null || true)
   if printf '%s' "$room_members" | python3 -c 'import json,sys; name=sys.argv[1]; members=json.load(sys.stdin).get("members",[]); raise SystemExit(0 if any(m.get("name") == name for m in members) else 1)' "$name"; then
     room_ready=true
@@ -525,11 +544,11 @@ else
   echo "seat-status-bridge の起動確認に失敗した（席は着席済み）" >&2
 fi
 
-if [ "$vendor" = codex ]; then
+if [ "$vendor" = codex ] || [ "$vendor" = grok ]; then
   if PEERTABLE_CREDENTIAL_FILE="$credential_file" "$(dirname "$0")/ensure-bridge.sh" "$proj" wakeup; then
     echo "wakeup-bridge: 起動確認済み"
   else
-    echo "SEAT_WAKEUP_BRIDGE_NOT_READY: Codex席の起床bridgeを準備できない" >&2
+    echo "SEAT_WAKEUP_BRIDGE_NOT_READY: Codex／Grok席の起床bridgeを準備できない" >&2
     exit 1
   fi
 fi

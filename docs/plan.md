@@ -117,10 +117,10 @@
 
 | レイヤ | 実体 | 出所 |
 |--------|------|------|
-| メンバー | Claude Code セッション × N（独立起動・長寿命） | 公式 |
+| メンバー | Claude Code / Codex / Grok セッション × N（独立起動・長寿命） | 公式 |
 | 親 | オーナーの対話セッションが親として着卓（専用セッションは作らない。決定40） | 既存 |
 | 通信の正本 | room サーバー（チャットルーム。単独/複数の明示宛先、メンバー管理、Web UI 内蔵。設置場所は設定可能、クオ環境は MS-A2。詳細は 4.6/4.9） | 新規（本プロジェクト唯一の実装物） |
-| 配達 | Claude Code channels（外部イベント注入の公式機能）。「新着あり」の一行のみ | 公式 |
+| 配達 | Claude Code channels / Codex・Grok起床ブリッジ。「新着あり」の一行またはDM本文 | 公式 + Peertable |
 | 計画 | Lattice（@quolu/lattice） | 自作資産 |
 | 器・緊急介入 | aiterm-mcp（tmux 永続セッション） | 自作資産 |
 | ~~親の巡回駆動~~ | ~~cron + aiterm-mcp~~ → 決定40 で不要（親も channels で room の新着に起こされる） | — |
@@ -1352,3 +1352,18 @@ focused testと自己監査を行う。最終試験結果へ、発見した不�
 - 親は設定変更の実行、進行・督促、オーナーとの接点だけを担い、作業・工程内監査・closeを代行しない。
 
 決定60と決定67の相互監査・実物再試験の契約、および決定68の「監査を実装席が兼ねる」という記述は、この決定と決定80で置き換える。決定68の「claimできるToDoが無い席は仕事を発明しない」は維持する。
+
+## 24. Grok 4.6を正規席へ加える（決定84・オーナー裁定 2026-08-14）
+
+Grok Build 1.0.3とAiterm 0.25.1の公開契約を使い、`grok-4.6`をClaude/Codexと同じPeertable
+メンバー席として扱う。Peertable独自のGrok起動器は作らず、`launch-seat.sh`からAitermの
+`grok_agent`へmodel・reasoning effort・席固有envを渡す。Grok Buildはproject rootの`.mcp.json`を
+読み、既存のroom clientをそのまま使う。
+
+同一Grok席のmodel / effort変更はAitermの`agent_configure`でsessionと会話contextを維持する。
+vendor変更だけは従来どおり再起動し、roomログと工程正本から再着任する。modelは`grok models`の
+live catalogで確認し、存在しないmodelへfallbackしない。GrokにはClaude channelsが無いため、
+Codexと同じ起床ブリッジを自動装備する。room metadata、Web UIのvendor / model / effort、稼働状態、
+変更履歴は既存の共通面を使い、新しい状態やGrok専用ラッパーを追加しない。
+Grok CLIが初めて開くtreeで表示する既知workspace trustだけは正式な着席処理が通し、room MCP初期化へ
+進める。未知の確認画面を汎用承認しない。

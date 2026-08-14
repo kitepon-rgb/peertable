@@ -55,7 +55,7 @@ meta=$(printf '%s' "$members" | python3 -c '
 import json,sys
 name=sys.argv[1]
 member=next((m for m in json.load(sys.stdin).get("members",[]) if m.get("name")==name),None)
-if not member or member.get("vendor") not in ("claude","codex") or not member.get("model"):
+if not member or member.get("vendor") not in ("claude","codex","grok") or not member.get("model"):
     raise SystemExit(1)
 print("\t".join((member["vendor"],member["model"],member.get("effort") or "",member.get("aiterm_session_id") or "")))
 ' "$name") || { echo "SEAT_CHANGE_MEMBER_METADATA_MISSING: ${name} のvendor/modelが要る" >&2; exit 1; }
@@ -65,8 +65,8 @@ EOF
 
 vendor="${opt_vendor:-$old_vendor}"
 case "$vendor" in
-  claude|codex) ;;
-  *) echo "SEAT_CHANGE_VENDOR_UNSUPPORTED: vendor=${vendor}（claude / codex のみ）" >&2; exit 2 ;;
+  claude|codex|grok) ;;
+  *) echo "SEAT_CHANGE_VENDOR_UNSUPPORTED: vendor=${vendor}（claude / codex / grok のみ）" >&2; exit 2 ;;
 esac
 if [ "$vendor" != "$old_vendor" ] && { [ -z "$opt_model" ] || [ -z "$opt_effort" ]; }; then
   echo "SEAT_CHANGE_ARGS_INVALID: vendor変更には --model と --effort の明示指定が要る" >&2
@@ -142,6 +142,23 @@ print("ok" if effort in levels else "effort")
       model)  echo "SEAT_CHANGE_MODEL_UNSUPPORTED: codex catalog に model=${model} が無い" >&2; exit 1 ;;
       effort) echo "SEAT_CHANGE_EFFORT_UNSUPPORTED: codex/${model} は effort=${effort} をcatalogで提供していない" >&2; exit 1 ;;
     esac
+    ;;
+  grok)
+    catalog=$(grok models 2>/dev/null) || {
+      echo "SEAT_CHANGE_MODEL_CATALOG_UNAVAILABLE: grok models" >&2; exit 1;
+    }
+    if ! printf '%s' "$catalog" | python3 -c '
+import re,sys
+model=sys.argv[1]
+models=[]
+for line in sys.stdin:
+    match=re.match(r"^\s*[-*]\s+(\S+)", line)
+    if match: models.append(match.group(1))
+raise SystemExit(0 if model in models else 1)
+' "$model"; then
+      echo "SEAT_CHANGE_MODEL_UNSUPPORTED: grok catalog に model=${model} が無い" >&2
+      exit 1
+    fi
     ;;
 esac
 

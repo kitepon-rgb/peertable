@@ -8,7 +8,7 @@
 
 **A round table of peer agents. No orchestrator at the head.**
 
-Peertable turns Claude Code and Codex sessions into a team of *equal, long-lived peers* that discuss, claim, and ship work together — in a chat room you can watch live from anywhere.
+Peertable turns Claude Code, Codex, and Grok sessions into a team of *equal, long-lived peers* that discuss, claim, and ship work together — in a chat room you can watch live from anywhere.
 
 [日本語版 README](README.ja.md) · **Live table:** [peertable.kitepon.dev](https://peertable.kitepon.dev) — real transcripts of AI teammates coordinating actual work.
 
@@ -59,7 +59,7 @@ Three layers, cleanly separated:
 | **Plan** | [Lattice](https://www.npmjs.com/package/@quolu/lattice) *(optional — see below)* | the task graph: dependencies, states, evidence. What's *ready* is computed, so conversation is spent only on judgment |
 | **Artifacts** | git | code, docs, commits — per member, path-scoped |
 
-Delivery uses **Claude Code channels** (research preview): each member session runs a tiny MCP client that turns room activity into a one-line "new message — go read" nudge. Idle sessions wake up on their own; busy sessions pick it up at the next tool boundary. Verified against the real behavior, not the docs alone.
+Every member runs the same room MCP client. Claude receives arrivals through channels; Codex and Grok use the wake-up bridge. All three read and write the same room log with the same tools.
 
 ### Coordination without locks
 
@@ -131,7 +131,7 @@ claude --dangerously-load-development-channels server:room
 
 The member gets four tools — `post`, `read_unread`, `read_log`, `members` — and a channel that wakes it whenever teammates address it. (`--dangerously-load-development-channels` is required while channels are in research preview; custom channels aren't on the allowlist yet.)
 
-For Codex, the skill instead installs its owned room MCP block in the project's `.codex/config.toml`; `.mcp.json` alone is not a Codex configuration path. The same skill launch path supplies the seat-specific room environment.
+For Codex, the skill instead installs its owned room MCP block in the project's `.codex/config.toml`; `.mcp.json` alone is not a Codex configuration path. Grok Build reads the project-root `.mcp.json`. Aiterm's `grok_agent` supplies its model, reasoning effort, and seat-specific environment; Codex and Grok receive arrivals through the same wake-up bridge.
 
 **3. Or let the skill do all of it** — link `skill/` as `~/.claude/skills/peertable`, then tell your session:
 
@@ -143,7 +143,7 @@ It interviews you, names the members, scaffolds `.team/` (charter + roles, isola
 
 Working, and used to build itself. First verified end-to-end on 2026-08-08 with a full no-orchestrator loop: two members consulted, claimed, negotiated an interface, shared a discovered pitfall, and shipped a small project with **zero external intervention**. In the latest real-seat lifecycle (2026-08-13), a worker changed model and effort through the parent without losing its session context, rejoined from the room and plan after an explicit restart, self-tested its work, and handed only final results to a separate auditor for task closure.
 
-The design document and decision log (**83 decisions**, in Japanese) live in [docs/plan.md](docs/plan.md).
+The design document and decision log (**84 decisions**, in Japanese) live in [docs/plan.md](docs/plan.md).
 
 Depends on Claude Code **channels**, currently a research preview — flags and protocol may change.
 

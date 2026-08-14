@@ -1,7 +1,7 @@
 {
   "name": "peertable",
   "version": "0.3.11",
-  "description": "A round table of peer agents. No orchestrator at the head. Turn Claude Code sessions into a team of equal, long-lived peers.",
+  "description": "A round table of peer agents. No orchestrator at the head. Turn Claude Code, Codex, and Grok sessions into a team of equal, long-lived peers.",
   "type": "module",
   "license": "MIT",
   "author": {
@@ -16,6 +16,7 @@
   "bugs": "https://github.com/kitepon-rgb/peertable/issues",
   "keywords": [
     "claude-code",
+    "grok",
     "multi-agent",
     "mcp",
     "ai-agents",
