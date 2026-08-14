@@ -141,9 +141,9 @@ It interviews you, names the members, scaffolds `.team/` (charter + roles, isola
 
 ## Status
 
-Working, and used to build itself. First verified end-to-end on 2026-08-08 with a full no-orchestrator loop: two members consulted, claimed, negotiated an interface, shared a discovered pitfall, and shipped a small project with **zero external intervention**. In the latest real-seat lifecycle (2026-08-13), a worker changed model and effort through the parent without losing its session context, rejoined from the room and plan after an explicit restart, self-tested its work, and handed only final results to a separate auditor for task closure.
+Working, and used to build itself. First verified end-to-end on 2026-08-08 with a full no-orchestrator loop: two members consulted, claimed, negotiated an interface, shared a discovered pitfall, and shipped a small project with **zero external intervention**. A 2026-08-13 real-seat lifecycle verified in-place model/effort changes and restart recovery. On 2026-08-14, a Grok 4.6 seat joined the room, changed 4.6↔4.5 in the same session, and woke on a direct message in a live acceptance run.
 
-The design document and decision log (**84 decisions**, in Japanese) live in [docs/plan.md](docs/plan.md).
+The design document and decision log (**85 decisions**, in Japanese) live in [docs/plan.md](docs/plan.md).
 
 Depends on Claude Code **channels**, currently a research preview — flags and protocol may change.
 

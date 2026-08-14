@@ -5,8 +5,8 @@
 親（オーケストレーター）に最終判断が集中しない、メンバー並列型のマルチエージェント作業システム。
 
 作成日: 2026-08-08
-状態: 設計確定 / V0〜V3 通過・V4 封印（決定41）/ スキル化完了 / GitHub 公開済み / npm 公開済み。`0.3.6` 出荷完了（release gate 導入・dotagents 工場編入・決定70）
-リポジトリ: github.com/kitepon-rgb/peertable（**公開済み 2026-08-08・MIT・public**）/ npm: **peertable@0.3.6 公開済み**（2026-08-10）
+状態: 設計確定 / V0〜V3 通過・V4 封印（決定41）/ スキル化完了 / GitHub・npm 公開済み。Grok 4.6正規席を含む`0.4.0`公開準備中（決定84・85）
+リポジトリ: github.com/kitepon/peertable（**公開済み 2026-08-08・MIT・public**）/ npm: **peertable@0.3.11 公開済み**（`0.4.0`公開準備中）
 工場: dotagents 開発工場の管理対象（**自作コア11製品の1つ**・wire v7 の固定15製品目）。統合契約は dotagents 側が所有し、本 repo の source・state・skill 配布・release は Peertable が所有し続ける
 
 ---
@@ -884,7 +884,7 @@ V0（channels ドキュメント確認）・V1（channels 実測）・V2（Latti
 
 ## 10. リポジトリ構成
 
-開発は dotagents とは別の独立リポジトリ **kitepon-rgb/peertable** で行う（適用先と開発場所の分離、決定履歴 31）。
+開発は dotagents とは別の独立リポジトリ **kitepon/peertable** で行う（適用先と開発場所の分離、決定履歴 31）。
 
 ```
 peertable/
@@ -897,7 +897,7 @@ peertable/
 ├── AGENTS.md         # 聖典（プロジェクト規約の正本）
 ├── CLAUDE.md         # `@AGENTS.md` の 1 行 import のみ（Lattice と同方式）
 ├── README.md / README.ja.md / LICENSE (MIT)
-└── （公開済み: github.com/kitepon-rgb/peertable）
+└── （公開済み: github.com/kitepon/peertable）
 ```
 
 プロジェクト規約の聖典は AGENTS.md とし、CLAUDE.md は `@AGENTS.md` の 1 行 import のみを置く（クオ指示 2026-08-08、決定履歴 33）。
@@ -1355,7 +1355,7 @@ focused testと自己監査を行う。最終試験結果へ、発見した不�
 
 ## 24. Grok 4.6を正規席へ加える（決定84・オーナー裁定 2026-08-14）
 
-Grok Build 1.0.3とAiterm 0.25.1の公開契約を使い、`grok-4.6`をClaude/Codexと同じPeertable
+Grok Build 1.0.3とAiterm 0.25.2の公開契約を使い、`grok-4.6`をClaude/Codexと同じPeertable
 メンバー席として扱う。Peertable独自のGrok起動器は作らず、`launch-seat.sh`からAitermの
 `grok_agent`へmodel・reasoning effort・席固有envを渡す。Grok Buildはproject rootの`.mcp.json`を
 読み、既存のroom clientをそのまま使う。
@@ -1367,3 +1367,11 @@ Codexと同じ起床ブリッジを自動装備する。room metadata、Web UI�
 変更履歴は既存の共通面を使い、新しい状態やGrok専用ラッパーを追加しない。
 Grok CLIが初めて開くtreeで表示する既知workspace trustだけは正式な着席処理が通し、room MCP初期化へ
 進める。未知の確認画面を汎用承認しない。
+
+## 25. Grok正規席を`0.4.0`として公開する（決定85・オーナー裁定 2026-08-14）
+
+Grok正規席は既存のAiterm公開入口、room MCP、metadata、status、history、wakeup bridgeだけで構成し、
+Grok専用の状態・launcher・再試行経路を追加しない。`0.4.0`はこの公開面の追加を表すminor releaseとする。
+公開前にGrok 4.6実席で着席、room参加、同一sessionの4.6→4.5→4.6変更、DM起床を確認し、
+関連focused testと4環境full CIを通す。npm公開後はregistry由来global installでversion、bin、diagnostics、
+Grok席の公開ファイル同梱を確認して受入を閉じる。
