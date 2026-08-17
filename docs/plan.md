@@ -1404,3 +1404,12 @@ DESCRIPTOR_MISSING のまま再試行せず cursor を進める。Grok 親の番
 wakeup-bridge / parent-watch / parent-join / 配布診断へ、Grok idle待ち・broadcast本文・親cursor
 前進を載せる。公開前に focused harness と `diagnostics` を通し、npm 公開後は registry 由来
 global install で version・bin・diagnostics・`wakeup-delivery.mjs` 同梱を確認して受入を閉じる。
+
+公開対象commit `b1873e3f6524ea53c9dc1d6cc1e4a0ea3189f918`を`v0.4.1`へ固定した。
+[GitHub Release](https://github.com/kitepon/peertable/releases/tag/v0.4.1)はdraft／prereleaseでない。
+npmのintegrityは
+`sha512-dd4UJ584nNbfe4ezvKh84MVxoKuXyaQcZrRYyY7kNl1m2qiRo0jdBvQexjmfRati+y8o1lO10SEN6XhaR2JMjA==`、
+shasumは`d4cfdfaf8d472b87efe59b9659daf3b37e241b62`で、42 filesを公開した。
+npm由来global installは0.4.1の非symlink packageで、2 bins、diagnostics ready、
+`wakeup-delivery.mjs`同梱、Grok idle待ち・broadcast本文・親番犬分岐の配布source一致を確認した。
+これを`0.4.1`の公開受入とする。
