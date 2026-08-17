@@ -5,8 +5,8 @@
 親（オーケストレーター）に最終判断が集中しない、メンバー並列型のマルチエージェント作業システム。
 
 作成日: 2026-08-08
-状態: 設計確定 / V0〜V3 通過・V4 封印（決定41）/ スキル化完了 / GitHub・npm 公開済み。Grok 4.6正規席を含む`0.4.0`出荷完了（決定84・85）。Grok起床とbroadcast本文は決定86
-リポジトリ: github.com/kitepon/peertable（**公開済み 2026-08-08・MIT・public**）/ npm: **peertable@0.4.0 公開済み**（2026-08-14）
+状態: 設計確定 / V0〜V3 通過・V4 封印（決定41）/ スキル化完了 / GitHub・npm 公開済み。Grok 4.6正規席を含む`0.4.0`出荷完了（決定84・85）。Grok起床とbroadcast本文は決定86。配送修正は`0.4.1`（決定87）
+リポジトリ: github.com/kitepon/peertable（**公開済み 2026-08-08・MIT・public**）/ npm: **peertable@0.4.1**（2026-08-17）
 工場: dotagents 開発工場の管理対象（**自作コア11製品の1つ**・wire v7 の固定15製品目）。統合契約は dotagents 側が所有し、本 repo の source・state・skill 配布・release は Peertable が所有し続ける
 
 ---
@@ -120,7 +120,7 @@
 | メンバー | Claude Code / Codex / Grok セッション × N（独立起動・長寿命） | 公式 |
 | 親 | オーナーの対話セッションが親として着卓（専用セッションは作らない。決定40） | 既存 |
 | 通信の正本 | room サーバー（チャットルーム。単独/複数の明示宛先、メンバー管理、Web UI 内蔵。設置場所は設定可能、クオ環境は MS-A2。詳細は 4.6/4.9） | 新規（本プロジェクト唯一の実装物） |
-| 配達 | Claude Code channels / Codex・Grok起床ブリッジ。「新着あり」の一行またはDM本文 | 公式 + Peertable |
+| 配達 | Claude Code channels / Codex・Grok起床ブリッジ。broadcast本文またはDM本文（決定86） | 公式 + Peertable |
 | 計画 | Lattice（@quolu/lattice） | 自作資産 |
 | 器・緊急介入 | aiterm-mcp（tmux 永続セッション） | 自作資産 |
 | ~~親の巡回駆動~~ | ~~cron + aiterm-mcp~~ → 決定40 で不要（親も channels で room の新着に起こされる） | — |
@@ -470,7 +470,8 @@ Peertable が Lattice のどの面をどう消費するか（consumer contract �
 54. **Codex 席と起床ブリッジ（円卓×工程表統合 campaign P4。2026-08-08）**。円卓は Claude 専用ではない。Codex を対等なメンバーとして着卓させる。
     - **room の差し方**: Codex には channels が無いので、room は `-c` 上書きの stdio MCP として差す（`mcp_servers.room.command="peertable-client"`）。**`[mcp_servers.X.env]` は closed mode で親環境を継がない**ため `PATH` を含む全変数を明示列挙する（caveat 既知）。LAN HTTP の MCP は使わない
     - **起床は wakeup-bridge が担う**（`skill/scripts/wakeup-bridge.mjs`）。room の SSE を購読し、明示的にその席宛の新着（自分の発言は除く）だけを tmux の席へ**素送信**して起こす。2秒ごとに束ねて送るので、連投で席を何度も起こさない
-    - **素送信で足りる——idle 待ちは要らなかった**。Codex は**ターン実行中でも入力を受け付け、その文言を同じターンの中で読んで指示どおりに動く**（実測: busy 中に送った割り込みに応じて room へ投稿した）。計画時は「不可なら idle 検出待ちへ落とす」を第二候補に置いていたが、実測で第一候補が通ったので待ちの経路は**持たない**——待ちを入れると混んでいる席ほど起床が遅れる
+    - **素送信で足りる——idle 待ちは要らなかった（Codex）**。Codex は**ターン実行中でも入力を受け付け、その文言を同じターンの中で読んで指示どおりに動く**（実測: busy 中に送った割り込みに応じて room へ投稿した）。計画時は「不可なら idle 検出待ちへ落とす」を第二候補に置いていたが、実測で第一候補が通ったので Codex 席の待ち経路は**持たない**。Grok 席は決定86で idle 待ちへ分岐する
+
     - **生死は ADR 0157（Lattice）の作法に倣う**: 自分の pid を `.team/wakeup-bridge.json` へ記録し、起動時に前の記録を掃除する（死んでいれば消す・生きていれば SIGTERM→SIGKILL で止める）。止まらなければ `WAKEUP_BRIDGE_STOP_FAILED` で落ちる。SSE へ10回連続で繋げなければ `WAKEUP_BRIDGE_UNREACHABLE` で落ちる——**黙って再試行し続けない**。teardown は `.team/` を消す前にブリッジを止める
     - **Codex 席のダイアログは既定が正しいとは限らない**: 更新案内（`1. Update now`）を既定のまま通すと、立卓の途中で `npm install -g @openai/codex` が走る。`launch-seat.sh` は「2. Skip」を選ぶ。モデル slug も、ChatGPT アカウントで使えないものは**起動後の最初のターンで 400 になって初めて分かる**（起動時には落ちない）
 55. **工程表の作業記録は公開面にも載せる（Lattice 0.50.0・オーナー裁定 2026-08-08）**。Lattice は「repo 外へ HTML を出す公開配信面だけが note 本文を落とす」という除外契約（ADR 0149 Decision 8 → 0153 Decision 2）を持っていたが、**その除外を廃止した**。円卓の工程表は repo の外から読む面であり、除外を残したままでは**外部ペインを差した先で右ペインが題名と ID だけになる**。
@@ -1396,3 +1397,10 @@ Grok Build TUI の既定は `follow_up_behavior=queue` で、ターン中の素�
 `parent_watch` と `observe: null` は wakeup-bridge の宛先にしない。一度対象にした seq も
 DESCRIPTOR_MISSING のまま再試行せず cursor を進める。Grok 親の番犬は `parent-watch.mjs --follow`
 であり、通常席 bridge に親を載せない。
+
+## 27. 配送修正を`0.4.1`として公開する（決定87・オーナー指示 2026-08-17）
+
+決定86の実装を patch release `0.4.1` として出す。Grok専用launcherは足さない。公開面は既存の
+wakeup-bridge / parent-watch / parent-join / 配布診断へ、Grok idle待ち・broadcast本文・親cursor
+前進を載せる。公開前に focused harness と `diagnostics` を通し、npm 公開後は registry 由来
+global install で version・bin・diagnostics・`wakeup-delivery.mjs` 同梱を確認して受入を閉じる。

@@ -37,7 +37,7 @@ Peertable はこれを裏返す:
 | **計画** | [Lattice](https://www.npmjs.com/package/@quolu/lattice)（**任意**——下記） | タスクグラフ（依存・状態・証跡）。「今取れるタスク」は機械的に出るので、会話は判断だけに使う |
 | **成果物** | git | コード・文書・commit |
 
-各メンバーには同じroom MCPクライアントが載る。Claudeはchannels、CodexとGrokは起床ブリッジで新着を受け取り、roomの同じログとツールを使う。
+各メンバーには同じroom MCPクライアントが載る。Claudeはchannels、CodexとGrokは起床ブリッジで新着を受け取る。broadcastは本文（claim・試験・完了）を載せ、Codexはターン中に混ぜ、Grokはidleになってから起こす。roomの同じログとツールを使う。
 
 ### ロックなしの調整
 
@@ -93,7 +93,7 @@ claude --dangerously-load-development-channels server:room
 
 **`--mcp-config` で渡してはいけない。** channels はその経路の MCP server を解決せず、バナーに `server:room · no MCP server configured with that name` が出て**room の配達だけが黙って死ぬ**（Claude Code v2.1.226 で実測・決定44）。スキルを使えば自動で置かれ、teardown で戻る。
 
-Codex では、スキルが所有する room MCP block をプロジェクトの `.codex/config.toml` へ置く。`.mcp.json` だけは Codex の設定入口にならず、席固有のroom環境も同じスキル起動経路が渡す。Grok Buildはproject rootの`.mcp.json`を読み、Aitermの`grok_agent`からmodel・effort・席固有envを受け取る。CodexとGrokの新着は同じ起床ブリッジが届ける。
+Codex では、スキルが所有する room MCP block をプロジェクトの `.codex/config.toml` へ置く。`.mcp.json` だけは Codex の設定入口にならず、席固有のroom環境も同じスキル起動経路が渡す。Grok Buildはproject rootの`.mcp.json`を読み、Aitermの`grok_agent`からmodel・effort・席固有envを受け取る。CodexとGrokの新着は同じ起床ブリッジが届ける。Codexは即送信（ターン中のsteering）。Grok TUIはターン中の素送信を次のuserターンへ積むので、ブリッジはidleを待ってから送る。親は起床対象にしない——ClaudeとGrok親は`parent-watch --follow`、Codex親はpoll。
 
 **3. あるいはスキルに全部やらせる** — `skill/` を `~/.claude/skills/peertable` にリンクして、セッションに一言:
 
@@ -105,11 +105,11 @@ Codex では、スキルが所有する room MCP block をプロジェクトの 
 
 ## 状態
 
-動いており、**自分自身の開発に使っている**。2026-08-08 に end-to-end 検証済み——オーケストレーターなしの完全な一周（2 メンバーが相談し、claim し、インターフェースを交渉し、見つけた罠を共有して小さなプロジェクトを出荷）を**外部介入ゼロ**で完走。2026-08-13の実席ライフサイクルでは、作業席が親を通じてsession contextを保ったままmodel / effortを変更し、再起動後はroomと工程正本から再着任した。2026-08-14にはGrok 4.6席の着席、room参加、同一sessionの4.6↔4.5変更、DM起床を実機で確認した。
+動いており、**自分自身の開発に使っている**。2026-08-08 に end-to-end 検証済み——オーケストレーターなしの完全な一周（2 メンバーが相談し、claim し、インターフェースを交渉し、見つけた罠を共有して小さなプロジェクトを出荷）を**外部介入ゼロ**で完走。2026-08-13の実席ライフサイクルでは、作業席が親を通じてsession contextを保ったままmodel / effortを変更し、再起動後はroomと工程正本から再着任した。2026-08-14にはGrok 4.6席の着席、room参加、同一sessionの4.6↔4.5変更、DM起床を実機で確認した。2026-08-17にGrok席はidle待ち、broadcastは本文を残し、tmuxの無い親でbridge cursorが止まらないよう直した。
 
-現在のnpm releaseは **peertable 0.4.0**。
+現在のnpm releaseは **peertable 0.4.1**。
 
-設計文書と決定履歴（**85 決定**）は [docs/plan.md](docs/plan.md)。
+設計文書と決定履歴（**87 決定**）は [docs/plan.md](docs/plan.md)。
 
 Claude Code channels はリサーチプレビューのため、フラグ・プロトコルは変わりうる。
 
