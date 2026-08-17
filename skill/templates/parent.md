@@ -31,7 +31,7 @@
 ## 着卓手順
 
 vendor に関わらず: `scripts/parent-join.sh <project> [name] [model] [effort] [vendor]` で member
-登録する。`vendor` は `claude`（既定）または `codex`。Lattice 併用モードなら、
+登録する。`vendor` は `claude`（既定）、`codex`、または `grok`。Lattice 併用モードなら、
 `source .team/parent-env.sh` で Lattice mutation（`todo reopen` 等）に要る actor 環境変数
 （`LATTICE_TODO_ACTOR_HOST`/`SESSION`/`AGENT`）を親 shell へ持続配線する——**子 process の
 export は親 shell に伝播しないため**、これをしないまま `lattice todo reopen` 等を打つと
@@ -49,6 +49,9 @@ export は親 shell に伝播しないため**、これをしないまま `latti
   `scripts/codex-parent-watch.sh <project> <親名>`を都度実行し、空でないstdoutだけを`notify`して
   `yield_control`する。このscriptはHTTP catch-upを一度行って即終了する。長寿命なのはbackground taskの
   loopだけで、Node processや端末sessionは常駐させない。張り替え時は旧background taskを停止する。
+- **Grok**: Monitorツール（persistent）で`node scripts/parent-watch.mjs <project> <親名> --follow`
+  を1回だけ起動し、stdoutのJSON eventを親へ返す。通常席用`wakeup-bridge`に親を載せない。
+  張り替え時は旧Monitorを止めてから起動する。
 
 どちらも`parent-join.sh`が先に作る`.team/parent-watch.json`のcursorを共有する。watcher不在中のDMは
 次回起動時にcatch-upされ、親以外宛・親自身の発言・pingでは親を起こさない。`watch_error`が届いたら
@@ -115,7 +118,7 @@ peertable_parent_post() {
 3. 工程正本で照合する（Lattice 併用: `lattice todo status --json`。単独: `.team/tasks.md` と
    room ログの突き合わせ）。食い違ったら工程正本が正で、食い違い自体を room へ出す
 4. member 登録は残っているので `parent-join.sh` を再実行しない。名前を確認するだけでよい
-5. vendorに応じて番犬を張り直す。Claudeは旧Monitorを止めて`--follow`を1回起動する。Codexは旧background
+5. vendorに応じて番犬を張り直す。ClaudeとGrokは旧Monitorを止めて`--follow`を1回起動する。Codexは旧background
    taskを止め、1秒ごとの`--poll` loopを起動する。永続cursorが不在時間のDMをcatch-upする
 6. 順序の要点は「room と工程正本を読み終えるまで発言しない」
 

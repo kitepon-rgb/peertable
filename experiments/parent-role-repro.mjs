@@ -108,7 +108,8 @@ try {
   const parentMd = await readFile(path.join(proj, '.team/roles/parent.md'), 'utf8').catch(() => null);
   check('.team/roles/parent.md が生成される', parentMd !== null);
   check('parent.md が親の行わないことを明記', parentMd?.includes('親が行わないこと') ?? false);
-  check('parent.md が vendor 分岐（Claude/Codex の新着検知）を明記', (parentMd?.includes('Claude') && parentMd?.includes('Codex')) ?? false);
+  check('parent.md が vendor 分岐（Claude/Codex/Grok の新着検知）を明記',
+    (parentMd?.includes('Claude') && parentMd?.includes('Codex') && parentMd?.includes('Grok')) ?? false);
 
   // 2. parent-join.sh: mode=lattice の setup-state.json で parent-env.sh が生成される
   const { server, url, registered, messages, requests } = await fixtureServer();
@@ -137,6 +138,20 @@ try {
       && joinResult.stdout.includes('端末sessionは常駐させない')
       && !joinResult.stdout.includes('--follow')
       && !joinResult.stdout.includes('wakeup-bridge'));
+
+    const grokJoin = await run('bash', [PARENT_JOIN, latticeProj, 'bell-grok', 'grok-4.6', '', 'grok'], { env: childEnv });
+    check('parent-join.sh（grok）が成功する', grokJoin.code === 0, grokJoin.stderr.trim().slice(-300));
+    const grokMember = registered.find((m) => m.name === 'bell-grok');
+    check('Grok親は通常席descriptorでなくparent_watchを自己申告する',
+      grokMember?.observe === null
+      && grokMember?.delivery?.kind === 'parent_watch'
+      && grokMember?.delivery?.host === 'grok',
+      JSON.stringify(grokMember));
+    check('Grok親へMonitor番犬の起動要求を返しwakeup-bridgeへ載せない',
+      grokJoin.stdout.includes('PARENT_WATCH_START_REQUIRED')
+      && grokJoin.stdout.includes('--follow')
+      && grokJoin.stdout.includes('Grok Monitor')
+      && grokJoin.stdout.includes('wakeup-bridgeに親を載せない'));
 
     // 3. mode=standalone では parent-env.sh を作らない
     const standaloneProj = path.join(work, 'standalone-proj');

@@ -5,7 +5,7 @@
 親（オーケストレーター）に最終判断が集中しない、メンバー並列型のマルチエージェント作業システム。
 
 作成日: 2026-08-08
-状態: 設計確定 / V0〜V3 通過・V4 封印（決定41）/ スキル化完了 / GitHub・npm 公開済み。Grok 4.6正規席を含む`0.4.0`出荷完了（決定84・85）
+状態: 設計確定 / V0〜V3 通過・V4 封印（決定41）/ スキル化完了 / GitHub・npm 公開済み。Grok 4.6正規席を含む`0.4.0`出荷完了（決定84・85）。Grok起床とbroadcast本文は決定86
 リポジトリ: github.com/kitepon/peertable（**公開済み 2026-08-08・MIT・public**）/ npm: **peertable@0.4.0 公開済み**（2026-08-14）
 工場: dotagents 開発工場の管理対象（**自作コア11製品の1つ**・wire v7 の固定15製品目）。統合契約は dotagents 側が所有し、本 repo の source・state・skill 配布・release は Peertable が所有し続ける
 
@@ -1276,9 +1276,8 @@ e1の独立監査後、本番room serverを新実装へ切り替える。再起�
 通常の`post`だけを使う。後付けのtyped task event、自動着手・自動完了、member turn完了通知、
 Stop hook、宛先生成、通知の重複制御は廃止する。DM配達、SSE、起床bridge、親watchは配送基盤として残す。
 
-`to: "all"`の本文はroomログへそのまま保存・表示する。各AIへ直接注入するのは本文ではなく
-「room全体の状況が更新された。room.read_logで部屋を読み、状況を把握して次の行動を判断する。」という
-定型の再読指示だけとする。個人DMは送信者・宛先・本文をその人へ直接注入する。実装・監査・readyが
+`to: "all"`の本文はroomログへそのまま保存・表示する。各AIへ直接注入する文面も本文を載せる
+（決定86。決定77の定型再読だけの注入はsupersede）。空本文だけ旧定型に倒す。個人DMは送信者・宛先・本文をその人へ直接注入する。実装・監査・readyが
 本当に無い時の待機宣言は最終手段として親だけへDMし、`all`へ送らない。通常のターン終了時の次の行動は
 自分宛DMに置く。
 
@@ -1384,3 +1383,16 @@ shasumは`56c30f004319aac951821907b40e480c6718ce0a`で、41 filesを公開した
 [GitHub Release](https://github.com/kitepon/peertable/releases/tag/v0.4.0)はdraft／prereleaseでない。
 npm由来global installは0.4.0の非symlink packageで、2 bins、diagnostics ready、Grok着席・設定変更・
 wakeup実装の配布source一致を確認した。これを`0.4.0`の公開受入とする。
+
+## 26. Grok起床とbroadcast本文（決定86・オーナー実測 2026-08-17）
+
+決定77の「`to: all` は定型の再読指示だけを注入する」は、claim・試験提出・完了が席へ見えない
+欠陥になった。broadcast も DM と同じく本文（改行は空白へ潰す）を注入する。空本文だけ旧定型に倒す。
+
+Grok Build TUI の既定は `follow_up_behavior=queue` で、ターン中の素送信は今の仕事へ混ざらず
+入力キューへ積まれる。Codex 前提の即 `send-keys` を Grok 席に使わない。Grok 席は pane が idle
+になるまで送り、busy 中のキュー積みをしない。
+
+`parent_watch` と `observe: null` は wakeup-bridge の宛先にしない。一度対象にした seq も
+DESCRIPTOR_MISSING のまま再試行せず cursor を進める。Grok 親の番犬は `parent-watch.mjs --follow`
+であり、通常席 bridge に親を載せない。

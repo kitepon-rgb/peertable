@@ -5,8 +5,8 @@
 #   model / effort / vendor は任意。親はオーナーの対話セッション（決定40）なので、席と違って
 #   起動時に確定した値を script が知らない——**渡された時だけ**参加者一覧の素性として登録する。
 #   渡さなければ欄ごと出ない（「不明」ではなく「素性を名乗っていない」）。
-#   vendor は claude（既定）または codex。model だけ渡して vendor を渡さない場合は claude とみなす
-#   （後方互換）。
+#   vendor は claude（既定）、codex、または grok。model だけ渡して vendor を渡さない場合は
+#   claude とみなす（後方互換）。
 # 親は MCP を後付けできないので room へは HTTP API 直で入る（決定40 の operating notes）。
 set -e
 proj="$1"; name="${2:-bell}"; model="$3"; effort="$4"; vendor="$5"
@@ -19,7 +19,7 @@ if [ -z "${PEERTABLE_POST_TOKEN:-}" ] && [ -f "$HOME/.config/peertable.env" ]; t
   . "$HOME/.config/peertable.env"
 fi
 
-# 親はAiterm席ではない。Claude/Codexとも、親自身が所有するparent-watchを配送先にする。
+# 親はAiterm席ではない。Claude/Codex/Grokとも、親自身が所有するparent-watchを配送先にする。
 # tmux observeやCodex thread IDを登録すると、通常席bridge／外部resumeへ誤配送される。
 parent_vendor="${vendor:-claude}"
 member=$(python3 - "$name" "$model" "$effort" "$parent_vendor" <<'PY'
@@ -67,6 +67,8 @@ if PEERTABLE_PARENT_HOST="$parent_vendor" node "$here/parent-watch.mjs" "$proj" 
   echo "parent-watch cursor ready: ${name}（host=${parent_vendor}）"
   if [ "$parent_vendor" = "codex" ]; then
     echo "PARENT_WATCH_START_REQUIRED: Codex親のbackground taskで1秒ごとに ${here}/codex-parent-watch.sh ${proj} ${name} を都度実行し、空でないstdoutだけを親turnへnotifyすること。background taskはloopを続けるが、Node processや端末sessionは常駐させない"
+  elif [ "$parent_vendor" = "grok" ]; then
+    echo "PARENT_WATCH_START_REQUIRED: Grok Monitor（persistent）で ${here}/parent-watch.mjs ${proj} ${name} --follow を1回だけ起動し、通知後も同じMonitorで待機を続けること。通常席用wakeup-bridgeに親を載せない"
   else
     echo "PARENT_WATCH_START_REQUIRED: Claude Monitor（persistent）で ${here}/parent-watch.mjs ${proj} ${name} --follow を1回だけ起動し、通知後も同じMonitorで待機を続けること"
   fi

@@ -9,13 +9,15 @@
 // 止まらなければ黙って諦めず typed error で落ちる。
 //
 // 実測（2026-08-08・Codex CLI v0.146.0）: Codex は**ターン実行中でも素送信を受け付ける**。
-// 送った文言はそのターンの中で読まれ、指示どおりに動いた（steering が効く）。したがって
-// idle 待ちの経路は持たない——待ちを入れると、混んでいる席ほど起床が遅れる。
+// 送った文言はそのターンの中で読まれ、指示どおりに動いた（steering が効く）。
+// 実測（2026-08-17・Grok Build TUI）: Grok 既定は follow_up_behavior=queue。素送信は
+// 今のターンへ混ざらず入力キューへ積まれ、次の user ターンになる。Grok 席だけ idle を待つ。
 import { execFile } from 'node:child_process'
 import { existsSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { resolveSeatObservation } from './seat-usage.mjs'
+import { BROADCAST_RECIPIENT, formatWakeNotice, isWakeupBridgeTarget, shouldDeferGrokWake } from './wakeup-delivery.mjs'
 
 const run = promisify(execFile)
 const [proj, ...rest] = process.argv.slice(2)
@@ -105,15 +107,32 @@ const deliveryStates = new Map() // seq -> { message, targets, delivered }
 let seats = []
 let members = new Map()
 let membersObserved = false
+function forgetSeat(seat) {
+  const queue = pending.get(seat)
+  if (queue) {
+    for (const msg of queue.values()) {
+      const state = deliveryStates.get(msg.seq)
+      if (!state) continue
+      state.targets.delete(seat)
+    }
+  }
+  pending.delete(seat)
+  advanceLastSeq()
+}
+
 function reconcileSeats() {
   const next = new Set()
   if (membersObserved) {
     for (const member of members.values()) {
-      if (typeof member.name !== 'string' || member.name.length === 0) continue
-      if (member.delivery?.kind === 'parent_watch') continue
+      if (!isWakeupBridgeTarget(member)) continue
       next.add(member.name)
       if (!pending.has(member.name)) pending.set(member.name, new Map())
     }
+  }
+  for (const seat of [...pending.keys()]) {
+    if (next.has(seat)) continue
+    log(`配送対象外の席を外した: ${seat}`)
+    forgetSeat(seat)
   }
   const previous = seats.join(',')
   seats = [...next]
@@ -178,7 +197,6 @@ function deliveryKey(seq, seat) {
   return `${seq}:${seat}`
 }
 
-const BROADCAST_RECIPIENT = 'all'
 function recipientNames(msg) {
   if (Array.isArray(msg.to_names)) {
     if (msg.to_names.includes(BROADCAST_RECIPIENT)) return []
@@ -202,26 +220,32 @@ function advanceLastSeq() {
   if (advanced) saveDeliveryState()
 }
 
+const deferredBusy = new Set()
 async function wake(seat, msgs) {
   const last = msgs[msgs.length - 1]
-  const text = msgs.map(msg => {
-    const audience = Array.isArray(msg.to_names) ? msg.to_names.join(', ') : msg.to
-    if (msg.to === BROADCAST_RECIPIENT) {
-      return `[Peertable #${msg.seq}] room全体の状況が更新された。room.read_logで部屋を読み、状況を把握して次の行動を判断する。`
-    }
-    const body = String(msg.body).replace(/\s*\n+\s*/gu, ' / ')
-    return `[Peertable DM #${msg.seq}] ${msg.from} → ${audience}: ${body}`
-  }).join(' || ')
+  const text = msgs.map(formatWakeNotice).join(' || ')
   // 配送直前に member ledger を取り直し、current name -> descriptor の一経路だけを使う。
   await refreshMembers()
   const member = members.get(seat)
-  const delivery = member?.delivery
+  if (!isWakeupBridgeTarget(member)) return 'skipped'
   const observation = resolveSeatObservation(member, null)
   if (observation === null) {
     const code = members.has(seat) ? 'DESCRIPTOR_MISSING' : 'MEMBER_MISSING'
     const error = new Error(`${code}: ${seat}`)
     error.code = code
     throw error
+  }
+  if (member.vendor === 'grok') {
+    const pane = await run('tmux', ['-S', observation.socket, 'capture-pane', '-t', observation.target, '-p'])
+    const tail = String(pane.stdout).split('\n').slice(-14).join('\n')
+    if (shouldDeferGrokWake(member.vendor, tail)) {
+      if (!deferredBusy.has(seat)) {
+        log(`Grok席が実行中なのでidleまで待つ: ${seat} ← ${msgs.length} 件`)
+        deferredBusy.add(seat)
+      }
+      return 'deferred'
+    }
+    deferredBusy.delete(seat)
   }
   // Codexの入力欄は本文とEnterを同じtmux commandで送ると、初回turn完了後に
   // 本文が入力欄へ残ることがある。再試行時の半入力も含め、正規のsubmitを分離する。
@@ -236,8 +260,7 @@ async function wake(seat, msgs) {
 
 function dispatch(msg) {
   if (deliveryStates.has(msg.seq)) return
-  const targets = recipientNames(msg).filter(seat => members.has(seat)
-    && members.get(seat)?.delivery?.kind !== 'parent_watch')
+  const targets = recipientNames(msg).filter(seat => isWakeupBridgeTarget(members.get(seat)))
   const state = { message: msg, targets: new Set(targets), delivered: new Set() }
   for (const seat of targets) {
     if (delivered.has(deliveryKey(msg.seq, seat))) state.delivered.add(seat)
@@ -259,7 +282,12 @@ async function flushSeat(seat) {
   flushing.add(seat)
   const msgs = [...queue.values()].sort((a, b) => a.seq - b.seq)
   try {
-    await wake(seat, msgs)
+    const outcome = await wake(seat, msgs)
+    if (outcome === 'deferred') return
+    if (outcome === 'skipped') {
+      forgetSeat(seat)
+      return
+    }
     const receipts = []
     for (const msg of msgs) {
       if (queue.get(msg.seq) !== msg) continue

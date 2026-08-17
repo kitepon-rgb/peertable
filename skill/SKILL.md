@@ -66,8 +66,8 @@ script は内部で Aiterm の公開 `claude_agent` / `codex_agent` / `grok_agen
    - 着任指示を第6引数に渡すと着席後に送る。文面: 「あなたは「<日本語名>」。.team/roles/member.md を読んで着任し、作業ループを開始せよ。全タスク完了の宣言まで自律的に続けること。」
    - 席が読む env は script が組み立てる（`PEERTABLE_URL` / `PEERTABLE_ROOM` / `PEERTABLE_MEMBER` / `PEERTABLE_CREDENTIAL_FILE`、Lattice 併用なら `PEERTABLE_PLAN` と actor 3点）。token値は席別`0600` fileにだけ置き、pathだけを席へ渡す。**channels は `--mcp-config` の MCP server を解決しない**（実測 2026-08-08・Claude Code v2.1.226・決定44）ため、room の MCP 定義は setup.sh が project root へ置く `.mcp.json` が正。Peertable管理下fileはlaunch時にもcurrent-tree clientへ同期する。project に既存 `.mcp.json` があった場合は無断更新せず`SEAT_ROOM_MCP_STALE`で止まるので、AI がroom定義を手動mergeしてteardownで復元する
    - **Codex 席**（`vendor=codex`）: Codex には channels が無いので、room は `-c` 上書きの stdio MCPとして、同じPeertable treeの`node room/client.mjs`を差す。**env は closed mode で親環境を継がない**ので `PATH`と非秘密値、credential file pathを明示列挙する。effortはmember metadataだけでなく`model_reasoning_effort`へも同じ値を渡す。モデル名は ChatGPT アカウントで使える slug を渡す（`~/.codex/config.toml` の `model` が既定値の参考。使えない slug は起動後の最初のターンで 400 になって初めて分かる）。Codex 席を混ぜたら**必ず起床ブリッジを立てる**（下記）——立てないと room の新着で起きない
-   - **Grok 席**（`vendor=grok`）: project rootの`.mcp.json`をGrok Buildが読み、同じroom clientと席固有envをAitermが渡す。model / effortはAitermの`grok_agent`へそのまま渡し、`grok models`のlive catalogに無いmodelは着席前に失敗する。初めて開くtreeの既知workspace trustは着席処理が通す。channelsは無いのでCodexと同じ起床ブリッジを使う
-6. **起床ブリッジ（Codex / Grok 席がある時）**: `scripts/ensure-bridge.sh <project> wakeup <席名>…`。room の SSE を購読し、明示的にその席宛の新着（自分の発言は除く）だけを tmux へ素送信して起こす。ensure は専用 tmux session で起動し、bridge の `ready_at` を待つ。確認できなければログ末尾を出して非ゼロで終わる。idle待ちは置かず、通常TUI入力として配送する。停止は `node scripts/wakeup-bridge.mjs <project> --stop`（teardown.sh が自動で行う）
+   - **Grok 席**（`vendor=grok`）: project rootの`.mcp.json`をGrok Buildが読み、同じroom clientと席固有envをAitermが渡す。model / effortはAitermの`grok_agent`へそのまま渡し、`grok models`のlive catalogに無いmodelは着席前に失敗する。初めて開くtreeの既知workspace trustは着席処理が通す。channelsは無いので起床ブリッジを使う。Grok TUIの既定はターン中の素送信を今の仕事へ混ぜず入力キューへ積むので、ブリッジはGrok席がidleになるまで送らない
+6. **起床ブリッジ（Codex / Grok 席がある時）**: `scripts/ensure-bridge.sh <project> wakeup <席名>…`。room の SSE を購読し、明示的にその席宛の新着（自分の発言は除く）だけを tmux へ素送信して起こす。ensure は専用 tmux session で起動し、bridge の `ready_at` を待つ。確認できなければログ末尾を出して非ゼロで終わる。Codexは即送信、Grokはidle待ち。親（`parent_watch` / `observe: null`）は対象にしない。停止は `node scripts/wakeup-bridge.mjs <project> --stop`（teardown.sh が自動で行う）
    - **黙って止まらないための三段**（決定58 の受信側の作法）: ①75秒なにも届かなければ自分から切って繋ぎ直す ②繋ぎ直したら `?since=<最終seq>` で切れていた間の発言を回収する ③**心拍が積んでくる room の最新 seq が自分より進んでいたら、繋がったままでも回収する**——③が要るのは、心拍が届き続ける限り①が原理的に発火しないため。**server 側の心拍（`event: ping`・25秒周期）が前提**なので、古い room サーバーへ繋ぐと①だけが効く形になる
    - ログは `.team/wakeup-bridge.log`。**0件でも0件と出す**ので、起こせているか・取りこぼしていないかはログを見れば分かる。再現ハーネスは `experiments/bridge-catchup-repro.mjs`
 
@@ -75,7 +75,7 @@ script は内部で Aiterm の公開 `claude_agent` / `codex_agent` / `grok_agen
 6.7 **model / effort変更（本人要請→親実行）**: 本人は希望と理由を自然文で親だけへDMする。親は意味を判断してtargetを確定し、`env -u PEERTABLE_POST_TOKEN skill/scripts/change-seat.sh <project> <member> [--model <model>] [--effort <effort>] [--parent <name>] [--reason <text>]`を実行する。定型文への言い直し、完全一致の再送、本人DMの機械検査は行わない。scriptはroom memberの現在値を読み、Aitermの公開`agent_configure`へ確定targetを渡し、metadataの読返しと変更履歴を残す。targetはlive catalogで検証し、変更後の記録に失敗した場合も成功へ丸めない。
    - 同じvendor内のmodel / effort変更はAitermが同一sessionと会話contextを保って行う。vendor変更だけは再起動を伴うため、本人はrole・工程正本・roomログから再着任する
 
-7. **親の着卓**（このセッション）: `scripts/parent-join.sh <project> [name] [model] [effort] [vendor]` で member 登録とparent-watch cursorのprimeを行う。**`effort` は任意のまま据え置く**——席は `launch-seat.sh` が `--effort` で実際に設定するので「渡した値＝実挙動」だが、親は既に走っているセッションで自分の effort を機械的に知る経路が無く、推測して載せると画面が嘘をつく。続けて、ClaudeはMonitor、Codexはyieldしたbackground tool taskとして**親宛DM番犬**を1世代だけ張る（形は下記「親の operating notes」の番犬仕様）。broadcastのkickoffは廃止済み。以後の post も API 直（同 notes）
+7. **親の着卓**（このセッション）: `scripts/parent-join.sh <project> [name] [model] [effort] [vendor]` で member 登録とparent-watch cursorのprimeを行う。**`effort` は任意のまま据え置く**——席は `launch-seat.sh` が `--effort` で実際に設定するので「渡した値＝実挙動」だが、親は既に走っているセッションで自分の effort を機械的に知る経路が無く、推測して載せると画面が嘘をつく。続けて、ClaudeとGrokはMonitor、Codexはyieldしたbackground tool taskとして**親宛DM番犬**を1世代だけ張る（形は下記「親の operating notes」の番犬仕様）。通常席用wakeup-bridgeに親を載せない。broadcastのkickoffは廃止済み。以後の post も API 直（同 notes）
 8. **起動確認**: room の members に全員いる / 最初の claim が room に流れる（Lattice 併用モードはそれが Lattice へ到達している＝`lattice todo status --json` の active に出ることも確認する。単独モードは room の claim 宣言だけが到達の証拠）/ Web UI で観測できる、をチェックして報告する
 
 ## teardown
@@ -195,10 +195,11 @@ witness をどう生成するかは**対象 project 側の作法に従う**（La
     出力を親へ通知した後も同じMonitorで待機を続ける。**Codex**はyieldしたbackground tool taskで1秒ごとに
     `scripts/codex-parent-watch.sh <project> <親名>`を都度実行し、空でないstdoutだけを`notify`して
     `yield_control`する。このscriptは一度HTTP catch-upして即終了し、Node processや端末sessionを常駐させない。
-    通常席用wakeup-bridge、tmux、`codex exec resume`を親へ流用しない
+    通常席用wakeup-bridge、tmux、`codex exec resume`を親へ流用しない。**Grok**はpersistent
+    Monitorで同じ`--follow`を1回だけ実行する。Grok親をwakeup-bridgeの対象にしない
   - 親以外宛・ping・親自身の発言は捨てる。watcher不在中のDMは永続cursorから次回起動時にcatch-upする
   - **世代は常に1匹**。Claudeは旧MonitorをTaskStop、Codexは旧background taskを停止してから張り替える。
-    `watch_error`は親へ通知し、沈黙死させない
+    Grokも旧Monitorを止めてから張り替える。`watch_error`は親へ通知し、沈黙死させない
   - claimと工程完了は`to: "all"`、ターン終了時の次の行動は自分宛DM、誰かへの用事はその人宛DM、誰に聞くか分からない時は`to: "all"`を使う
 - **model / effort変更依頼**: 本人の自然文DMを親が判断し、確定したtargetだけを上記6.7のscriptへ渡す。本人に定型文や完全一致の再送を求めず、親が本人の代わりに依頼文を投稿しない
 - 親の権能は進行・督促・オーナーとの接点だけ。作業者や監査担当を代行しない
@@ -211,7 +212,7 @@ witness をどう生成するかは**対象 project 側の作法に従う**（La
   1. **room ログを読む**——`curl -s "$URL/api/$ROOM/messages?since=<最後に読んだ seq>"`。`since` を持っていなければ 0 から。**会話が卓の正本**なので、まずここで現在地（誰が何を claim し、どこまで done か）を作る
   2. **工程正本で照合する**——`lattice todo status --json`（Lattice 併用）。room の宣言と `active` / `next_ready` / `audit_pending` が食い違ったら**工程正本が正**で、食い違い自体を room へ出す（単独円卓モードは `.team/tasks.md` と room ログの突き合わせ）
   3. **member 登録は残っている**ので `parent-join.sh` を再実行しない。`curl -s $URL/api/$ROOM/members` で自分の名前を確認するだけでよい（実測: 親の登録はセッションを跨いで残る）。**再実行しても `<名前> が参加した` は流れない**——`POST /members` は本当に新規追加の時だけ本人宛のsystem発言を出す
-  4. **番犬を張り直す**——Claudeは`--follow`を1回起動する。Codexは1秒ごとの`codex-parent-watch.sh` loopをbackground taskで起動する。生きた旧世代が残っていれば先に止める（世代は常に1匹）。永続cursorが不在時間のDMを回収する
+  4. **番犬を張り直す**——ClaudeとGrokは`--follow`を1回起動する。Codexは1秒ごとの`codex-parent-watch.sh` loopをbackground taskで起動する。生きた旧世代が残っていれば先に止める（世代は常に1匹）。永続cursorが不在時間のDMを回収する
   - **再着卓の契機は番犬taskの終了通知または`watch_error`**。親の側には「途絶した」と教える別経路が無いので、届いたら再着卓の手順に入る
   - **順序の要点は「room と工程正本を読み終えるまで発言しない」**。読む前に喋ると、自分が行き違いを作る側になる（実例あり）
   - **やらないこと**: 復帰の挨拶で席を起こさない。作業の再確認を席へ聞いて回らない——**現在地は上の1〜2で取れる**ので、聞くのは席の時間を奪うだけである
@@ -230,7 +231,8 @@ witness をどう生成するかは**対象 project 側の作法に従う**（La
 - **外部ペイン（決定53）は Lattice 0.50.0 以降が要る。** それ以前の Lattice に `external_pane` 入りの `project.json` を差すと、identity 検証が完全一致キーで落ちて `lattice todo status` ごと死ぬ（`PROJECT_IDENTITY_INVALID / identity_schema_invalid`・0.49.0 で実測）。工程正本が読めなくなる＝卓が止まるので、Lattice が古い環境では Lattice 併用 setup を走らせない
 - **メンバー起動の既知ダイアログは2種だけ**（実測 2026-08-08）: 未信頼ディレクトリの workspace trust（`1. Yes, I trust this folder`）と開発 channel 警告（`1. I am using this for local development`）。`--dangerously-skip-permissions` を付けているので MCP 同意ダイアログは出ない。信頼済みディレクトリでは trust も出ない
 - **Codex 席のダイアログは2種で、片方は既定が誤り**（Codex CLI v0.146.0・実測）: ディレクトリ trust（`1. Yes, continue`＝既定で正しい）と、**更新案内（`1. Update now`）は既定のまま Enter を押すと立卓の途中で `npm install -g @openai/codex` が走る**。1つ下の「2. Skip」を選ぶ。更新案内は毎回は出ないので、出た時だけ通す
-- **Codex はターン実行中でも素送信を受け付ける**（実測 2026-08-08）。busy 中に送った文言はそのターンの中で読まれ、指示どおりに動く（steering）。よって起床ブリッジは idle 待ちを持たない。busy の判定が要る場面では画面の `esc to interrupt` の有無が使える
+- **Codex はターン実行中でも素送信を受け付ける**（実測 2026-08-08）。busy 中に送った文言はそのターンの中で読まれ、指示どおりに動く（steering）。Codex 席の起床は idle 待ちを持たない
+- **Grok はターン実行中の素送信を今の仕事へ混ぜない**（実測 2026-08-17・Grok Build TUI 既定 `follow_up_behavior=queue`）。届いた文は入力キューへ積まれ、次の user ターンになる。起床ブリッジは Grok 席だけ pane が idle になるまで送らない。busy の判定は `esc to interrupt`、待ち中の `send a message to interrupt`、番号付きキュー＋`Enter:send now`
 - **席の沈黙は「詰まり」と同義ではない。** 発言間隔やファイルの更新時刻から止まったと判定しない——実装が終わって検証に時間を使っているだけのことがある。判定は `tmux -S <sock> capture-pane -t peer-<名前> -p` で**実状態を読む**: 画面に **`esc to interrupt` が在れば長いターンの最中**（通知はターン後にまとめて届くので、呼びかけを足しても速くならない）／選択ダイアログで止まっているなら既知の停止要因／`pane_dead=1` なら落ちている。**スピナーの語（`Cogitating…` 等）で判定しない**——Claude Code は動名詞を毎回ランダムに選ぶので、同時刻に `Coalescing` / `Effecting` / `Gallivanting` / `Fermenting` / `Symbioting` が並び、`Cogitating` は1席も出ていないことがある（2026-08-08 実測）。**`esc to interrupt` は Claude 席のステータス行にも Codex 席の `Working (…)` にも入る共通マーカー**で、vendor 分岐が要らない。**読み取りだけなら相手の作業を壊さない**ので、憶測を room へ流す前にこれを見る（2026-08-08 に2人が独立に踏み、先に憶測を流した側が訂正を出した）
 - **`claude-in-chrome` の呼び出しは返らないことがある**。原因は2種で、解き方が違う（2026-08-08 に席1つが9分半沈黙して実測）:
   - **接続ブラウザが複数あって、拡張がどれを使うか選ばせている**——選択待ちのまま返らない。**AI 側から解ける**（オーナーに「どちらを使うか」を一言聞けば済む）。今回の実例はこちら。デバッグ接続が宙吊りのまま「Claude がこのブラウザのデバッグを開始しました［キャンセル］」バナーが残る形もあり、キャンセルを押せば呼び出しは即エラーで返る

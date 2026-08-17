@@ -32,7 +32,7 @@ const latticeCli = setup.lattice_cli || process.env.LATTICE_CLI || 'lattice'
 const api = `${serverUrl}/api/${encodeURIComponent(room)}`
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
 const now = () => new Date().toISOString()
-const ROOM_UPDATE_BODY = 'room全体の状況が更新された。roomログを読み、状況を把握して次の行動を判断する。'
+const ROOM_UPDATE_FALLBACK = 'room全体の状況が更新された。roomログを読み、状況を把握して次の行動を判断する。'
 const staffingBody = ({ ready, active }) => `現在、着手可能工程は ${ready} 件、着手中工程は ${active} 件になりました。標準は ${ready + active}＋監査担当数です。円卓メンバー数を検討してください。`
 
 function readLatticeState(previous = null) {
@@ -198,10 +198,8 @@ async function acceptMessage(message) {
       from: message.from,
       to: message.to ?? null,
       to_names: message.to_names ?? null,
-      body: roomUpdate ? ROOM_UPDATE_BODY : message.body,
-      message: roomUpdate
-        ? { seq: message.seq, ts: message.ts, from: message.from, to: message.to }
-        : message,
+      body: roomUpdate ? (message.body || ROOM_UPDATE_FALLBACK) : message.body,
+      message,
     })
   }
   state = { ...state, last_seq: message.seq, last_event_at: now() }

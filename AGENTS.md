@@ -29,7 +29,7 @@ peertable/
 ├── CLAUDE.md             # @AGENTS.md の 1 行 import のみ
 ├── package.json          # npm: peertable（bin 2 種・files 限定）
 ├── README.md / README.ja.md / LICENSE(MIT)
-├── docs/plan.md          # 計画書（設計・決定履歴の正本）。決定は通し番号（現在 76 まで）
+├── docs/plan.md          # 計画書（設計・決定履歴の正本）。決定は通し番号（現在 86 まで）
 ├── docs/plan_<campaign>.md  # campaign 単位の計画正本。ここから `lattice todo migrate` で起票する
 ├── docs/archive/         # 解散した卓の room ログの控え（原本は room 側に残る）
 ├── evidence/<plan>/<task>.md  # 完了証跡。Lattice の記述子が digest で束縛する

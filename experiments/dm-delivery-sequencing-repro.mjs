@@ -123,17 +123,16 @@ try {
     ts: new Date().toISOString(),
     from: 'bell-sequencing',
     to: 'all',
-    body: '[broadcast body must stay in room]',
+    body: '[claim] grok-successor-launch/t2-spawn',
   }
   serverMessages.push(broadcast)
   head = broadcast.seq
   for (const stream of streams) {
     stream.write(`event: message\ndata: ${JSON.stringify(broadcast)}\n\n`)
   }
-  await waitFor(async () => (await readFile(capture, 'utf8')).includes('[Peertable #2] room全体の状況が更新された'), 'all wake')
+  await waitFor(async () => (await readFile(capture, 'utf8')).includes(broadcast.body), 'all wake')
   const afterBroadcast = await readFile(capture, 'utf8')
-  check('allは本文を注入せずroomの再読だけを促す', !afterBroadcast.includes(broadcast.body)
-    && afterBroadcast.includes('room.read_logで部屋を読み、状況を把握して次の行動を判断する。'), afterBroadcast.trim())
+  check('allは本文を注入する', afterBroadcast.includes(`[Peertable #2] bell-sequencing → all: ${broadcast.body}`), afterBroadcast.trim())
 } catch (error) {
   console.error(`HARNESS ERROR: ${error.message}`)
   good = false

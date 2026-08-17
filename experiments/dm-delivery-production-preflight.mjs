@@ -69,6 +69,7 @@ try {
     'room/server.mjs',
     'room/client.mjs',
     'skill/scripts/wakeup-bridge.mjs',
+    'skill/scripts/wakeup-delivery.mjs',
     'skill/scripts/ensure-bridge.sh',
     'skill/scripts/seat-usage.mjs',
   ]
