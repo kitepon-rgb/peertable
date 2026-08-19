@@ -1421,4 +1421,5 @@ psmux の `-S` は既定 namespace へ落ち、aiterm の `-L aiterm-<hash>` を
 `tmuxArgv` / `tmux-at.bash` が接続引数を一本化し、Claude の room MCP 同意は既知ダイアログとして通す。
 seat identity は `ps -Ao` を捨てて `seat-identity.mjs`（Win32_Process）へ移す。
 parent-watch の Lattice 読みは npm shim を `lattice.cmd` + `shell:true` で起動する。
+`prepublishOnly` は `VAR= cmd` を捨てて `scripts/prepublish.mjs` にする（Windows cmd で publish が死ぬため）。
 aiterm / Claude hook は改造しない。
