@@ -90,19 +90,18 @@ lattice run intake --run .lattice/runs/<run-id> --task <id>
    - **依存は install しなくても解決する。** worktree は repo 配下（`<repo>/.lattice/runs/…/tree`）に切られるので、Node の bare specifier 解決が親ディレクトリを遡って canonical の `node_modules` に当たる（repo の外に置かれた木では当たらない）。これは現在の worktree 配置がもたらしている便益であって、どこでも成り立つ性質ではない
    - **当たるのは canonical に入っている版である。** worktree の `package.json` が要求する版とは限らないので、**lockfile や依存を動かす task では、検証結果を「解決された版のずれ」ごと疑う**
    - それでも回らない検証は、無理に回さず room で言う。**動かないからといって canonical tree で回さない**——それは測りたい木ではない
-9. **自己試験と自己監査を完了し、最終試験結果を監査担当へ渡す。** 監査担当が工程をクローズした後、intakeした席がacceptとlanding確認を行う
+9. **自己試験と自己監査を完了し、最終試験結果を監査担当へ渡す。** `todo done` / `done.sh <task>` は監査担当が打つ（憲章11・12）。監査担当が工程をクローズした後、intake した席だけが accept できる（装置が actor で束縛しているので、監査担当や親が代わりに打てない）。
    ```
-   # canonical repo の cwd から打つ。証跡は worktree にしか無いので絶対 path で渡す
+   # 監査担当のクローズ後。canonical repo の cwd から打つ
    cd <canonical repo>
-   PEERTABLE_PLAN={{PLAN_KEY}} .team/scripts/done.sh <id> --evidence-from <worktree>/evidence/{{PLAN_KEY}}/<id>.md
    lattice run intake accept --run <ref> --task <id>
    .team/scripts/done.sh --landing-run <ref>
    ```
-   **`--evidence-from` を省いてはいけない。** 省くと canonical 側の証跡（無いか、別物）を hash する。
+   証跡は worktree に commit したものを監査担当が `--evidence-from` で hash する。
    **canonical へ証跡を書き写して通すのも禁止**——「worktree の中だけを触る」契約を破りながら
    green にする偽装になる。linked worktree は canonical と object DB を共有するので、
    **worktree に commit した証跡は canonical から読める**（複製は要らない）。
-   装置が worktree の base→HEAD を独立に観測して受理する。**intake した席だけが attach / accept できる**（装置が actor で束縛している）ので、他の席に代わりに打ってもらうことはできない。
+   装置が worktree の base→HEAD を独立に観測して受理する。
    最後の landing-only 呼び出しは、accept 済み receipt が canonical default branch へ未着地なら
    `未着地 N本`を出す。警告だけで処理は止めないが、`未push` と別の完了軸なので読み飛ばさない。
 

@@ -43,7 +43,7 @@ console.log('tools:', tools.result.tools.map(t => t.name).join(', '))
 send({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'post', arguments: { to: 'bell', message: 'sakura です、join します' } } })
 console.log('post:', (await wait(m => m.id === 3)).result.content[0].text)
 
-// 他人（hinata）が発言。起床は wakeup-bridge の責務なので、client は履歴だけを読む
+// 他人（hinata）が発言。Claude 席の起床は notifications/claude/channel。ここでは履歴読取だけ確認する
 const BASE = process.env.PEERTABLE_URL ?? 'http://localhost:8790'
 const TOKEN_HEADER = process.env.PEERTABLE_POST_TOKEN ? { 'X-Peertable-Token': process.env.PEERTABLE_POST_TOKEN } : {}
 await fetch(`${BASE}/api/demo/messages`, { method: 'POST', headers: TOKEN_HEADER, body: JSON.stringify({ from: 'hinata', to: 'sakura', body: 'sakura さん、タスクYお願い' }) })
