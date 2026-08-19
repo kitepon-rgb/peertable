@@ -1,7 +1,8 @@
-import { readFileSync, readdirSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
-import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { homedir, tmpdir } from 'node:os'
+import path, { join } from 'node:path'
 
 const TOKEN_HINT = /[↓↑]\s*([0-9]+(?:\.[0-9]+)?)\s*([kKmM]?)\s*tokens\b/gu
 
@@ -17,9 +18,9 @@ export function supportsMemberObservation(payload) {
   return payload?.capabilities?.member_observation_v1 === true
 }
 
-/** aiterm-mcp の POSIX 既定ソケット規則。 */
+/** aiterm-mcp の POSIX 既定ソケット規則。Windows の path.join で `/tmp` を壊さない。 */
 export function defaultTmuxSocket(env) {
-  return join(env.TMPDIR || '/tmp', 'claude-tmux-sockets', 'claude.sock')
+  return path.posix.join(env.TMPDIR || '/tmp', 'claude-tmux-sockets', 'claude.sock')
 }
 
 const defaultTmuxProbe = {
@@ -67,6 +68,49 @@ export function resolveTmuxSocket(env, probe = defaultTmuxProbe) {
     }
   }
   return { socket: fallback, source: 'default', candidates: [], error: null }
+}
+
+/**
+ * Windows の psmux は -S を黙って既定 namespace へ落とす（aiterm 実測 2026-08-16）。
+ * aiterm と同じ -L namespace を使う。名前の式は aiterm-mcp core.js の WIN_NS と一致させる。
+ */
+export function usesPsmuxNamespace(env = process.env, platform = process.platform) {
+  if (env.PEERTABLE_FORCE_POSIX_TMUX === '1') return false
+  if (env.PEERTABLE_TMUX_L || env.AITERM_PSMUX_NS) return true
+  return platform === 'win32'
+}
+
+export function aitermPsmuxNamespace(env = process.env, platform = process.platform) {
+  if (env.PEERTABLE_TMUX_L) return env.PEERTABLE_TMUX_L
+  if (env.AITERM_PSMUX_NS) return env.AITERM_PSMUX_NS
+  const isWin = platform === 'win32'
+  const root = env.TMPDIR ?? (isWin ? env.TEMP ?? tmpdir() : '/tmp')
+  const joinPath = isWin ? path.win32.join : path.posix.join
+  const sockdir = joinPath(root, 'claude-tmux-sockets')
+  return `aiterm-${createHash('sha1').update(sockdir).digest('hex').slice(0, 12)}`
+}
+
+/** tmux/psmux へ渡す接続引数。POSIX は -S socket、Windows は -L namespace。 */
+export function tmuxArgv(extraArgs = [], { socket, env = process.env, platform = process.platform } = {}) {
+  if (usesPsmuxNamespace(env, platform)) {
+    return ['-L', aitermPsmuxNamespace(env, platform), ...extraArgs]
+  }
+  return ['-S', socket, ...extraArgs]
+}
+
+/**
+ * npm の extensionless shim は Windows の execFile で ENOENT。
+ * 隣の .cmd を使い、cmd 経由で起動する。
+ */
+export function resolveLatticeExecutable(cli, { platform = process.platform, exists = existsSync } = {}) {
+  if (typeof cli !== 'string' || !cli) return { command: cli, shell: false }
+  if (platform !== 'win32') return { command: cli, shell: false }
+  const lower = cli.toLowerCase()
+  if (lower.endsWith('.cmd') || lower.endsWith('.bat') || lower.endsWith('.exe')) {
+    return { command: cli, shell: true }
+  }
+  if (exists(`${cli}.cmd`)) return { command: `${cli}.cmd`, shell: true }
+  return { command: cli, shell: true }
 }
 
 /** member の自己申告を優先し、無い既存 member だけ旧 session 名へ互換フォールバックする。 */
@@ -164,7 +208,7 @@ export function classifyPaneTail(tail) {
  */
 export function tmuxPanePid(socket, target, exec = execFileSync) {
   try {
-    const out = exec('tmux', ['-S', socket, 'list-panes', '-t', target, '-F', '#{pane_pid}'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
+    const out = exec('tmux', tmuxArgv(['list-panes', '-t', target, '-F', '#{pane_pid}'], { socket }), { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
     const pid = out.trim().split('\n')[0]
     return pid && /^[0-9]+$/.test(pid) ? pid : null
   } catch {

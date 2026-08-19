@@ -55,6 +55,9 @@ try {
   await mkdir(bin)
   const latticeCli = join(bin, 'lattice')
   await writeFile(latticeCli, `#!/bin/sh\ncat ${JSON.stringify(latticeStatus)}\n`, { mode: 0o755 })
+  if (process.platform === 'win32') {
+    await writeFile(`${latticeCli}.cmd`, `@echo off\r\ntype ${latticeStatus}\r\n`)
+  }
   await writeFile(latticeStatus, `${JSON.stringify({ next_ready: [{}], active_set: [{}, {}] })}\n`)
   await writeFile(join(project, '.team/setup-state.json'), `${JSON.stringify({ room, server_url: base, lattice_cli: latticeCli })}\n`)
   const serverEnv = { ...process.env, PEERTABLE_PORT: String(port), PEERTABLE_DATA: data }

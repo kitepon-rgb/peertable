@@ -33,6 +33,8 @@ credential_helper="${PEERTABLE_CREDENTIAL_HELPER:-$(dirname "$0")/seat-credentia
 room_mcp_helper="${PEERTABLE_ROOM_MCP_HELPER:-$(dirname "$0")/ensure-room-mcp.mjs}"
 codex_room_mcp_helper="${PEERTABLE_CODEX_ROOM_MCP_HELPER:-$(dirname "$0")/ensure-codex-room-mcp.mjs}"
 aiterm_launch_helper="${PEERTABLE_AITERM_LAUNCH_HELPER:-$(dirname "$0")/aiterm-launch.mjs}"
+# shellcheck disable=SC1091
+. "$(dirname "$0")/tmux-at.bash"
 peertable_repo=$(cd "$(dirname "$0")/../.." && pwd -P)
 peertable_client="$peertable_repo/room/client.mjs"
 credential_file=""
@@ -68,16 +70,16 @@ rollback_brief() {
   local rollback_failed=0
   local encoded_name member_code listing
 
-  if [ -n "$sock" ] && [ -n "$sess" ] && [ "$seat_created" = true ]; then
-    if tmux -S "$sock" has-session -t "$sess" 2>/dev/null; then
-      if ! tmux -S "$sock" kill-session -t "$sess" 2>/dev/null; then
+  if [ -n "$sess" ] && [ "$seat_created" = true ]; then
+    if tmux_at has-session -t "$sess" 2>/dev/null; then
+      if ! tmux_at kill-session -t "$sess" 2>/dev/null; then
         rollback_failed=1
         echo "LAUNCH_BRIEF_ROLLBACK_FAILED: tmux session を停止できない: ${sess}" >&2
-      elif tmux -S "$sock" has-session -t "$sess" 2>/dev/null; then
+      elif tmux_at has-session -t "$sess" 2>/dev/null; then
         rollback_failed=1
         echo "LAUNCH_BRIEF_ROLLBACK_FAILED: tmux session が停止後も残っている: ${sess}" >&2
       fi
-    elif tmux -S "$sock" list-sessions >/dev/null 2>&1; then
+    elif tmux_at list-sessions >/dev/null 2>&1; then
       : # serverへ到達でき、対象sessionが無い
     else
       rollback_failed=1
@@ -263,7 +265,7 @@ esac
 # 前の卓の残骸を回収してから、Aiterm の公開 agent launcher を唯一の席起動経路として呼ぶ。
 # direct CLI launch へ戻るfallbackは置かない。Aiterm が作る同名PTYと launch receipt が、
 # 以後の `pty_read` / `agent_configure` / room metadata を同じsessionへ束縛する。
-tmux -S "$sock" kill-session -t "$sess" 2>/dev/null || true
+tmux_at kill-session -t "$sess" 2>/dev/null || true
 rm -f "$proj/.team/seats/$name.json"
 
 launch_env=(
@@ -312,7 +314,7 @@ then
 fi
 aiterm_session_id="$sess"
 brief_dispatched=true
-seat_tmux=$(tmux -S "$sock" display-message -p -t "$sess" '#{socket_path}')
+seat_tmux=$(tmux_at display-message -p -t "$sess" '#{socket_path}')
 
 # Aiterm管理席の process 起動は公開launch receiptで確定している。旧direct CLI launch向けの
 # ヘッダ/trust dialog待機をここへ重ねると、brief turnでヘッダが画面外へ流れた正常席をrollbackする。
@@ -325,21 +327,38 @@ echo "launched: ${sess}（${vendor} / ${model}${effort:+ / $effort} / room=${roo
 room_ready_deadline=$((SECONDS + 30))
 room_ready=false
 grok_trust_accepted=false
+mcp_consent_accepted=false
 while [ $SECONDS -lt "$room_ready_deadline" ]; do
   # Grok Build は初めて開く作業treeで、room MCPを初期化する前にworkspace trustを尋ねる。
   # Peertableが正式に着席させるtreeなので、この既知文言だけを一度通す。未知の確認画面を
   # 汎用的に承認するfallbackにはしない。承認後のMCP初期化時間は改めて30秒確保する。
   if [ "$vendor" = grok ] && [ "$grok_trust_accepted" != true ]; then
-    grok_screen=$(tmux -S "$sock" capture-pane -t "$sess" -p 2>/dev/null || true)
+    grok_screen=$(tmux_at capture-pane -t "$sess" -p 2>/dev/null || true)
     case "$grok_screen" in
       *"Do you trust the contents of this directory?"*)
-        if ! tmux -S "$sock" send-keys -t "$sess" y; then
+        if ! tmux_at send-keys -t "$sess" y; then
           echo "SEAT_GROK_TRUST_FAILED: workspace trustへ応答できない" >&2
           exit 1
         fi
         grok_trust_accepted=true
         room_ready_deadline=$((SECONDS + 30))
         echo "grok workspace trust: accepted"
+        ;;
+    esac
+  fi
+  # aiterm claude_agent は --dangerously-skip-permissions を付けない。project の room MCP
+  # 同意が member 登録より前に出る。選択肢2（this and all future）だけを通す。
+  if [ "$vendor" = claude ] && [ "$mcp_consent_accepted" != true ]; then
+    claude_screen=$(tmux_at capture-pane -t "$sess" -p 2>/dev/null || true)
+    case "$claude_screen" in
+      *"New MCP server found in this project: room"*)
+        if ! tmux_at send-keys -t "$sess" Down || ! tmux_at send-keys -t "$sess" Enter; then
+          echo "SEAT_CLAUDE_MCP_CONSENT_FAILED: room MCP 同意へ応答できない" >&2
+          exit 1
+        fi
+        mcp_consent_accepted=true
+        room_ready_deadline=$((SECONDS + 30))
+        echo "claude room MCP consent: accepted"
         ;;
     esac
   fi
@@ -368,7 +387,7 @@ if [ -n "$brief" ] && [ "$brief_dispatched" != true ]; then
   brief_ready_streak=0
   brief_ready=false
   while [ $SECONDS -lt "$brief_ready_deadline" ]; do
-    brief_ready_screen=$(tmux -S "$sock" capture-pane -t "$sess" -p 2>/dev/null || true)
+    brief_ready_screen=$(tmux_at capture-pane -t "$sess" -p 2>/dev/null || true)
     if [ "$vendor" != codex ] || printf '%s\n' "$brief_ready_screen" | python3 -c 'import sys; lines=sys.stdin.read().splitlines()[-24:]; has_prompt=any(line.strip() == "›" or line.lstrip().startswith("› ") for line in lines); has_footer=any("gpt-" in line and "·" in line for line in lines); raise SystemExit(0 if has_prompt and has_footer else 1)'; then
       brief_ready_streak=$((brief_ready_streak + 1))
       if [ "$brief_ready_streak" -ge 3 ]; then
@@ -388,19 +407,19 @@ if [ -n "$brief" ] && [ "$brief_dispatched" != true ]; then
     # mountした直後に paste と Enter を同一tickで受けると、Enterだけ落ちる。
     sleep 1
 
-  brief_before=$(tmux -S "$sock" capture-pane -S -1000 -t "$sess" -p 2>/dev/null || true)
+  brief_before=$(tmux_at capture-pane -S -1000 -t "$sess" -p 2>/dev/null || true)
   brief_buffer="peertable-brief-${name}-$$"
-  if ! tmux -S "$sock" load-buffer -b "$brief_buffer" "$brief_file"; then
+  if ! tmux_at load-buffer -b "$brief_buffer" "$brief_file"; then
     echo "LAUNCH_BRIEF_SEND_FAILED: brief の tmux buffer 読み込みに失敗（席は着席済み）" >&2
     exit 1
   fi
-  if ! tmux -S "$sock" paste-buffer -b "$brief_buffer" -d -t "$sess"; then
-    tmux -S "$sock" delete-buffer -b "$brief_buffer" 2>/dev/null || true
+  if ! tmux_at paste-buffer -b "$brief_buffer" -d -t "$sess"; then
+    tmux_at delete-buffer -b "$brief_buffer" 2>/dev/null || true
     echo "LAUNCH_BRIEF_SEND_FAILED: brief の tmux paste に失敗（席は着席済み）" >&2
     exit 1
   fi
   sleep 1
-  if ! tmux -S "$sock" send-keys -t "$sess" Enter; then
+  if ! tmux_at send-keys -t "$sess" Enter; then
     echo "LAUNCH_BRIEF_SEND_FAILED: brief の submit に失敗（席は着席済み）" >&2
     exit 1
   fi
@@ -411,7 +430,7 @@ if [ -n "$brief" ] && [ "$brief_dispatched" != true ]; then
   brief_deadline=$((SECONDS + 30))
   brief_turn_started=false
   while [ $SECONDS -lt "$brief_deadline" ]; do
-    brief_screen=$(tmux -S "$sock" capture-pane -S -1000 -t "$sess" -p 2>/dev/null || true)
+    brief_screen=$(tmux_at capture-pane -S -1000 -t "$sess" -p 2>/dev/null || true)
     case "$brief_screen" in
       *"esc to interrupt"*)
         if [ "$brief_screen" != "$brief_before" ]; then brief_turn_started=true; break; fi
@@ -438,13 +457,13 @@ fi
 # この file が主張するのは「この pid はこの席だった」という**識別**であって、生死ではない。
 # 生きているかは attach する側（Lattice）が lstart+argv の再観測で確かめる。
 seat_pid=""
-pane_pid=$(tmux -S "$sock" list-panes -t "$sess" -F '#{pane_pid}' 2>/dev/null | head -1 || true)
+pane_pid=$(tmux_at list-panes -t "$sess" -F '#{pane_pid}' 2>/dev/null | head -1 || true)
+seat_ident=""
 if [ -n "$pane_pid" ]; then
-  # pane の子で pid===pgid のものが席本体。pane_pid（shell）を渡すと Lattice の直接 OS 観測が
-  # 「worker process group を無関係 process と共有している」で正しく落ちる。
-  # **1件でなければ推測で選ばない**（run-bridge.mjs の seatWorkerPid と同じ規律）。
-  leaders=$(ps -Ao pid=,ppid=,pgid= | awk -v p="$pane_pid" '$2==p && $1==$3 {print $1}')
-  if [ "$(printf '%s\n' "$leaders" | grep -c .)" = "1" ]; then seat_pid=$(printf '%s' "$leaders" | tr -d ' \n'); fi
+  seat_ident=$(node "$(dirname "$0")/seat-identity.mjs" "$pane_pid" 2>/dev/null || true)
+fi
+if [ -n "$seat_ident" ]; then
+  seat_pid=$(python3 -c "import json,sys;print(json.load(sys.stdin)['pid'])" <<<"$seat_ident")
 fi
 if [ -z "$seat_pid" ]; then
   # 記録が無ければ席は attach できず、装置の介入は協調 hold のままになる。**黙らない。**
@@ -455,14 +474,13 @@ else
   # `input.session === actor.session` を要求し（`runtime-pull-intake.mjs:674`）、actor session は
   # 上の env_line が入れる `LATTICE_TODO_ACTOR_SESSION=$name` である。tmux 識別子を混ぜると
   # attach が必ず `WORKER_ACTOR_MISMATCH` で拒否される（mio の監査で発覚・room [937]）。
-  if ! python3 - "$proj/.team/seats/$name.json" "$name" "$name" "$seat_pid" <<'PY'
+  if ! python3 - "$proj/.team/seats/$name.json" "$name" "$name" "$seat_ident" <<'PY'
 import hashlib, json, os, subprocess, sys, tempfile
-out, name, session, pid = sys.argv[1:5]
-pid = int(pid)
-started = subprocess.run(['/bin/ps', '-o', 'lstart=', '-p', str(pid)],
-                         capture_output=True, text=True, check=True).stdout.strip()
-argv = subprocess.run(['/bin/ps', '-o', 'args=', '-p', str(pid)],
-                      capture_output=True, text=True, check=True).stdout.strip()
+out, name, session, ident_raw = sys.argv[1:5]
+ident = json.loads(ident_raw)
+pid = int(ident['pid'])
+started = ident['started_identity']
+argv = ident['argv']
 if not started or not argv:
     sys.exit('pid の lstart/args を観測できない')
 record = {
@@ -499,11 +517,15 @@ fi
 # **欄が無い登録で既存の素性を消さない**（upsert）ことが前提である。
 # effort は渡された時だけ入れる——欄が無い＝「不明」ではなく「CLI 既定で走っている」。
 # ここが失敗しても席は着席済みなので落とさない。ただし黙っては飲まない。
-meta=$(python3 - "$name" "$vendor" "$model" "$effort" "$sock" "$sess" "$role" "$aiterm_session_id" <<'PY'
+tmux_ns=$(node "$(dirname "$0")/tmux-socket.mjs" --namespace)
+meta=$(python3 - "$name" "$vendor" "$model" "$effort" "$sock" "$sess" "$role" "$aiterm_session_id" "$tmux_ns" <<'PY'
 import json, sys
-name, vendor, model, effort, sock, sess, role, aiterm_session_id = sys.argv[1:9]
+name, vendor, model, effort, sock, sess, role, aiterm_session_id, tmux_ns = sys.argv[1:10]
+observe = {'tmux_socket': sock, 'tmux_target': sess}
+if tmux_ns:
+    observe['tmux_namespace'] = tmux_ns
 body = {'name': name, 'vendor': vendor, 'model': model, 'role': role, 'aiterm_session_id': aiterm_session_id,
-        'observe': {'tmux_socket': sock, 'tmux_target': sess}}
+        'observe': observe}
 if effort:
     body['effort'] = effort
 print(json.dumps(body))

@@ -16,6 +16,8 @@ set -eu
 # token値はこの制御processや再起動する席へ継承しない。launch後のroom記録も席別file経由で行う。
 unset PEERTABLE_POST_TOKEN
 script_dir=$(cd "$(dirname "$0")" && pwd -P)
+# shellcheck disable=SC1091
+. "$script_dir/tmux-at.bash"
 credential_helper="${PEERTABLE_CREDENTIAL_HELPER:-$script_dir/seat-credential.mjs}"
 
 proj="${1:-}"; name="${2:-}"
@@ -87,10 +89,10 @@ fi
 
 sock="${PEERTABLE_TMUX_SOCKET:-${TMPDIR:-/tmp/}claude-tmux-sockets/claude.sock}"
 sess="peer-$name"
-tmux -S "$sock" has-session -t "$sess" 2>/dev/null || {
+tmux_at has-session -t "$sess" 2>/dev/null || {
   echo "SEAT_CHANGE_SEAT_MISSING: ${sess}" >&2; exit 1;
 }
-screen=$(tmux -S "$sock" capture-pane -t "$sess" -p -S -25 2>/dev/null) || {
+screen=$(tmux_at capture-pane -t "$sess" -p -S -25 2>/dev/null) || {
   echo "SEAT_CHANGE_SEAT_UNREADABLE: $sess" >&2; exit 1;
 }
 # busy の判定文字列は seat-status-bridge と同じ（Claude のステータス行にも Codex の `Working (…)` にも出る）

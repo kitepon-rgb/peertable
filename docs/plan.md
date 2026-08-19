@@ -5,8 +5,8 @@
 親（オーケストレーター）に最終判断が集中しない、メンバー並列型のマルチエージェント作業システム。
 
 作成日: 2026-08-08
-状態: 設計確定 / V0〜V3 通過・V4 封印（決定41）/ スキル化完了 / GitHub・npm 公開済み。Grok 4.6正規席を含む`0.4.0`出荷完了（決定84・85）。Grok起床とbroadcast本文は決定86。配送修正は`0.4.1`（決定87）
-リポジトリ: github.com/kitepon/peertable（**公開済み 2026-08-08・MIT・public**）/ npm: **peertable@0.4.1**（2026-08-17）
+状態: 設計確定 / V0〜V3 通過・V4 封印（決定41）/ スキル化完了 / GitHub・npm 公開済み。Grok 4.6正規席を含む`0.4.0`出荷完了（決定84・85）。Grok起床とbroadcast本文は決定86。配送修正は`0.4.1`（決定87）。Windows psmux 着席は`0.4.2`（決定88）
+リポジトリ: github.com/kitepon/peertable（**公開済み 2026-08-08・MIT・public**）/ npm: **peertable@0.4.2**（2026-08-19）
 工場: dotagents 開発工場の管理対象（**自作コア11製品の1つ**・wire v7 の固定15製品目）。統合契約は dotagents 側が所有し、本 repo の source・state・skill 配布・release は Peertable が所有し続ける
 
 ---
@@ -1413,3 +1413,12 @@ shasumは`d4cfdfaf8d472b87efe59b9659daf3b37e241b62`で、42 filesを公開した
 npm由来global installは0.4.1の非symlink packageで、2 bins、diagnostics ready、
 `wakeup-delivery.mjs`同梱、Grok idle待ち・broadcast本文・親番犬分岐の配布source一致を確認した。
 これを`0.4.1`の公開受入とする。
+
+## 28. Windows native psmux 着席を`0.4.2`として公開する（決定88・オーナー指示 2026-08-19）
+
+Windows で公式 `launch-seat.sh` が Aiterm 席を立てた直後に自分で rollback する穴を塞ぐ。
+psmux の `-S` は既定 namespace へ落ち、aiterm の `-L aiterm-<hash>` を見ない。
+`tmuxArgv` / `tmux-at.bash` が接続引数を一本化し、Claude の room MCP 同意は既知ダイアログとして通す。
+seat identity は `ps -Ao` を捨てて `seat-identity.mjs`（Win32_Process）へ移す。
+parent-watch の Lattice 読みは npm shim を `lattice.cmd` + `shell:true` で起動する。
+aiterm / Claude hook は改造しない。

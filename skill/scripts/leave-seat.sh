@@ -15,6 +15,8 @@ case "$name" in
 esac
 
 script_dir=$(cd "$(dirname "$0")" && pwd -P)
+# shellcheck disable=SC1091
+. "$script_dir/tmux-at.bash"
 credential_helper="${PEERTABLE_CREDENTIAL_HELPER:-$script_dir/seat-credential.mjs}"
 state="$proj/.team/setup-state.json"
 [ -f "$state" ] || { echo "SEAT_LEAVE_STATE_MISSING: $state" >&2; exit 1; }
@@ -48,21 +50,18 @@ PY
 EOF
 
 failed=0
-if [ -z "$member_socket" ]; then
-  echo "SEAT_LEAVE_SESSION_UNREADABLE: tmux socketを解決できない" >&2
-  failed=1
-elif tmux -S "$member_socket" has-session -t "$target" 2>/dev/null; then
-  if ! tmux -S "$member_socket" kill-session -t "$target"; then
+if tmux_at has-session -t "$target" 2>/dev/null; then
+  if ! tmux_at kill-session -t "$target"; then
     echo "SEAT_LEAVE_SESSION_FAILED: $target" >&2
     failed=1
-  elif tmux -S "$member_socket" has-session -t "$target" 2>/dev/null; then
+  elif tmux_at has-session -t "$target" 2>/dev/null; then
     echo "SEAT_LEAVE_SESSION_FAILED: $target が撤去後も残っている" >&2
     failed=1
   fi
-elif tmux -S "$member_socket" list-sessions >/dev/null 2>&1; then
+elif tmux_at list-sessions >/dev/null 2>&1; then
   : # serverへ到達でき、対象sessionが無い
 else
-  echo "SEAT_LEAVE_SESSION_UNREADABLE: $member_socket" >&2
+  echo "SEAT_LEAVE_SESSION_UNREADABLE: ${member_socket:-tmux}" >&2
   failed=1
 fi
 

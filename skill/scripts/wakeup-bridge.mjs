@@ -16,7 +16,7 @@ import { execFile } from 'node:child_process'
 import { existsSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
-import { resolveSeatObservation } from './seat-usage.mjs'
+import { resolveSeatObservation, tmuxArgv } from './seat-usage.mjs'
 import { BROADCAST_RECIPIENT, formatWakeNotice, isWakeupBridgeTarget, shouldDeferGrokWake } from './wakeup-delivery.mjs'
 
 const run = promisify(execFile)
@@ -236,7 +236,7 @@ async function wake(seat, msgs) {
     throw error
   }
   if (member.vendor === 'grok') {
-    const pane = await run('tmux', ['-S', observation.socket, 'capture-pane', '-t', observation.target, '-p'])
+    const pane = await run('tmux', tmuxArgv(['capture-pane', '-t', observation.target, '-p'], { socket: observation.socket }))
     const tail = String(pane.stdout).split('\n').slice(-14).join('\n')
     if (shouldDeferGrokWake(member.vendor, tail)) {
       if (!deferredBusy.has(seat)) {
@@ -250,11 +250,11 @@ async function wake(seat, msgs) {
   // Codexの入力欄は本文とEnterを同じtmux commandで送ると、初回turn完了後に
   // 本文が入力欄へ残ることがある。再試行時の半入力も含め、正規のsubmitを分離する。
   // 最後のEnterまで成功しない限りwakeは成功扱いにせず、flushSeatのreceiptも確定しない。
-  await run('tmux', ['-S', observation.socket, 'send-keys', '-t', observation.target, 'C-u'])
+  await run('tmux', tmuxArgv(['send-keys', '-t', observation.target, 'C-u'], { socket: observation.socket }))
   await sleep(100)
-  await run('tmux', ['-S', observation.socket, 'send-keys', '-l', '-t', observation.target, text])
+  await run('tmux', tmuxArgv(['send-keys', '-l', '-t', observation.target, text], { socket: observation.socket }))
   await sleep(750)
-  await run('tmux', ['-S', observation.socket, 'send-keys', '-t', observation.target, 'Enter'])
+  await run('tmux', tmuxArgv(['send-keys', '-t', observation.target, 'Enter'], { socket: observation.socket }))
   log(`起こした: ${seat} ← ${msgs.length} 件（最新 seq ${last.seq}）`)
 }
 

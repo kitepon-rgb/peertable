@@ -14,6 +14,8 @@
 set -e
 proj="$1"
 script_dir=$(cd "$(dirname "$0")" && pwd -P)
+# shellcheck disable=SC1091
+. "$script_dir/tmux-at.bash"
 peertable_repo=$(cd "$script_dir/../.." && pwd -P)
 mode=archive
 for arg in "${@:2}"; do
@@ -75,12 +77,12 @@ else
     name=$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["name"])' "$member")
     target=$(python3 -c 'import json,sys; x=json.loads(sys.argv[1]); print((x.get("observe") or {}).get("tmux_target") or "peer-" + x["name"])' "$member")
     member_sock=$(python3 -c 'import json,sys; x=json.loads(sys.argv[1]); print((x.get("observe") or {}).get("tmux_socket") or sys.argv[2])' "$member" "$sock")
-    if tmux -S "$member_sock" has-session -t "$target" 2>/dev/null; then
-      tmux -S "$member_sock" kill-session -t "$target" && closed=$((closed + 1))
+    if tmux_at has-session -t "$target" 2>/dev/null; then
+      tmux_at kill-session -t "$target" && closed=$((closed + 1))
     fi
   done <<<"$member_lines"
   if [ "$closed" -gt 0 ]; then did "席の終了（${closed}席）"; else skip "席の終了（生きている席なし）"; fi
-  left=$(tmux -S "$sock" list-sessions 2>/dev/null | grep -c '^peer-' || true)
+  left=$(tmux_at list-sessions 2>/dev/null | grep -c '^peer-' || true)
   [ "${left:-0}" -eq 0 ] || echo "teardown: [注記] 他の卓の peer-* が ${left}件 残っている（この卓のものではないので畳まない）"
 fi
 

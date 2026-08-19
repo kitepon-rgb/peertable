@@ -21,6 +21,8 @@ if [ -f "$record" ]; then
   if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then exit 0; fi
   if ! "$force" && grep -q 'WRITE_DENIED' "$log" 2>/dev/null; then echo "${name}-bridge: 前回はWRITE_DENIEDで終了。--forceを指定すること" >&2; exit 1; fi
 fi
+# shellcheck disable=SC1091
+. "$(dirname "$0")/tmux-at.bash"
 sock=$(node "$(dirname "$0")/tmux-socket.mjs")
 room=$(node -e 'process.stdout.write(require(process.argv[1]).room)' "$team/setup-state.json")
 session="peertable-${name}-${room}"
@@ -39,8 +41,8 @@ for v in PEERTABLE_TMUX_SOCKET PEERTABLE_POST_TOKEN PEERTABLE_CREDENTIAL_FILE PE
 done
 # **session が在るだけでは常駐が生きている証拠にならない**（中の node だけ死んで殻が残る）。
 # 上で pid 生存を確かめて here まで来た＝生きていないので、殻は畳んでから立て直す。
-tmux -S "$sock" kill-session -t "$session" 2>/dev/null || true
-tmux -S "$sock" new-session -d -s "$session" "env${env_prefix} node $(dirname "$0")/$script $(printf '%q ' "$proj" "$@") >> $(printf '%q' "$log") 2>&1"
+tmux_at kill-session -t "$session" 2>/dev/null || true
+tmux_at new-session -d -s "$session" "env${env_prefix} node $(dirname "$0")/$script $(printf '%q ' "$proj" "$@") >> $(printf '%q' "$log") 2>&1"
 for _ in $(seq 1 30); do
   if [ -f "$record" ] && node -e 'process.exit(require(process.argv[1]).ready_at?0:1)' "$record"; then
     # **末尾は本物の改行にする。** `"\\n"` と書くと JS がリテラルの `\`+`n` を足し、

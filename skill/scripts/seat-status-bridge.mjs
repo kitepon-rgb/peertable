@@ -26,7 +26,7 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, renameSync, writeFileSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
 
-import { classifyPaneTail, decideBridgeContinuation, deriveMissingSession, isPaneProcessStopped, parsePaneTokenHint, resolvePostToken, resolveSeatObservation, resolveTmuxSocket, supportsMemberObservation, tmuxPanePid } from './seat-usage.mjs'
+import { classifyPaneTail, decideBridgeContinuation, deriveMissingSession, isPaneProcessStopped, parsePaneTokenHint, resolvePostToken, resolveSeatObservation, resolveTmuxSocket, supportsMemberObservation, tmuxArgv, tmuxPanePid } from './seat-usage.mjs'
 
 const args = process.argv.slice(2)
 const proj = args[0]
@@ -87,7 +87,7 @@ const defaultSocket = () => {
   if (defaultSocketResolution === null) defaultSocketResolution = resolveTmuxSocket(process.env)
   return defaultSocketResolution.socket
 }
-const tmux = (socket, ...a) => { try { return execFileSync('tmux', ['-S', socket, ...a], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }) } catch { return null } }
+const tmux = (socket, ...a) => { try { return execFileSync('tmux', tmuxArgv(a, { socket }), { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }) } catch { return null } }
 
 // 監視するのは room の members に居る席だけ。tmux の `peer-*` を全部拾うと、同じマシンで走る別の卓を晒す
 async function seats() {

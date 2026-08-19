@@ -10,6 +10,7 @@
 import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { resolveLatticeExecutable } from './seat-usage.mjs'
 
 const args = process.argv.slice(2)
 const project = args.shift()
@@ -43,10 +44,12 @@ function readLatticeState(previous = null) {
   const source = `${info.mtimeMs}:${info.size}`
   if (previous?.source === source && previous.error === undefined) return previous
   try {
-    const status = JSON.parse(execFileSync(latticeCli, ['todo', 'status', '--json'], {
+    const lattice = resolveLatticeExecutable(latticeCli)
+    const status = JSON.parse(execFileSync(lattice.command, ['todo', 'status', '--json'], {
       cwd: project,
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'pipe'],
+      shell: lattice.shell,
     }))
     if (!Array.isArray(status.next_ready) || !Array.isArray(status.active_set)) {
       throw new Error('invalid schema')
