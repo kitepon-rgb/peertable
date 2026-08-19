@@ -49,7 +49,7 @@ script は内部で Aiterm の公開 `claude_agent` / `codex_agent` / `grok_agen
 
 手順は **聞き取り → script → 着任指示** の3段である。scripts が機械部分を全部持つので、AI が手で tmux を組み立てることはしない。
 
-1. **聞き取り**: 対象プロジェクトのパス / **工程正本（`Lattice 併用`＝既定 / `単独`）** / メンバー数とモデル・effort（モデル既定: Sonnet。**effort は既定値を置かない——席ごとに必ず決める**。`launch-seat.sh` の effort は必須引数で、未指定は着席前に非ゼロ終了する。モデル選定は作業の性質——設計か確定実装か——を軸にする。決定49）/ 初期タスク群（何を作るか）/ room 名（既定: プロジェクトのディレクトリ名）/ **公開URL基底**（Lattice 併用のみ。外部ペインに書く URL。クオ環境は `https://peertable.kitepon.dev`。未指定なら room サーバーの URL がそのまま入る＝LAN URL は Lattice を外から見た時に開けない）
+1. **聞き取り**: 対象プロジェクトのパス / **工程正本（`Lattice 併用`＝既定 / `単独`）** / メンバー数とモデル・effort（モデル×effortの選定は dotagents `docs/02_models.md` の役割→順位表を正とし、席の主任務の役割（実装・局所コーディング・監査・反証・調査 等）で引く。**effort は既定値を置かない——席ごとに必ず決める**。`launch-seat.sh` の effort は必須引数で、未指定は着席前に非ゼロ終了する。決定49改・2026-08-19: 旧「設計か確定実装か」の2値軸と既定Sonnetを廃止し、選定正本を02_models順位表へ移管）/ 初期タスク群（何を作るか）/ room 名（既定: プロジェクトのディレクトリ名）/ **公開URL基底**（Lattice 併用のみ。外部ペインに書く URL。クオ環境は `https://peertable.kitepon.dev`。未指定なら room サーバーの URL がそのまま入る＝LAN URL は Lattice を外から見た時に開けない）
    - **メンバー数の既定**: Lattice 併用なら plan compile 結果の幅（`max_frontier_width`）に合わせる（実測: 幅3→3人、第2 campaign で幅4→4人目追加）。frontier より多い席は最初から遊ぶ。単独モードには frontier が無いので既定の根拠も無く、聞き取りで決める
    - **運用中のworker席数の標準は「ready＋activeな実装ToDo数」（決定68）**: 監査専任席はworker数、reclaim、scale-down候補へ含めず、最終試験結果を待って監査を担う。claimできるToDoが無いworker席は仕事を発明せず、最終手段として親だけへ待機DMする
    - **モードの選び分け**: タスク間に依存があり並列境界の機械保証が要るなら Lattice 併用。依存の無い小規模作業で、対象プロジェクトに Lattice を持ち込みたくないなら単独。単独で失うのは task 間スケジューリングの機械保証だけで、円卓の核（room・憲章・宣言による協力）は変わらない（決定47）
