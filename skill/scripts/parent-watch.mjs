@@ -45,11 +45,10 @@ function readLatticeState(previous = null) {
   if (previous?.source === source && previous.error === undefined) return previous
   try {
     const lattice = resolveLatticeExecutable(latticeCli)
-    const status = JSON.parse(execFileSync(lattice.command, ['todo', 'status', '--json'], {
+    const status = JSON.parse(execFileSync(lattice.command, lattice.argv, {
       cwd: project,
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'pipe'],
-      shell: lattice.shell,
     }))
     if (!Array.isArray(status.next_ready) || !Array.isArray(status.active_set)) {
       throw new Error('invalid schema')

@@ -5,8 +5,8 @@
 親（オーケストレーター）に最終判断が集中しない、メンバー並列型のマルチエージェント作業システム。
 
 作成日: 2026-08-08
-状態: 設計確定 / V0〜V3 通過・V4 封印（決定41）/ スキル化完了 / GitHub・npm 公開済み。Grok 4.6正規席を含む`0.4.0`出荷完了（決定84・85）。Grok起床とbroadcast本文は決定86。配送修正は`0.4.1`（決定87）。Windows psmux 着席は`0.4.2`（決定88）
-リポジトリ: github.com/kitepon/peertable（**公開済み 2026-08-08・MIT・public**）/ npm: **peertable@0.4.2**（2026-08-19）
+状態: 設計確定 / V0〜V3 通過・V4 封印（決定41）/ スキル化完了 / GitHub・npm 公開済み。Grok 4.6正規席を含む`0.4.0`出荷完了（決定84・85）。Grok起床とbroadcast本文は決定86。配送修正は`0.4.1`（決定87）。Windows psmux 着席は`0.4.2`（決定88）。parent-watch の DEP0190 回避は`0.4.3`
+リポジトリ: github.com/kitepon/peertable（**公開済み 2026-08-08・MIT・public**）/ npm: **peertable@0.4.3**（2026-08-19）
 工場: dotagents 開発工場の管理対象（**自作コア11製品の1つ**・wire v7 の固定15製品目）。統合契約は dotagents 側が所有し、本 repo の source・state・skill 配布・release は Peertable が所有し続ける
 
 ---
@@ -1423,3 +1423,8 @@ seat identity は `ps -Ao` を捨てて `seat-identity.mjs`（Win32_Process）�
 parent-watch の Lattice 読みは npm shim を `lattice.cmd` + `shell:true` で起動する。
 `prepublishOnly` は `VAR= cmd` を捨てて `scripts/prepublish.mjs` にする（Windows cmd で publish が死ぬため）。
 aiterm / Claude hook は改造しない。
+
+## 29. parent-watch の Windows `shell:true` を`0.4.3`で外す
+
+0.4.2 の `execFile(..., {shell:true})` は Node `DEP0190` を stderr へ出し、Grok 番犬を起こす。
+`cmd.exe /d /s /c` へ切り替え、shell オプションを使わない。

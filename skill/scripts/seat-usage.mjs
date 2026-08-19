@@ -100,17 +100,18 @@ export function tmuxArgv(extraArgs = [], { socket, env = process.env, platform =
 
 /**
  * npm の extensionless shim は Windows の execFile で ENOENT。
- * 隣の .cmd を使い、cmd 経由で起動する。
+ * 隣の .cmd を cmd.exe /c で起動する（shell:true は DEP0190 かつ引数連結）。
  */
 export function resolveLatticeExecutable(cli, { platform = process.platform, exists = existsSync } = {}) {
-  if (typeof cli !== 'string' || !cli) return { command: cli, shell: false }
-  if (platform !== 'win32') return { command: cli, shell: false }
+  if (typeof cli !== 'string' || !cli) return { command: cli, argv: ['todo', 'status', '--json'] }
+  if (platform !== 'win32') return { command: cli, argv: ['todo', 'status', '--json'] }
   const lower = cli.toLowerCase()
-  if (lower.endsWith('.cmd') || lower.endsWith('.bat') || lower.endsWith('.exe')) {
-    return { command: cli, shell: true }
-  }
-  if (exists(`${cli}.cmd`)) return { command: `${cli}.cmd`, shell: true }
-  return { command: cli, shell: true }
+  const cmd = lower.endsWith('.cmd') || lower.endsWith('.bat') || lower.endsWith('.exe')
+    ? cli
+    : exists(`${cli}.cmd`)
+      ? `${cli}.cmd`
+      : cli
+  return { command: process.env.ComSpec || 'cmd.exe', argv: ['/d', '/c', cmd, 'todo', 'status', '--json'] }
 }
 
 /** member の自己申告を優先し、無い既存 member だけ旧 session 名へ互換フォールバックする。 */

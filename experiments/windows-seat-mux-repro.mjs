@@ -31,14 +31,18 @@ assert.deepEqual(
   ['-L', 'aiterm-d13d1ecda45a', 'has-session', '-t', 'peer-hotaru'],
 )
 
-assert.deepEqual(resolveLatticeExecutable('/opt/lattice', { platform: 'linux' }), { command: '/opt/lattice', shell: false })
+assert.deepEqual(resolveLatticeExecutable('/opt/lattice', { platform: 'linux' }), {
+  command: '/opt/lattice',
+  argv: ['todo', 'status', '--json'],
+})
+const comspec = process.env.ComSpec || 'cmd.exe'
 assert.deepEqual(
   resolveLatticeExecutable('C:/npm/lattice', { platform: 'win32', exists: (p) => p === 'C:/npm/lattice.cmd' }),
-  { command: 'C:/npm/lattice.cmd', shell: true },
+  { command: comspec, argv: ['/d', '/c', 'C:/npm/lattice.cmd', 'todo', 'status', '--json'] },
 )
 assert.deepEqual(
   resolveLatticeExecutable('C:/npm/lattice.cmd', { platform: 'win32', exists: () => false }),
-  { command: 'C:/npm/lattice.cmd', shell: true },
+  { command: comspec, argv: ['/d', '/c', 'C:/npm/lattice.cmd', 'todo', 'status', '--json'] },
 )
 
 const liveNs = aitermPsmuxNamespace(process.env)
