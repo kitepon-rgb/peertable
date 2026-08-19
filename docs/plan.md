@@ -5,8 +5,8 @@
 親（オーケストレーター）に最終判断が集中しない、メンバー並列型のマルチエージェント作業システム。
 
 作成日: 2026-08-08
-状態: 設計確定 / V0〜V3 通過・V4 封印（決定41）/ スキル化完了 / GitHub・npm 公開済み。Grok 4.6正規席を含む`0.4.0`出荷完了（決定84・85）。Grok起床とbroadcast本文は決定86。配送修正は`0.4.1`（決定87）。Windows psmux 着席は`0.4.2`（決定88）。parent-watch の DEP0190 回避は`0.4.3`
-リポジトリ: github.com/kitepon/peertable（**公開済み 2026-08-08・MIT・public**）/ npm: **peertable@0.4.7**（2026-08-19）。Claude 席の起床は `notifications/claude/channel`。wakeup-bridge は Codex / Grok のみ。工程クローズは監査担当の `done.sh`。Fable ツール実行中の稼働チップは経過時間行と `/btw` 固定句で判定する
+状態: 設計確定 / V0〜V3 通過・V4 封印（決定41）/ スキル化完了 / GitHub・npm 公開済み。Grok 4.6正規席を含む`0.4.0`出荷完了（決定84・85）。Grok起床とbroadcast本文は決定86。配送修正は`0.4.1`（決定87）。Windows psmux 着席は`0.4.2`（決定88）。parent-watch の DEP0190 回避は`0.4.3`。着座メンバー一覧の素性行に role を出すのは`0.4.10`（決定89）
+リポジトリ: github.com/kitepon/peertable（**公開済み 2026-08-08・MIT・public**）/ npm: **peertable@0.4.10**（2026-08-20）。Claude 席の起床は `notifications/claude/channel`。wakeup-bridge は Codex / Grok のみ。工程クローズは監査担当の `done.sh`。Fable ツール実行中の稼働チップは経過時間行と `/btw` 固定句で判定する
 工場: dotagents 開発工場の管理対象（**自作コア11製品の1つ**・wire v7 の固定15製品目）。統合契約は dotagents 側が所有し、本 repo の source・state・skill 配布・release は Peertable が所有し続ける
 
 ---
@@ -1363,7 +1363,7 @@ Grok Build 1.0.3とAiterm 0.25.2の公開契約を使い、`grok-4.6`をClaude/C
 同一Grok席のmodel / effort変更はAitermの`agent_configure`でsessionと会話contextを維持する。
 vendor変更だけは従来どおり再起動し、roomログと工程正本から再着任する。modelは`grok models`の
 live catalogで確認し、存在しないmodelへfallbackしない。GrokにはClaude channelsが無いため、
-Codexと同じ起床ブリッジを自動装備する。room metadata、Web UIのvendor / model / effort、稼働状態、
+Codexと同じ起床ブリッジを自動装備する。room metadata、Web UIのvendor / model / effort / role、稼働状態、
 変更履歴は既存の共通面を使い、新しい状態やGrok専用ラッパーを追加しない。
 Grok CLIが初めて開くtreeで表示する既知workspace trustだけは正式な着席処理が通し、room MCP初期化へ
 進める。未知の確認画面を汎用承認しない。
@@ -1428,3 +1428,11 @@ aiterm / Claude hook は改造しない。
 
 0.4.2 の `execFile(..., {shell:true})` は Node `DEP0190` を stderr へ出し、Grok 番犬を起こす。
 `cmd.exe /d /s /c` へ切り替え、shell オプションを使わない。
+
+## 30. 着座メンバー一覧の素性行に role を出す（決定89・オーナー指示 2026-08-20）
+
+Web UI 参加者一覧のホバー／タップ素性行は、既に member 欄へ載っている `role` を
+`vendor / model / effort` と同じ1行へ畳む。名乗っていない席は空欄を足さない。
+`role` 変更は `MEMBER_EVENT_FIELDS` に含め、SSE で再描画する。
+patch `0.4.10` として出す。公開後は registry 由来 global install で version・bin・diagnostics
+と素性行の配布 source 一致を確認して受入を閉じる。
