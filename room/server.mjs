@@ -3,7 +3,24 @@
 // 起動: node server.mjs（PEERTABLE_PORT / PEERTABLE_DATA / PEERTABLE_POST_TOKEN で設定）
 import http from 'node:http'
 import { mkdirSync, readFileSync, writeFileSync, appendFileSync, existsSync, rmSync, readdirSync } from 'node:fs'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const SERVER_USAGE = 'usage: peertable-room\n設定は環境変数: PEERTABLE_PORT（既定8790）/ PEERTABLE_DATA（既定./peertable-data）/ PEERTABLE_POST_TOKEN（設定時のみ書込に要求）\n'
+const serverArg = process.argv[2]
+if (serverArg === '-h' || serverArg === '--help') {
+  process.stdout.write(SERVER_USAGE)
+  process.exit(0)
+}
+if (serverArg === '-v' || serverArg === '--version') {
+  const packagePath = join(dirname(fileURLToPath(import.meta.url)), '..', 'package.json')
+  process.stdout.write(`${JSON.parse(readFileSync(packagePath, 'utf8')).version}\n`)
+  process.exit(0)
+}
+if (serverArg !== undefined) {
+  process.stderr.write(`unknown argument: ${serverArg}\n${SERVER_USAGE}`)
+  process.exit(1)
+}
 
 const PORT = Number(process.env.PEERTABLE_PORT ?? 8790)
 const DATA = process.env.PEERTABLE_DATA ?? './peertable-data'

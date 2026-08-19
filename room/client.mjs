@@ -16,6 +16,7 @@ const PKG_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 
 const USAGE = `usage:
   peertable-client                       room MCP サーバーとして起動する（.mcp.json 経由の通常経路）
+  peertable-client --help / --version    ヘルプまたはバージョンを表示する
   peertable-client diagnostics           診断を人間可読で出す（fail の理由はこちらに出る）
   peertable-client diagnostics --json    schema peertable.native_factory_diagnostics.v1 の JSON で出す
 `
@@ -24,6 +25,14 @@ const USAGE = `usage:
 // 診断のコードは一切走らない（起動ディレイを増やさない）
 const sub = process.argv[2]
 if (sub !== undefined) {
+  if (sub === '-h' || sub === '--help') {
+    process.stdout.write(USAGE)
+    process.exit(0)
+  }
+  if (sub === '-v' || sub === '--version') {
+    process.stdout.write(`${MCP_VERSION}\n`)
+    process.exit(0)
+  }
   if (sub === 'diagnostics') process.exit(await runDiagnostics(process.argv.includes('--json')))
   process.stderr.write(`unknown subcommand: ${sub}\n${USAGE}`)
   process.exit(1)
