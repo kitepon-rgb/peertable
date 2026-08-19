@@ -1436,3 +1436,12 @@ Web UI 参加者一覧のホバー／タップ素性行は、既に member 欄�
 `role` 変更は `MEMBER_EVENT_FIELDS` に含め、SSE で再描画する。
 patch `0.4.10` として出す。公開後は registry 由来 global install で version・bin・diagnostics
 と素性行の配布 source 一致を確認して受入を閉じる。
+
+公開対象commit `ba5f870278339156f2a73789735757e03d06624d`を`v0.4.10`へ固定した。
+npmのintegrityは
+`sha512-n5Cpp2EHo7i4XG8vdyO7REOlDcsHGlCV4iXEGp5wm8D4WzAY6WYZl2NCpE6sHG+ecn8oJrM/d8ZIkcROKWITLw==`、
+shasumは`1c141b2c60a023ab4dbaa1062ac9495df7d6a528`で、44 filesを公開した。
+npm由来global installは0.4.10の非symlink packageで、2 bins、diagnostics ready、
+素性行 `vendor / model / effort / role` の配布source一致を確認した。
+これを`0.4.10`の公開受入とする。
+
