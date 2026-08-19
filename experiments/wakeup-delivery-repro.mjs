@@ -23,7 +23,8 @@ assert.equal(
 assert.equal(isWakeupBridgeTarget({ name: 'nagi', observe: { tmux_target: 'peer-nagi' } }), true)
 assert.equal(isWakeupBridgeTarget({ name: 'bell', observe: null }), false)
 assert.equal(isWakeupBridgeTarget({ name: 'bell', delivery: { kind: 'parent_watch', host: 'grok' } }), false)
-assert.equal(isWakeupBridgeTarget({ name: 'missing' }), true)
+assert.equal(isWakeupBridgeTarget({ name: 'missing' }), false)
+assert.equal(isWakeupBridgeTarget({ name: 'bell' }), false)
 assert.equal(isWakeupBridgeTarget(undefined), false)
 
 assert.equal(shouldDeferGrokWake('codex', 'Working (1m · esc to interrupt)'), false)
@@ -33,4 +34,4 @@ assert.equal(shouldDeferGrokWake('grok', '#1 [Peertable #7] room\nEnter:send now
 assert.equal(shouldDeferGrokWake('grok', 'grok-4.6 high · ~/Developer/Throughline'), false)
 assert.equal(shouldDeferGrokWake('grok', 'Enter:send now'), false)
 
-console.log('wakeup delivery: 16/16 green')
+console.log('wakeup delivery: 17/17 green')

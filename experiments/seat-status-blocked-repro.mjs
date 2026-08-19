@@ -15,7 +15,9 @@ assert.equal(classifyPaneTail('rm -rf ./tmp\nDo you want to proceed?'), 'blocked
 assert.equal(classifyPaneTail('✶ Cogitating… (esc to interrupt)\nDo you want to proceed?'), 'busy')
 
 // ③ どちらも無ければ idle
+assert.equal(classifyPaneTail('· Wibbling… (3m 38s · ↓ 7.2k tokens · almost done thinking with high effort)'), 'busy')
+assert.equal(classifyPaneTail('✻ Incubating… (53s · ↓ 2.5k tokens · thinking with high effort)'), 'busy')
 assert.equal(classifyPaneTail('gpt-5.6-sol high · context 81% left'), 'idle')
 assert.equal(classifyPaneTail(''), 'idle')
 
-console.log('seat status blocked repro: 7/7 green')
+console.log('seat status blocked repro: 9/9 green')

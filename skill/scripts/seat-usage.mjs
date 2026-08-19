@@ -198,6 +198,9 @@ export const BLOCKED_MARKERS = [
 export function classifyPaneTail(tail) {
   if (typeof tail !== 'string') return 'idle'
   if (tail.includes('esc to interrupt')) return 'busy'
+  // Claude Code 2.1 / Fable TUI は思考中に esc to interrupt を出さない（2026-08-19 実測）。
+  // 動名詞（Wibbling 等）は毎回変わるので使わない。思考中の固定句だけを busy にする。
+  if (tail.includes('thinking with') || tail.includes('almost done thinking')) return 'busy'
   if (BLOCKED_MARKERS.some(marker => tail.includes(marker))) return 'blocked'
   return 'idle'
 }

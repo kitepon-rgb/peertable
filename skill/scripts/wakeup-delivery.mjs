@@ -24,6 +24,10 @@ export function isWakeupBridgeTarget(member) {
   if (!member || typeof member.name !== 'string' || member.name.length === 0) return false
   if (member.delivery?.kind === 'parent_watch') return false
   if (member.observe === null) return false
+  const observe = member.observe
+  if (!observe || typeof observe !== 'object' || typeof observe.tmux_target !== 'string' || !observe.tmux_target) {
+    return false
+  }
   return true
 }
 
