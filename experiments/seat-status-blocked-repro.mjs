@@ -17,7 +17,11 @@ assert.equal(classifyPaneTail('✶ Cogitating… (esc to interrupt)\nDo you want
 // ③ どちらも無ければ idle
 assert.equal(classifyPaneTail('· Wibbling… (3m 38s · ↓ 7.2k tokens · almost done thinking with high effort)'), 'busy')
 assert.equal(classifyPaneTail('✻ Incubating… (53s · ↓ 2.5k tokens · thinking with high effort)'), 'busy')
+assert.equal(classifyPaneTail('· Sprouting… (7m 48s · 27.9k tokens)\nTip: Use /btw to ask a quick side question without interrupting Claude\'s current work'), 'busy')
+assert.equal(classifyPaneTail('· Sprouting… (7m 48s · 27.9k tokens)'), 'busy')
+assert.equal(classifyPaneTail('Calling tools…（↓28.7k tokens）'), 'busy')
+assert.equal(classifyPaneTail('✻ Cooked for 22s\n❯\n[Fable 5]'), 'idle')
 assert.equal(classifyPaneTail('gpt-5.6-sol high · context 81% left'), 'idle')
 assert.equal(classifyPaneTail(''), 'idle')
 
-console.log('seat status blocked repro: 9/9 green')
+console.log('seat status blocked repro: 13/13 green')
