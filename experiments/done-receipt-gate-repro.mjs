@@ -6,16 +6,17 @@
 // 親の事後照合（run landing = landed:false / accepted_receipts:[]）まで誰にも見えなかった（room [42][45]）。
 // landing-only mode も accepted receipt しか数えないので、受理前で止まった intake には無言だった。
 //
-// 測るのは: 完全修飾PLANを優先する / 実行層の未accept・未landingを通さない /
+// 測るのは: 完全修飾PLANを優先する / 未acceptでも監査担当の done は通す /
 // 状態不明を成功へ倒さない / landing-onlyの未acceptを別軸で出す。
 import { strict as assert } from 'node:assert'
 import { spawnSync } from 'node:child_process'
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { delimiter, join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
-const REPO = resolve(new URL('..', import.meta.url).pathname)
+const REPO = resolve(fileURLToPath(new URL('..', import.meta.url)))
 const root = await mkdtemp(join(tmpdir(), 'peertable-done-gate-'))
 const repo = join(root, 'repo')
 const bin = join(root, 'bin')
@@ -127,14 +128,17 @@ const setMode = (mode, extra = {}) => writeFile(state, JSON.stringify({
 }) + '\n')
 const env = {
   ...process.env,
-  PATH: `${bin}:${process.env.PATH}`,
+  PATH: `${bin}${delimiter}${process.env.PATH}`,
   PEERTABLE_PLAN: plan,
   LATTICE_CLI: join(bin, 'lattice'),
   LATTICE_LOG: latticeLog,
   STUB_STATE: state,
 }
 // template は配布時に実行権を付けて配られるので、正本そのものは bash で回す
-const runWith = (args, extraEnv = {}) => spawnSync('bash', [join(REPO, 'skill/templates/done.sh'), ...args], {
+const bash = process.platform === 'win32'
+  ? 'C:/Program Files/Git/bin/bash.exe'
+  : 'bash'
+const runWith = (args, extraEnv = {}) => spawnSync(bash, [join(REPO, 'skill/templates/done.sh'), ...args], {
   cwd: repo, env: { ...env, ...extraEnv }, encoding: 'utf8', timeout: 30_000,
 })
 const run = (...args) => runWith(args)
@@ -167,16 +171,15 @@ try {
   })
   assert.deepEqual(await calls(), [])
 
-  // 2. 未accept の intake が在るなら done を打たない
+  // 2. 未accept でも監査担当の done は通す（engine は done→accept。循環させない）
   await setMode('pending')
   await resetLog()
   result = run('x1')
-  check('未accept の receipt では done を打たない', () => {
-    assert.notEqual(result.status, 0)
-    assert.match(result.stderr, /receipt が未acceptのまま done は打てない: x1/)
-    assert.match(result.stderr, /run intake accept --run \.lattice\/runs\/r1 --task x1/)
+  check('未accept でも done を打つ', () => {
+    assert.equal(result.status, 0, `${result.error ?? ''}\n${result.stdout}\n${result.stderr}`)
+    assert.match(result.stderr, /未accept: x1 @ \.lattice\/runs\/r1/)
   })
-  assert.deepEqual(await doneCalls(), [], '未accept で todo done が呼ばれていない')
+  assert.equal((await doneCalls()).length, 1)
 
   // 3. accept・landing済みなら、roomや証跡本文の監査文を読まずにdoneを通す
   await setMode('accepted')
@@ -187,9 +190,9 @@ try {
   })
   assert.equal((await doneCalls()).length, 1)
   check('証跡と同じ本文をtest_resultへ渡す', () => {
-    const recorded = JSON.parse(spawnSync('cat', [state], { encoding: 'utf8' }).stdout)
+    const recorded = JSON.parse(readFileSync(state, 'utf8'))
     assert.equal(recorded.test_result, '# x1\n')
-    assert.match((spawnSync('cat', [latticeLog], { encoding: 'utf8' }).stdout), /--test-result \.test-result-fixture-plan-x1\.md/)
+    assert.match(readFileSync(latticeLog, 'utf8'), /--test-result \.test-result-fixture-plan-x1\.md/)
     assert.equal(existsSync(join(repo, '.test-result-fixture-plan-x1.md')), false)
   })
 
@@ -201,14 +204,15 @@ try {
   })
   assert.deepEqual(await doneCalls(), [], '既存doneの再試行で todo done を再実行していない')
 
-  // 5. f6のtask receiptが未着地なら完了処理を止める
+  // 5. task receipt が未着地でも done は通し、警告だけ出す
   await setMode('landing_unlanded')
   await resetLog()
   result = run('x1')
-  check('f6 task receipt未着地では完了処理を止める', () => {
-    assert.notEqual(result.status, 0)
-    assert.match(result.stderr, /task receipt がcanonical landing済みでない/)
+  check('task receipt未着地でも done を通し警告する', () => {
+    assert.equal(result.status, 0, result.stderr)
+    assert.match(result.stderr, /未着地: x1 @ \.lattice\/runs\/r1/)
   })
+  assert.equal((await doneCalls()).length, 1)
 
   // 6. push状態は工程closeを止めず、未push件数だけを案内する
   assert.equal(git('commit', '--allow-empty', '-q', '-m', 'unlanded fixture').status, 0)
@@ -259,7 +263,7 @@ try {
   result = run('x1', '--evidence-from', join(pullWorktree, `evidence/${plan}/x1.md`))
   check('pull型も隔離worktreeの証跡本文をtest_resultへ渡す', () => {
     assert.equal(result.status, 0, result.stderr)
-    const recorded = JSON.parse(spawnSync('cat', [state], { encoding: 'utf8' }).stdout)
+    const recorded = JSON.parse(readFileSync(state, 'utf8'))
     assert.equal(recorded.test_result, '# pull x1\n')
     assert.equal(existsSync(join(repo, '.test-result-fixture-plan-x1.md')), false)
   })
@@ -341,6 +345,9 @@ try {
   })
 
   console.log(`done-receipt-gate repro: ${checks}/${checks} green`)
+} catch (error) {
+  console.error(error)
+  process.exitCode = 1
 } finally {
-  await rm(root, { recursive: true, force: true })
+  await rm(root, { recursive: true, force: true }).catch(() => {})
 }

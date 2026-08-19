@@ -35,7 +35,8 @@ usage: done.sh <task_id> [--plan <plan_key>] [--evidence-from <隔離worktreeの
   evidence/<plan>/<task>.md を commit 済みにして done.sh <task_id> を実行する。
   wrapper が証跡から記述子を生成し、lattice todo doneで同じ本文を最終試験結果として canonical store へ記録する。
   pull run の worktree で作業した場合だけ --evidence-from に同じrepoの絶対pathを渡す。
-  未accept の intake がある場合は、先に run intake accept を完了させる。
+  この script は監査担当が打つ。accept は intake 席が todo done の後に打つ（engine 正順）。
+  未accept・未着地は警告だけで、done を止めない。
 USAGE
 }
 
@@ -177,10 +178,9 @@ while [ "$#" -gt 0 ]; do
 done
 [ -n "$plan" ] || { echo "ERROR: 完了処理を続けられない: --plan または PEERTABLE_PLAN が必要" >&2; exit 1; }
 if [ -n "$evidence_from" ]; then
-  case "$evidence_from" in
-    /*) ;;
-    *) echo "ERROR: --evidence-from は絶対pathでなければならない: $evidence_from" >&2; exit 1 ;;
-  esac
+  if ! python3 -c 'import os,sys; sys.exit(0 if os.path.isabs(sys.argv[1]) else 1)' "$evidence_from"; then
+    echo "ERROR: --evidence-from は絶対pathでなければならない: $evidence_from" >&2; exit 1
+  fi
   # **黙って canonical の証跡へ落ちない。** 落ちると「worktree の成果を done した」と見えるのに
   # 実際は別の file を hash することになり、受理された内容と成果物が食い違う
   [ -f "$evidence_from" ] || { echo "ERROR: --evidence-from の証跡が存在しない: $evidence_from" >&2; exit 1; }
@@ -240,11 +240,9 @@ case "$task_status" in
   *) echo "ERROR: 完了処理を続けられない: ToDoが完了可能状態でない: $task_status" >&2; exit 1 ;;
 esac
 
-# **receipt が未 accept のまま done を打たせない。** 実行層に載せた task の成果の正本は
-# Lattice が撮った observed diff（accepted receipt）であって、ToDo の done ではない。
-# 2026-08-11 実測: accept が `RUNTIME_CONFLICT_HOLD` で止まっているのに done は通り、
-# 「ToDo は完了・成果はどこにも着地していない」状態が親の事後照合まで誰にも見えなかった
-# （そして landing-only mode は receipt が無ければ 0 本＝無言になる）。
+# **done と accept は別軸。** engine は todo done の後にだけ accept できる。
+# 監査担当が done.sh で閉じ、intake 席が accept する。未 accept を done の拒否条件にすると循環する。
+# 読めない状態は成功へ倒さない。未accept・未着地は警告（未push と同じ）。
 # **実行層に載っていない task は素通しする**——pull run の利用は任意で、載っていない卓を止めない。
 gate_runs=$("$done_gate_cli" run list --json 2>&1) || {
   echo "ERROR: receipt の状態を読めない（run list が失敗）: $gate_runs" >&2; exit 1;
@@ -322,12 +320,6 @@ for index, intake in enumerate(intakes):
         entry = intake
 print("absent" if entry is None else ("accepted" if entry.get("accepted_head_sha") else "pending"))
 ' "$t") || { echo "ERROR: receipt の状態を読めない: $gate_state" >&2; exit 1; }
-  if [ "$gate_state" = pending ]; then
-    echo "ERROR: receipt が未acceptのまま done は打てない: ${t} @ ${gate_ref}" >&2
-    echo "  先に受理させる: ${done_gate_cli} run intake accept --run ${gate_ref} --task ${t}" >&2
-    echo "  （accept が hold で止まる場合、その理由の解消が完了条件であって、done は迂回路ではない）" >&2
-    exit 1
-  fi
 done
 
 # descriptor の path は repo 内の相対（repo 外の絶対 path は --evidence が INVALID_ARGUMENTS で弾く）。
@@ -378,9 +370,7 @@ if [ -n "$upstream_ref" ]; then
   fi
 fi
 
-# pull run を使った task は、accept 済みで、かつこの task の receipt が
-# canonical branch へ着地したことまで確認する。別 task の未着地だけでは
-# この task の completed を止めない。
+# pull run に載った task は、accept / 着地を警告として出す。done 自体は止めない。
 for gate_ref in $gate_refs; do
   gate_obs=""
   gate_obs=$("$done_gate_cli" run observe --run "$gate_ref" 2>&1) || {
@@ -420,14 +410,14 @@ else:
     exit 1
   }
   [ "$gate_state" = absent ] && continue
-  [ "$gate_state" = accepted ] || {
-    echo "ERROR: 完了処理を続けられない: receipt が未accept: ${t} @ ${gate_ref}" >&2
-    exit 1
-  }
+  if [ "$gate_state" != accepted ]; then
+    echo "未accept: ${t} @ ${gate_ref}（intake 席が accept する。done は記録済み）" >&2
+    continue
+  fi
   landing_report=""
   landing_report=$("$done_gate_cli" run landing --run "$gate_ref" 2>&1) || {
-    echo "ERROR: 完了処理を続けられない: run landing が失敗: $gate_ref: $landing_report" >&2
-    exit 1
+    echo "着地状態を読めない: run landing が失敗: $gate_ref: $landing_report" >&2
+    continue
   }
   landing_task=$(printf '%s' "$landing_report" | python3 -c '
 import json, sys
@@ -459,8 +449,7 @@ else:
     exit 1
   }
   [ "$landing_task" = landed ] || {
-    echo "ERROR: 完了処理を続けられない: task receipt がcanonical landing済みでない: ${t} @ ${gate_ref}" >&2
-    exit 1
+    echo "未着地: ${t} @ ${gate_ref}（task receipt が canonical へ未着地）" >&2
   }
 done
 

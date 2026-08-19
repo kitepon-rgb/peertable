@@ -108,10 +108,10 @@ script は内部で Aiterm の公開 `claude_agent` / `codex_agent` / `grok_agen
   - **id に plan key だけの固定値を使わない。** `close` しても run directory は残り `run list` は closed を返さないので、**「無いのに `RUN_EXISTS` で作れない」**袋小路に入る（2026-08-09 実測）
   - `RUN_EXISTS` が返ったら**相手の run を推定せず**、再 list → active があれば共有、無ければ別の一意 id で作り直す
 - **席は自分で `todo start` してから `run intake` する。** intake が返すのは隔離 worktree と `intervention`（`none` か `hold`）で、**許可証ではない**。`hold` は「他の着手済み task と競合しているから留まれ」という装置の指示である
-- **`todo done` は canonical の cwd/store へ打ち、証跡は worktree から渡す。** `done.sh <task> --evidence-from <worktree>/evidence/<plan>/<task>.md`。cwd 1つで兼ねると必ずどちらかが外れる（canonical では証跡が読めず、worktree では accept が見ない store を書く）。**canonical へ証跡を複製して通すのは偽装**——linked worktree は object DB を共有するので複製は要らない
+- **`todo done` は監査担当が打つ。** canonical の cwd/store へ打ち、証跡は worktree から渡す。`done.sh <task> --evidence-from <worktree>/evidence/<plan>/<task>.md`。cwd 1つで兼ねると必ずどちらかが外れる（canonical では証跡が読めず、worktree では accept が見ない store を書く）。**canonical へ証跡を複製して通すのは偽装**——linked worktree は object DB を共有するので複製は要らない。**accept は intake 席が、todo done の後に打つ**（engine は done 前の accept を拒否する。done.sh が accept を先に要求すると循環する）
 - **worktree と lease は設備の供給である。** 席が要求すれば出てくるもので、出してもらうものではない
 - **席と spool は接触しない。** 席が触るのは room と worktree だけで、`.lattice/` の直読み・直書き禁止の契約はそのまま
-- **席の作法の正本は `templates/member.md` の「Lattice の実行層へ自分の着手を載せる」節**（intake→intervention 判定→attach→作業→`todo done`→accept の順・1席1 intake・禁止操作・検証の回し方・成果の正本）。ここに二重化しない
+- **席の作法の正本は `templates/member.md` の「Lattice の実行層へ自分の着手を載せる」節**（intake→intervention 判定→attach→作業→監査担当が `done.sh`→intake 席が accept の順・1席1 intake・禁止操作・検証の回し方・成果の正本）。ここに二重化しない
 - **席は自分の pid を装置へ渡す（attach）。** その pid は `.team/seats/<名前>.json`（`launch-seat.sh` が着席直後に書く）が持ち、席は読んで `schema` を足すだけで attach input になる。**raw argv を保存しない**——token値をargvから除いた後も、将来の引数を無条件に複製しない。持つのはdigestだけ
 - **run-bridge は可視化の中継であって、必須経路ではない**（決定63）。落ちていても席は自分で intake / attach / accept を打てるし、介入も `lattice run intake intervention --run <ref> --task <id>` で自分で読める。**見えなくなるだけ**である
 - **ブリッジの起動**: `scripts/ensure-bridge.sh <project> run [--lattice <path>]`。停止は `node scripts/run-bridge.mjs <project> --stop`（**teardown.sh が自動で行う**）。**spool dir も席名も取らない**（配車をしないので要らない。渡すと typed error で落ちる）。ADR 0157 の作法（pid 記録・起動時に前の記録を掃除・SIGTERM→SIGKILL）はそのまま
