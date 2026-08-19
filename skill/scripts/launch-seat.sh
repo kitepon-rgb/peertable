@@ -512,7 +512,7 @@ PY
   fi
 fi
 
-# 席の素性（vendor / model / effort）を room へ渡す。参加者一覧のホバー表示に使う。
+# 席の素性（vendor / model / effort / role）を room へ渡す。参加者一覧のホバー表示に使う。
 # 席自身の client も起動時に `{name}` だけで登録するので、server 側は
 # **欄が無い登録で既存の素性を消さない**（upsert）ことが前提である。
 # effort は渡された時だけ入れる——欄が無い＝「不明」ではなく「CLI 既定で走っている」。
@@ -552,7 +552,7 @@ print('yes' if m.get('model') and m.get('role') and m.get('aiterm_session_id') a
 PY
 )
   if [ "$stored" = yes ]; then
-    echo "metadata: ${vendor} / ${model}${effort:+ / $effort}"
+    echo "metadata: ${vendor} / ${model}${effort:+ / $effort}${role:+ / $role}"
   else
     echo "metadata は保存されなかった: この room サーバーは素性欄を持たない版（席は着席済み・一覧に素性が出ないだけ）" >&2
   fi

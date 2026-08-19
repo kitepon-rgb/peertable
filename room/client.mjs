@@ -136,7 +136,7 @@ mcp.setRequestHandler(CallToolRequestSchema, async req => {
 await mcp.connect(new StdioServerTransport())
 
 // 参加登録し、現在のログ末尾から未読を数え始める。
-// 素性（vendor/model/effort）は launch-seat.sh が env へ入れる。**登録のたびに載せる**——
+// 素性（vendor/model/effort/role）は launch-seat.sh が env へ入れる。**登録のたびに載せる**——
 // 登録は client の起動ごとに繰り返し起きるので、1回きりの経路に置くと
 // member の状態が失われた時に二度と戻らない（server 側は渡された欄だけ更新する upsert）
 function observeSelf() {

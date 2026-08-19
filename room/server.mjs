@@ -100,7 +100,7 @@ function normalizeAudience(to, toNames) {
 }
 
 // SSE の member イベントで押し込む欄。閲覧者が気づく欄だけに絞る（POST /members 参照）
-const MEMBER_EVENT_FIELDS = ['status', 'busy_since', 'vendor', 'model', 'effort']
+const MEMBER_EVENT_FIELDS = ['status', 'busy_since', 'vendor', 'model', 'effort', 'role']
 
 // room ログへは書かない・system 発言も出さない稼働状態の push。post() とは別の経路
 function emitMember(room, name, meta) {
@@ -190,7 +190,7 @@ http.createServer(async (req, res) => {
     }
     if (req.method === 'POST' && rest === 'members') {
       const { name, ...meta } = JSON.parse(body)
-      // 素性（vendor/model/effort）や稼働状態は、名前以外の欄をそのまま任意欄として持つ。
+      // 素性（vendor/model/effort/role）や稼働状態は、名前以外の欄をそのまま任意欄として持つ。
       // **渡された欄だけ更新し、渡されなかった欄は既存を保つ**——席の client は `{name}` だけで
       // 登録するので、これが無いと再接続のたびに素性が消える。`joined_at` は最初の登録を保つ。
       const known = room.members.get(name)
@@ -463,8 +463,8 @@ async function refreshMembers(){
     const color=avatarColor(m.name)
     c.style.setProperty('--h',color.h);c.style.setProperty('--av-bg',color.bg);c.style.setProperty('--av-fg',color.fg);c.dataset.name=m.name
     // 素性は任意欄。名乗っていない席は行ごと出ない（空欄を「不明」として見せない）。
-    // vendor/model/effort を1行へ畳む（launch-seat.sh:108 の着席ログと読み口を揃える。effort の語は出さない）
-    const idParts=[m.vendor,m.model,m.effort].filter(Boolean)
+    // vendor/model/effort/role を1行へ畳む（着席ログと読み口を揃える。effort / role の語は出さない）
+    const idParts=[m.vendor,m.model,m.effort,m.role].filter(Boolean)
     const meta=[idParts.length?idParts.join(' / '):null].filter(Boolean)
     // 稼働状態は**報告が新しい時だけ**採る。途絶えたら unknown へ落とす——古い状態を出し続けるのが
     // いちばん悪い（動いていない席を「動いている」と見せる）。閾値は bridge の心拍30秒の3倍
