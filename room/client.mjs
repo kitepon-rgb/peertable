@@ -13,7 +13,7 @@ import { findModelsDoc, resolveSeatIdentity } from '../skill/scripts/resolve-sea
 
 // client.mjs 側のハードコード版数。package.json の version と一致していることを
 // diagnostics の version_consistency が見る（2 つの版数源の drift 検出。決定45）
-const MCP_VERSION = '0.4.23'
+const MCP_VERSION = '0.4.24'
 const PKG_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 
 const USAGE = `usage:
@@ -346,6 +346,7 @@ async function runDiagnostics(asJson) {
       'scripts/ensure-room-mcp.mjs',
       'scripts/leave-seat.sh',
       'scripts/change-seat.sh',
+      'scripts/post-message.mjs',
       // effort 専用の互換入口。change-seat.sh へ委譲するので、どちらが欠けても席設定変更が死ぬ
       'scripts/change-effort.sh',
       'scripts/make-plan-input.mjs',

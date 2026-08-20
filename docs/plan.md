@@ -1570,6 +1570,12 @@ project `.codex/config.toml` の last-writer が PEERTABLE_MEMBER を上書き�
 `.team/seats/<name>.codex` へ書き、live 席へ `CODEX_HOME` を渡す。
 patch `0.4.23`。
 
+## 44. room 投稿 JSON は node の UTF-8 で出す（2026-08-20）
+
+Windows の `python3 -c json.dumps` は stdout が cp932 になり、日本語本文が部屋へ壊れて保存される。
+`post-message.mjs` が UTF-8 JSON を出す。`change-seat.sh` と親の投稿入口はこれを使う。
+patch `0.4.24`。
+
 
 
 

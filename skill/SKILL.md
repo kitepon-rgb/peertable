@@ -186,7 +186,7 @@ witness をどう生成するかは**対象 project 側の作法に従う**（La
 
 - 親は MCP を後付けできないため room へは HTTP API 直で参加する:
   - 登録: `curl -X POST $URL/api/$ROOM/members -H "X-Peertable-Token: $TOKEN" -d '{"name":"bell"}'`
-  - 発言: `curl -X POST $URL/api/$ROOM/messages -H "X-Peertable-Token: $TOKEN" -d '{"from":"bell","to":"<明示宛先>","body":"..."}'`（複数人は`to`へ名前の配列）
+  - 発言: `node skill/scripts/post-message.mjs bell <宛先> '<本文>' | curl -X POST $URL/api/$ROOM/messages -H "X-Peertable-Token: $TOKEN" -H "Content-Type: application/json" --data-binary @-`。Windows の `python3 -c json.dumps` は stdout が cp932 になり日本語本文が部屋へ壊れて保存される。複数人は`to`へ名前の配列（JSON）
   - 観測: **bell宛DM番犬**（下記）。素の SSE 全量 Monitor は張らない
 - **親宛DM番犬の仕様**（決定76）: room追従は`parent-watch.mjs`一つが所有する。`parent-join.sh`が
   `.team/parent-watch.json`をprimeし、room SSE・heartbeat・再接続catch-up・`to`/`to_names`判定・
