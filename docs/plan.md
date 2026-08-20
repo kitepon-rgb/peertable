@@ -1480,5 +1480,15 @@ model / vendor / effort は順位表の着席可能な最上位から機械解�
 patch `0.4.12` として出す。公開後は registry 由来 global install で version・bin・diagnostics
 と `resolve-seat-placement.mjs` 同梱、役割未指定拒否を確認して受入を閉じる。
 
+公開対象commit `d66623e8953d4d4bc99b464c50a3f7c30c613ed2`を`v0.4.12`へ固定した。
+npmのintegrityは
+`sha512-fyYr83YLKf+JlGzvfGBBVf5SwEaZZS7nbh3qAfIhz/FLhzdb8wc11bzkI4SeESLF3baLlu2Yelfo+9WBgXWZEw==`、
+shasumは`dff9c12733c727f617e306427057dbe2e3ae7ce9`で、46 filesを公開した。
+npm由来global installは0.4.12の非symlink packageで、2 bins、diagnostics ready、
+`resolve-seat-placement.mjs` 同梱、役割未指定は usage 拒否、`worker` は `SEAT_ROLE_UNKNOWN`、
+`DOTAGENTS_ROOT` 指定で 実装→`codex / gpt-5.6-terra / high` を確認した。
+これを`0.4.12`の公開受入とする。
+
+
 
 
