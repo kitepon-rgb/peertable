@@ -91,6 +91,16 @@ if (rest[0] === '--stop') process.exit(0)
 const requestedSeats = rest
 const state = JSON.parse(readFileSync(join(proj, '.team', 'setup-state.json'), 'utf8'))
 const { room, server_url: url } = state
+const parentName = (() => {
+  if (process.env.PEERTABLE_PARENT_NAME) return process.env.PEERTABLE_PARENT_NAME
+  try {
+    const watch = JSON.parse(readFileSync(join(proj, '.team', 'parent-watch.json'), 'utf8'))
+    return typeof watch.parent === 'string' ? watch.parent : null
+  } catch {
+    return null
+  }
+})()
+const targetOpts = { parentName }
 writeFileSync(record, JSON.stringify({
   pid: process.pid, room, server_url: url, requested_seats: requestedSeats, started_at: new Date().toISOString(),
 }) + '\n')
@@ -124,7 +134,7 @@ function reconcileSeats() {
   const next = new Set()
   if (membersObserved) {
     for (const member of members.values()) {
-      if (!isWakeupBridgeTarget(member)) continue
+      if (!isWakeupBridgeTarget(member, targetOpts)) continue
       next.add(member.name)
       if (!pending.has(member.name)) pending.set(member.name, new Map())
     }
@@ -227,7 +237,7 @@ async function wake(seat, msgs) {
   // 配送直前に member ledger を取り直し、current name -> descriptor の一経路だけを使う。
   await refreshMembers()
   const member = members.get(seat)
-  if (!isWakeupBridgeTarget(member)) return 'skipped'
+  if (!isWakeupBridgeTarget(member, targetOpts)) return 'skipped'
   const observation = resolveSeatObservation(member, null)
   if (observation === null) {
     const code = members.has(seat) ? 'DESCRIPTOR_MISSING' : 'MEMBER_MISSING'
@@ -265,7 +275,7 @@ function dispatch(msg) {
     advanceLastSeq()
     return
   }
-  const targets = recipientNames(msg).filter(seat => isWakeupBridgeTarget(members.get(seat)))
+  const targets = recipientNames(msg).filter(seat => isWakeupBridgeTarget(members.get(seat), targetOpts))
   const state = { message: msg, targets: new Set(targets), delivered: new Set() }
   for (const seat of targets) {
     if (delivered.has(deliveryKey(msg.seq, seat))) state.delivered.add(seat)

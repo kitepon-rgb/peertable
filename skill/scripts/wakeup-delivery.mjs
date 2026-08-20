@@ -20,13 +20,24 @@ export function formatWakeNotice(msg) {
 }
 
 /**
- * 親番犬は別経路なので通常席の TUI 配達から外す。
- * observe 欠落は対象外ではない——配達できない故障であり、黙って飛ばさない。
+ * 親は parent-watch が配達する。通常席の TUI 配達から外す。
+ * Codex / Grok の observe 欠落は対象外ではない——配達できない故障であり、黙って飛ばさない。
  */
-export function isWakeupBridgeTarget(member) {
+export function isWakeupBridgeTarget(member, options = {}) {
   if (!member || typeof member.name !== 'string' || member.name.length === 0) return false
   if (member.delivery?.kind === 'parent_watch') return false
-  return true
+  const parentName = options.parentName
+  if (typeof parentName === 'string' && parentName.length > 0 && member.name === parentName) return false
+  const observe = member.observe
+  const hasPane = Boolean(
+    observe
+    && typeof observe === 'object'
+    && typeof observe.tmux_target === 'string'
+    && observe.tmux_target,
+  )
+  if (hasPane) return true
+  const vendor = member.vendor || member.settings?.vendor
+  return vendor === 'codex' || vendor === 'grok'
 }
 
 /**

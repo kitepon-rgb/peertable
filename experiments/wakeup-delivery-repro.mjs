@@ -22,11 +22,11 @@ assert.equal(
 )
 
 assert.equal(isWakeupBridgeTarget({ name: 'nagi', observe: { tmux_target: 'peer-nagi' } }), true)
-assert.equal(isWakeupBridgeTarget({ name: 'nagi', observe: null }), true)
+assert.equal(isWakeupBridgeTarget({ name: 'nagi', vendor: 'codex', observe: null }), true)
 assert.equal(isWakeupBridgeTarget({ name: 'bell', delivery: { kind: 'parent_watch', host: 'grok' } }), false)
-assert.equal(isWakeupBridgeTarget({ name: 'bell', observe: null, delivery: { kind: 'parent_watch', host: 'grok' } }), false)
-assert.equal(isWakeupBridgeTarget({ name: 'missing' }), true)
-assert.equal(isWakeupBridgeTarget({ name: 'bell' }), true)
+assert.equal(isWakeupBridgeTarget({ name: 'bell', vendor: 'grok' }, { parentName: 'bell' }), false)
+assert.equal(isWakeupBridgeTarget({ name: 'bell', vendor: 'claude' }), false)
+assert.equal(isWakeupBridgeTarget({ name: 'bell' }), false)
 assert.equal(isWakeupBridgeTarget(undefined), false)
 
 assert.equal(shouldDeferGrokWake('codex', 'Working (1m · esc to interrupt)'), false)
