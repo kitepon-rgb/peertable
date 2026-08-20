@@ -84,7 +84,7 @@ try {
   }, 'room起動', 10_000)
 
   const launch = spawnSync(join(repo, 'skill/scripts/launch-seat.sh'), [
-    project, member, 'grok-4.6', 'grok', 'high',
+    project, member, '反証',
     'roomのpostツールでallへ「[grok-live] ready」と完全一致で投稿し、その後は待機してください。',
   ], { env, encoding: 'utf8', timeout: 180_000 })
   assert.equal(launch.status, 0, `${launch.stdout}\n${launch.stderr}`)

@@ -59,9 +59,9 @@ name=sys.argv[1]
 member=next((m for m in json.load(sys.stdin).get("members",[]) if m.get("name")==name),None)
 if not member or member.get("vendor") not in ("claude","codex","grok") or not member.get("model"):
     raise SystemExit(1)
-print("\t".join((member["vendor"],member["model"],member.get("effort") or "",member.get("aiterm_session_id") or "")))
+print("\t".join((member["vendor"],member["model"],member.get("effort") or "",member.get("aiterm_session_id") or "",member.get("role") or "")))
 ' "$name") || { echo "SEAT_CHANGE_MEMBER_METADATA_MISSING: ${name} のvendor/modelが要る" >&2; exit 1; }
-IFS=$'\t' read -r old_vendor old_model old_effort aiterm_session_id <<EOF
+IFS=$'\t' read -r old_vendor old_model old_effort aiterm_session_id old_role <<EOF
 $meta
 EOF
 
@@ -202,11 +202,15 @@ else
     exit 1
   fi
   launch="$script_dir/launch-seat.sh"
+  [ -n "$old_role" ] || {
+    echo "SEAT_CHANGE_ROLE_MISSING: ${name} の role が無い（02_models の役割名が要る）" >&2
+    exit 1
+  }
   brief="席設定が変更され（${changes}）、席を再起動しました。.team/roles/member.mdと工程正本・roomログから再着任し、進行中taskを続けてください。"
-  if ! "$launch" "$proj" "$name" "$model" "$vendor" "$effort" "$brief"; then
+  if ! "$launch" "$proj" "$name" "$old_role" "$brief" --model "$model" --vendor "$vendor" --effort "$effort"; then
     echo "SEAT_CHANGE_RESTART_FAILED: ${changes}。旧設定（vendor=${old_vendor} / model=${old_model} / effort=${old_effort:-default}）へrollbackする" >&2
     rollback_brief="席設定の変更に失敗して旧設定へrollbackしました。.team/roles/member.mdと工程正本・roomログから再着任してください。"
-    if "$launch" "$proj" "$name" "$old_model" "$old_vendor" "$old_effort" "$rollback_brief"; then
+    if "$launch" "$proj" "$name" "$old_role" "$rollback_brief" --model "$old_model" --vendor "$old_vendor" --effort "$old_effort"; then
       echo "SEAT_CHANGE_ROLLED_BACK: ${name} は vendor=${old_vendor} / model=${old_model} / effort=${old_effort:-default} で再着席" >&2
     else
       echo "SEAT_CHANGE_ROLLBACK_FAILED: ${name} の席を手動で復旧する必要がある" >&2

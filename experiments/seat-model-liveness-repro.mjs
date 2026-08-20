@@ -75,7 +75,7 @@ const env = {
 }
 const launch = (model, vendor, effort = 'high') => spawnSync(
   join(REPO, 'skill/scripts/launch-seat.sh'),
-  [project, 'fixture-seat', model, vendor, effort],
+  [project, 'fixture-seat', '実装', '--model', model, '--vendor', vendor, '--effort', effort],
   { env, encoding: 'utf8', timeout: 60_000 },
 )
 const tmuxCalls = async () => {

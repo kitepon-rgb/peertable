@@ -109,7 +109,7 @@ Codex では、スキルが所有する room MCP block をプロジェクトの 
 
 現在のnpm releaseは **peertable 0.4.11**。
 
-設計文書と決定履歴（**89 決定**）は [docs/plan.md](docs/plan.md)。
+設計文書と決定履歴（**91 決定**）は [docs/plan.md](docs/plan.md)。
 
 Claude Code channels はリサーチプレビューのため、フラグ・プロトコルは変わりうる。
 

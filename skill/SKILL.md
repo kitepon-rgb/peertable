@@ -28,7 +28,7 @@ description: 任意プロジェクトに Peertable チーム（対等メンバ�
 ## Peertableの正規席と委譲入口
 
 Peertableのメンバー席は、aiterm-mcpの外部PTYに長寿命で着席させる。新しい席は
-`env -u PEERTABLE_POST_TOKEN scripts/launch-seat.sh <project> <name> <model> <vendor> <effort> [brief]`で起こし、既存席の分担・起床・確認は
+`env -u PEERTABLE_POST_TOKEN scripts/launch-seat.sh <project> <name> <role> [brief]`で起こし、既存席の分担・起床・確認は
 `mcp__aiterm__pty_read` / `mcp__aiterm__pty_send` / `mcp__aiterm__pty_key`、roomの`read_unread` / `post`、
 Latticeの`todo`で行う。通常shellのために開いた短命PTYと、メンバーが着席する長寿命PTYは別物である。
 
@@ -49,7 +49,7 @@ script は内部で Aiterm の公開 `claude_agent` / `codex_agent` / `grok_agen
 
 手順は **聞き取り → script → 着任指示** の3段である。scripts が機械部分を全部持つので、AI が手で tmux を組み立てることはしない。
 
-1. **聞き取り**: 対象プロジェクトのパス / **工程正本（`Lattice 併用`＝既定 / `単独`）** / メンバー数とモデル・effort（モデル×effortの選定は dotagents `docs/02_models.md` の役割→順位表を正とし、席の主任務の役割（実装・局所コーディング・監査・反証・調査 等）で引く。**effort は既定値を置かない——席ごとに必ず決める**。`launch-seat.sh` の effort は必須引数で、未指定は着席前に非ゼロ終了する。決定49改・2026-08-19: 旧「設計か確定実装か」の2値軸と既定Sonnetを廃止し、選定正本を02_models順位表へ移管）/ 初期タスク群（何を作るか）/ room 名（既定: プロジェクトのディレクトリ名）/ **公開URL基底**（Lattice 併用のみ。外部ペインに書く URL。クオ環境は `https://peertable.kitepon.dev`。未指定なら room サーバーの URL がそのまま入る＝LAN URL は Lattice を外から見た時に開けない）
+1. **聞き取り**: 対象プロジェクトのパス / **工程正本（`Lattice 併用`＝既定 / `単独`）** / メンバー数と**役割**（dotagents `docs/02_models.md` の役割名そのもの。未指定・未知は着席しない。model×effort は `launch-seat.sh` が順位表1位から機械解決する——呼び出し側が model / vendor / effort を渡して正本を迂回しない。決定49改・決定91）/ 初期タスク群（何を作るか）/ room 名（既定: プロジェクトのディレクトリ名）/ **公開URL基底**（Lattice 併用のみ。外部ペインに書く URL。クオ環境は `https://peertable.kitepon.dev`。未指定なら room サーバーの URL がそのまま入る＝LAN URL は Lattice を外から見た時に開けない）
    - **メンバー数の既定**: Lattice 併用なら plan compile 結果の幅（`max_frontier_width`）に合わせる（実測: 幅3→3人、第2 campaign で幅4→4人目追加）。frontier より多い席は最初から遊ぶ。単独モードには frontier が無いので既定の根拠も無く、聞き取りで決める
    - **運用中のworker席数の標準は「ready＋activeな実装ToDo数」（決定68）**: 監査専任席はworker数、reclaim、scale-down候補へ含めず、最終試験結果を待って監査を担う。claimできるToDoが無いworker席は仕事を発明せず、最終手段として親だけへ待機DMする
    - **モードの選び分け**: タスク間に依存があり並列境界の機械保証が要るなら Lattice 併用。依存の無い小規模作業で、対象プロジェクトに Lattice を持ち込みたくないなら単独。単独で失うのは task 間スケジューリングの機械保証だけで、円卓の核（room・憲章・宣言による協力）は変わらない（決定47）
@@ -61,7 +61,7 @@ script は内部で Aiterm の公開 `claude_agent` / `codex_agent` / `grok_agen
 4. **Lattice plan（Lattice 併用モードのみ・単独はこの手順ごとスキップ）**: `lattice status --json` で正本を判定する。`uninitialized` なら聞き取ったタスクを JSON へ落として `scripts/make-plan-input.mjs <tasks.json> --project <project>` で `plan create` 入力を生成し、`lattice plan create --input .lattice/plan-create.json` を打つ。初期化済みなら `todo migrate` の作法（Lattice 正典）に従う。設計メモは各タスクに必ず書く
    - `make-plan-input.mjs` が digest 計算と `hard_dependencies` の `(from,to)` 昇順ソートを持つ（**手書きで2回踏んだ罠**。順序が崩れると `INPUT_INVALID / pointer:"/"` としか言われない）。`project_id` の既定は project ディレクトリ名で、`external-pane.mjs` が書く `project.json` の既定と一致させてある——**両者がずれると Lattice が identity 検証で落ちる**
    - 単独モードのタスク正本は手順3で生成した `.team/tasks.md` だけである。状態（誰が持っているか・何が終わったか）は持たせない——claim と完了は room の宣言だけが正（決定48 の延長）。ミニタスクトラッカーを別途作らない（決定36）
-5. **メンバー起動**: メンバーごとに `env -u PEERTABLE_POST_TOKEN scripts/launch-seat.sh <project> <name> <model> <claude|codex|grok> <effort> [着任指示]` を実行する。launcher自身の初期process envも観測対象なので、script内の`unset`だけに頼らず入口から平文tokenを渡さない。**vendor・effort とも必須引数**（未指定は usage を出して非ゼロ終了。既定値をコードへ埋めない——席を立てる時に決める）。tmux 作成（aiterm と同じソケットなので、立った席はそのまま `pty_read`/`pty_send` で読める）→ credential file path注入 → 起動 → 既知ダイアログ通過 → 着席確認まで1回で行き、着席しなければ最後の画面を出して非ゼロで落ちる（黙って進まない）
+5. **メンバー起動**: メンバーごとに `env -u PEERTABLE_POST_TOKEN scripts/launch-seat.sh <project> <name> <role> [着任指示]` を実行する。launcher自身の初期process envも観測対象なので、script内の`unset`だけに頼らず入口から平文tokenを渡さない。**role は必須**（02_models の役割名。未指定・`worker` 既定・未知の名前は着席前に非ゼロ終了）。model / vendor / effort は順位表から解決する。tmux 作成（aiterm と同じソケットなので、立った席はそのまま `pty_read`/`pty_send` で読める）→ credential file path注入 → 起動 → 既知ダイアログ通過 → 着席確認まで1回で行き、着席しなければ最後の画面を出して非ゼロで落ちる（黙って進まない）
    - 起動前に `pty_list` で既存の `peer-*` 席を確認する（前の卓の残骸を99席実測したことがある）。同名の席は launch-seat.sh が落としてから立て直す
    - 着任指示を第6引数に渡すと着席後に送る。文面: 「あなたは「<日本語名>」。.team/roles/member.md を読んで着任し、作業ループを開始せよ。全タスク完了の宣言まで自律的に続けること。」
    - 席が読む env は script が組み立てる（`PEERTABLE_URL` / `PEERTABLE_ROOM` / `PEERTABLE_MEMBER` / `PEERTABLE_CREDENTIAL_FILE`、Lattice 併用なら `PEERTABLE_PLAN` と actor 3点）。token値は席別`0600` fileにだけ置き、pathだけを席へ渡す。**channels は `--mcp-config` の MCP server を解決しない**（実測 2026-08-08・Claude Code v2.1.226・決定44）ため、room の MCP 定義は setup.sh が project root へ置く `.mcp.json` が正。Peertable管理下fileはlaunch時にもcurrent-tree clientへ同期する。project に既存 `.mcp.json` があった場合は無断更新せず`SEAT_ROOM_MCP_STALE`で止まるので、AI がroom定義を手動mergeしてteardownで復元する

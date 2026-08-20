@@ -287,6 +287,7 @@ async function runDiagnostics(asJson) {
       'scripts/teardown.sh',
       'scripts/external-pane.mjs',
       'scripts/launch-seat.sh',
+      'scripts/resolve-seat-placement.mjs',
       'scripts/tmux-at.bash',
       'scripts/tmux-socket.mjs',
       'scripts/seat-identity.mjs',

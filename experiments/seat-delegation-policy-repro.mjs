@@ -114,7 +114,7 @@ async function runRealLaunch(member) {
   delete env.PEERTABLE_POST_TOKEN
   if (member !== undefined) env.PEERTABLE_MEMBER = member
 
-  const result = spawnSync(LAUNCH, [project, 'fixture-seat', 'sonnet', 'claude', 'low'], {
+  const result = spawnSync(LAUNCH, [project, 'fixture-seat', '設計', '--model', 'sonnet', '--vendor', 'claude', '--effort', 'low'], {
     cwd: ROOT,
     env,
     encoding: 'utf8',

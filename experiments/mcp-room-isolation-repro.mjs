@@ -197,7 +197,7 @@ const run = (script, name, register) => {
     '',
   ].join('\n'))
   return spawnSync('/bin/bash',
-    [...(process.env.H3_TRACE === '1' ? ['-x'] : []), script, project, name, 'gpt-5.6-luna', 'codex', 'high', ''],
+    [...(process.env.H3_TRACE === '1' ? ['-x'] : []), script, project, name, '局所コーディング', '--model', 'gpt-5.6-luna', '--vendor', 'codex', '--effort', 'high'],
     { env: { ...baseEnv, ROOM_REGISTER: register ? '1' : '0' }, encoding: 'utf8', timeout: 60_000 })
 }
 const readRoomMembers = async () => {

@@ -46,7 +46,10 @@ await writeFile(join(project, '.team/setup-state.json'), JSON.stringify({
 await writeFile(tmuxLog, '')
 await writeFile(claudeLog, '')
 await writeFile(join(root, 'tmux-socket.mjs'),
-  "process.stdout.write(process.env.PEERTABLE_TMUX_SOCKET || '')\n")
+  `const sock = process.env.PEERTABLE_TMUX_SOCKET || ''
+process.stdout.write(process.argv.includes('--prefix') ? '-S ' + sock : sock)
+`)
+await writeFile(join(root, 'tmux-at.bash'), await readFile(join(REPO, 'skill/scripts/tmux-at.bash'), 'utf8'))
 await writeFile(join(root, 'ensure-bridge.sh'), '#!/bin/bash\nexit 0\n')
 await chmod(join(root, 'ensure-bridge.sh'), 0o755)
 await writeFile(credentialHelper, `#!/usr/bin/env node
@@ -199,8 +202,8 @@ const legacyBrief = `if [ -n "$brief" ]; then
   brief_completed=true
   echo "briefed: $sess"
 fi`
-const currentBrief = `if [ -n "$brief" ]; then`
-const currentBriefStart = source.indexOf(currentBrief, source.indexOf('echo "seated:'))
+const currentBrief = `if [ -n "$brief" ] && [ "$brief_dispatched" != true ]; then`
+const currentBriefStart = source.indexOf(currentBrief)
 assert.notEqual(currentBriefStart, -1, '修正版の brief block が見つかる')
 const briefEndMarker = '  echo "briefed: $sess"\nfi'
 const legacyEnd = source.indexOf(briefEndMarker, currentBriefStart) + briefEndMarker.length
@@ -229,7 +232,7 @@ const env = {
   ZDOTDIR: root,
 }
 const run = (script, brief = longBrief, vendor = 'codex', extra = {}) => spawnSync(script,
-  [project, 'fixture-seat', 'gpt-5.6-luna', vendor, 'high', brief],
+  [project, 'fixture-seat', '局所コーディング', brief, '--model', 'gpt-5.6-luna', '--vendor', vendor, '--effort', 'high'],
   { env: { ...env, VENDOR: vendor, ...extra }, encoding: 'utf8', timeout: 60_000 })
 const log = async () => (await readFile(tmuxLog, 'utf8')).trim().split('\n').filter(Boolean)
 let checks = 0

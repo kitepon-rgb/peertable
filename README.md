@@ -145,7 +145,7 @@ Working, and used to build itself. First verified end-to-end on 2026-08-08 with 
 
 The current npm release is **peertable 0.4.11**.
 
-The design document and decision log (**89 decisions**, in Japanese) live in [docs/plan.md](docs/plan.md).
+The design document and decision log (**91 decisions**, in Japanese) live in [docs/plan.md](docs/plan.md).
 
 Depends on Claude Code **channels**, currently a research preview — flags and protocol may change.
 

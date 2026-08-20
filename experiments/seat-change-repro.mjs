@@ -32,7 +32,7 @@ const token = 'test-token'
 
 await Promise.all([mkdir(join(project, '.team'), { recursive: true }), mkdir(scripts), mkdir(bin), mkdir(data)])
 await writeFile(join(project, '.team/setup-state.json'), JSON.stringify({ room: 'fixture', server_url: base }) + '\n')
-for (const script of ['change-seat.sh', 'change-effort.sh', 'leave-seat.sh']) {
+for (const script of ['change-seat.sh', 'change-effort.sh', 'leave-seat.sh', 'tmux-at.bash', 'tmux-socket.mjs']) {
   await cp(join(REPO, 'skill/scripts', script), join(scripts, script))
   await chmod(join(scripts, script), 0o755)
 }
@@ -84,14 +84,22 @@ exit 1
 // 席の再起動は launch-seat.sh が担う。ここでは呼ばれ方（引数）と、席の素性がroomへ載ることだけを模す。
 // FAIL_MODEL に書いた model での起動だけ失敗する＝「catalog上は正しいが live では起動しない model」。
 await writeFile(join(scripts, 'launch-seat.sh'), `#!/bin/bash
-printf '%s|%s|%s|%s|%s|%s\\n' "$1" "$2" "$3" "$4" "$5" "$6" >> "$LAUNCH_LOG"
-if [ -f "$FAIL_MODEL" ] && [ "$3" = "$(cat "$FAIL_MODEL")" ]; then exit 9; fi
+proj="$1"; name="$2"; role="$3"; shift 3
+brief=""; model=""; vendor=""; effort=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --model) model="$2"; shift 2 ;;
+    --vendor) vendor="$2"; shift 2 ;;
+    --effort) effort="$2"; shift 2 ;;
+    *) brief="$1"; shift ;;
+  esac
+done
+printf '%s|%s|%s|%s|%s|%s\\n' "$proj" "$name" "$model" "$vendor" "$effort" "$brief" >> "$LAUNCH_LOG"
+if [ -f "$FAIL_MODEL" ] && [ "$model" = "$(cat "$FAIL_MODEL")" ]; then exit 9; fi
 rm -f "$SEAT_MISSING"
-vendor="$4"
-effort="$5"
 [ -n "\${STALE_VENDOR:-}" ] && vendor="\$STALE_VENDOR"
 [ -n "\${STALE_META:-}" ] && effort="\$STALE_META"
-payload=$(python3 -c 'import json,sys;print(json.dumps({"name":sys.argv[1],"vendor":sys.argv[2],"model":sys.argv[3],"effort":sys.argv[4]}))' "$2" "\$vendor" "$3" "\$effort")
+payload=$(python3 -c 'import json,sys;print(json.dumps({"name":sys.argv[1],"vendor":sys.argv[2],"model":sys.argv[3],"effort":sys.argv[4],"role":sys.argv[5]}))' "$name" "\$vendor" "$model" "\$effort" "$role")
 curl -sf -o /dev/null -X POST "$PEERTABLE_URL/api/fixture/members" -H "X-Peertable-Token: ${token}" -H 'content-type: application/json' -d "$payload"
 `)
 await writeFile(credentialHelper, `#!/usr/bin/env node
@@ -147,7 +155,7 @@ assert.equal(ready, true, 'fixture room serverが起動する')
 
 const member = body => api('members', {
   method: 'POST', headers: { 'content-type': 'application/json', 'X-Peertable-Token': token },
-  body: JSON.stringify({ name: 'koharu', aiterm_session_id: 'peer-koharu', observe: { tmux_socket: env.PEERTABLE_TMUX_SOCKET, tmux_target: 'peer-koharu' }, ...body }),
+  body: JSON.stringify({ name: 'koharu', role: '実装', aiterm_session_id: 'peer-koharu', observe: { tmux_socket: env.PEERTABLE_TMUX_SOCKET, tmux_target: 'peer-koharu' }, ...body }),
 })
 const seat = async () => (await api('members')).members.find(x => x.name === 'koharu')
 const run = (args, extra = {}) => spawnSync(join(scripts, 'change-seat.sh'), [project, 'koharu', ...args], {

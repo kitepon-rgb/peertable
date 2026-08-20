@@ -264,8 +264,8 @@ console.log("t4-self-test: 1/1 green");
     assert.match(parentTurn.stdout, /T4_PARENT_ROLE_READY/);
     assert.equal((await messages(base)).length, beforeParentTurn);
 
-    let launch = await command("bash", [launchSeat, project, "t4-live-worker", workerModelBefore,
-      "codex", workerEffortBefore, workerBrief, "worker"], { env, timeout: timeoutMs });
+    let launch = await command("bash", [launchSeat, project, "t4-live-worker", "実装", workerBrief,
+      "--model", workerModelBefore, "--vendor", "codex", "--effort", workerEffortBefore], { env, timeout: timeoutMs });
     assert.equal(launch.code, 0, `${launch.stdout}\n${launch.stderr}`);
     workerPresent = true;
     await waitFor("作業席member登録", async () => (await members(base)).some((item) => item.name === "t4-live-worker"));
@@ -311,8 +311,8 @@ console.log("t4-self-test: 1/1 green");
     workerPresent = false;
     const readyBeforeRestart = (await messages(base)).filter((item) =>
       item.from === "t4-live-worker" && item.body?.includes("[t4-live-seat-ready]")).length;
-    launch = await command("bash", [launchSeat, project, "t4-live-worker", workerModelAfter,
-      "codex", workerEffortAfter, workerBrief, "worker"], { env, timeout: timeoutMs });
+    launch = await command("bash", [launchSeat, project, "t4-live-worker", "実装", workerBrief,
+      "--model", workerModelAfter, "--vendor", "codex", "--effort", workerEffortAfter], { env, timeout: timeoutMs });
     assert.equal(launch.code, 0, `${launch.stdout}\n${launch.stderr}`);
     workerPresent = true;
     await waitFor("再起動した作業席の起動完了", async () => (await messages(base)).filter((item) =>
@@ -326,12 +326,12 @@ console.log("t4-self-test: 1/1 green");
       item.from === "t4-live-worker" && item.body?.includes("[t4-live-rejoin-ok]")));
     await waitForIdle(socket, "peer-t4-live-worker");
 
-    const auditLaunch = await command("bash", [launchSeat, project, "t4-live-auditor", auditorModel,
-      "codex", auditorEffort, auditorBrief, "auditor"], { env, timeout: timeoutMs });
+    const auditLaunch = await command("bash", [launchSeat, project, "t4-live-auditor", "監査・発見", auditorBrief,
+      "--model", auditorModel, "--vendor", "codex", "--effort", auditorEffort], { env, timeout: timeoutMs });
     assert.equal(auditLaunch.code, 0, `${auditLaunch.stdout}\n${auditLaunch.stderr}`);
     auditorPresent = true;
     await waitFor("監査席member登録", async () => (await members(base)).some((item) =>
-      item.name === "t4-live-auditor" && item.role === "auditor"));
+      item.name === "t4-live-auditor" && item.role === "監査・発見"));
     await postRoom(base, token, { from: "bell", to: "t4-live-auditor", body: auditorAssignment });
     await waitFor("監査席起動完了", async () => (await messages(base)).some((item) =>
       item.from === "t4-live-auditor" && item.body?.includes("[t4-live-auditor-ready]")));

@@ -1,25 +1,41 @@
 #!/bin/bash
 # 席を1つ立てる（tmux 作成 → env 注入 → エージェント起動 → 既知ダイアログ通過 → 着席確認）。
-# usage: launch-seat.sh <project_dir> <name> <model> <vendor> <effort> [brief] [role]
-#   vendor: claude / codex / grok
-#   effort: 必須。既定値をコードへ埋めない——席を立てる時に決める（オーナー裁定）
+# usage: launch-seat.sh <project_dir> <name> <role> [brief] [--model <model> --vendor <vendor> --effort <effort>]
+#   role: 必須。dotagents docs/02_models.md の役割名（未指定・未知は着席前に拒否）
+#   model / vendor / effort: 省略時は 02_models 順位表から機械解決する。上書きするなら3つとも必須
 #   brief:  着席が成立したら送る着任指示（省略時は送らない）
 #
 # room 名・server URL・モード・plan key は <project>/.team/setup-state.json から読む（setup.sh の後に呼ぶ）。
 # 書込トークンは helper が ~/.config/peertable.env から席別 0600 file へ移し、pathだけを席へ渡す。
 # tmux は aiterm-mcp と同じソケットへ作るので、立てた席はそのまま pty_read / pty_send で読める。
 set -e
-proj="$1"; name="$2"; model="$3"; vendor="$4"; effort="$5"; brief="$6"; role="${7:-worker}"
-[ -n "$proj" ] && [ -n "$name" ] && [ -n "$model" ] && [ -n "$vendor" ] && [ -n "$effort" ] || {
-  echo "usage: launch-seat.sh <project_dir> <name> <model> <vendor> <effort> [brief]" >&2; exit 1;
+usage() {
+  echo "usage: launch-seat.sh <project_dir> <name> <role> [brief] [--model <model> --vendor <vendor> --effort <effort>]" >&2
 }
-if [ "$vendor" = "claude" ]; then
-  case "$effort" in
-    low|medium|high|xhigh|max) ;;
-    *) echo "unknown effort: ${effort}（claude は low|medium|high|xhigh|max）" >&2; exit 1 ;;
+proj="$1"; name="$2"; role="$3"
+[ -n "$proj" ] && [ -n "$name" ] && [ -n "$role" ] || { usage; exit 1; }
+shift 3
+brief=""
+opt_model=""; opt_vendor=""; opt_effort=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --model) opt_model="${2:-}"; shift 2 ;;
+    --vendor) opt_vendor="${2:-}"; shift 2 ;;
+    --effort) opt_effort="${2:-}"; shift 2 ;;
+    --*) echo "SEAT_LAUNCH_ARGS_INVALID: 不明な引数 $1" >&2; usage; exit 1 ;;
+    *)
+      if [ -z "$brief" ]; then brief="$1"; shift
+      else echo "SEAT_LAUNCH_ARGS_INVALID: 余分な引数 $1" >&2; usage; exit 1
+      fi
+      ;;
   esac
+done
+if [ -n "$opt_model$opt_vendor$opt_effort" ]; then
+  [ -n "$opt_model" ] && [ -n "$opt_vendor" ] && [ -n "$opt_effort" ] || {
+    echo "SEAT_LAUNCH_PLACEMENT_INCOMPLETE: --model / --vendor / --effort は3つ揃える" >&2
+    exit 1
+  }
 fi
-case "$role" in worker|auditor) ;; *) echo "unknown seat role: ${role}（worker / auditor）" >&2; exit 1 ;; esac
 
 if [ -n "${PEERTABLE_MEMBER:-}" ]; then
   echo "SEAT_LAUNCH_DELEGATED_CHILD_FORBIDDEN: PEERTABLE_MEMBER=${PEERTABLE_MEMBER} を継承した呼出元からの席起動を拒否" >&2
@@ -33,6 +49,7 @@ credential_helper="${PEERTABLE_CREDENTIAL_HELPER:-$(dirname "$0")/seat-credentia
 room_mcp_helper="${PEERTABLE_ROOM_MCP_HELPER:-$(dirname "$0")/ensure-room-mcp.mjs}"
 codex_room_mcp_helper="${PEERTABLE_CODEX_ROOM_MCP_HELPER:-$(dirname "$0")/ensure-codex-room-mcp.mjs}"
 aiterm_launch_helper="${PEERTABLE_AITERM_LAUNCH_HELPER:-$(dirname "$0")/aiterm-launch.mjs}"
+placement_helper="${PEERTABLE_PLACEMENT_HELPER:-$(dirname "$0")/resolve-seat-placement.mjs}"
 # shellcheck disable=SC1091
 . "$(dirname "$0")/tmux-at.bash"
 peertable_repo=$(cd "$(dirname "$0")/../.." && pwd -P)
@@ -40,6 +57,32 @@ peertable_client="$peertable_repo/room/client.mjs"
 credential_file=""
 credential_persist=false
 aiterm_session_id=""
+
+if [ -n "$opt_model" ]; then
+  model="$opt_model"; vendor="$opt_vendor"; effort="$opt_effort"
+  echo "SEAT_PLACEMENT_OVERRIDE: ${role} → ${vendor} / ${model} / ${effort}"
+else
+  placement=$(node "$placement_helper" "$role") || exit "$?"
+  IFS=$'\t' read -r model vendor effort rank <<EOF
+$(python3 -c 'import json,sys;p=json.load(sys.stdin);print("\t".join((p["model"],p["vendor"],p.get("effort") or "",str(p["rank"]))))' <<<"$placement")
+EOF
+  echo "SEAT_PLACEMENT: ${role} → ${vendor} / ${model}${effort:+ / $effort}（02_models ${rank}位）"
+  python3 -c 'import json,sys
+p=json.load(sys.stdin)
+for item in p.get("dropped") or []:
+    print("SEAT_PLACEMENT_DROPPED: rank %s %s %s" % (item.get("rank"), item.get("reason"), item.get("cell") or ""), file=sys.stderr)
+' <<<"$placement" || true
+fi
+case "$vendor" in
+  claude|codex|grok) ;;
+  *) echo "SEAT_LAUNCH_VENDOR_UNSUPPORTED: vendor=${vendor}" >&2; exit 1 ;;
+esac
+if [ "$vendor" = "claude" ] && [ -n "$effort" ]; then
+  case "$effort" in
+    low|medium|high|xhigh|max) ;;
+    *) echo "unknown effort: ${effort}（claude は low|medium|high|xhigh|max）" >&2; exit 1 ;;
+  esac
+fi
 
 # brief は tmux のコマンド引数へ直接載せない。長さを着席前に検証してから一時 file へ置き、
 # tmux の buffer 経由で貼る。入力を受理できない時は model preflight・tmux・member 登録を
