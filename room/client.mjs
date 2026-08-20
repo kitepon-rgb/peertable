@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url'
 
 // client.mjs 側のハードコード版数。package.json の version と一致していることを
 // diagnostics の version_consistency が見る（2 つの版数源の drift 検出。決定45）
-const MCP_VERSION = '0.4.13'
+const MCP_VERSION = '0.4.14'
 const PKG_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 
 const USAGE = `usage:
@@ -297,6 +297,7 @@ async function runDiagnostics(asJson) {
       'scripts/seat-identity.mjs',
       'scripts/pid-alive.mjs',
       'scripts/parent-watch.mjs',
+      'scripts/parent-watch-logic.mjs',
       'scripts/seat-credential.mjs',
       'scripts/ensure-room-mcp.mjs',
       'scripts/leave-seat.sh',

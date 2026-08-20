@@ -11,6 +11,7 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { resolveLatticeExecutable } from './seat-usage.mjs'
+import { addressedToParent as messageAddressedToParent, latticeStaffingChanged } from './parent-watch-logic.mjs'
 
 const args = process.argv.slice(2)
 const project = args.shift()
@@ -154,9 +155,17 @@ function releaseLock() {
 acquireLock()
 process.on('exit', releaseLock)
 
-const addressedToParent = message => message?.from !== parent
-  && (message?.to === 'all' || message?.to === parent
-    || (Array.isArray(message?.to_names) && message.to_names.includes(parent)))
+const addressedToParent = message => messageAddressedToParent(message, parent)
+
+function exitWhenParentStdinCloses() {
+  if (mode !== '--follow') return
+  const stdin = process.stdin
+  if (!stdin || stdin.destroyed) return
+  const quit = () => process.exit(0)
+  stdin.on('end', quit)
+  stdin.on('close', quit)
+  if (typeof stdin.resume === 'function') stdin.resume()
+}
 
 async function writeEvent(event) {
   await new Promise((resolve, reject) => {
@@ -180,8 +189,7 @@ async function acceptLatticeState(next) {
     })
     return true
   }
-  const changed = Number.isSafeInteger(previous?.ready) && Number.isSafeInteger(previous?.active)
-    && previous.ready + previous.active !== next.ready + next.active
+  const changed = latticeStaffingChanged(previous, next)
   state = { ...state, lattice: next, last_event_at: now() }
   saveState(state)
   if (!changed) return false
@@ -241,11 +249,29 @@ if (mode === '--next' && (!Number.isFinite(nextWindowMs) || nextWindowMs < 100))
   process.exit(2)
 }
 
+exitWhenParentStdinCloses()
+
 let consecutiveFailures = 0
+let snapshotSent = false
 for (;;) {
   const deadline = mode === '--next' ? Date.now() + nextWindowMs : Number.POSITIVE_INFINITY
   try {
     if (await catchUp()) process.exit(0)
+    if (mode === '--follow' && !snapshotSent) {
+      snapshotSent = true
+      const lattice = state.lattice
+      await writeEvent({
+        schema: 'peertable.parent-watch-event.v1',
+        type: 'parent_watch_snapshot',
+        parent,
+        last_seq: state.last_seq,
+        ready: lattice?.ready ?? null,
+        active: lattice?.active ?? null,
+        body: lattice && !lattice.error
+          ? staffingBody(lattice)
+          : '親番犬を張り直した。room の親宛と工程件数を追従する。',
+      })
+    }
     const controller = new AbortController()
     const remaining = Number.isFinite(deadline) ? Math.max(1, deadline - Date.now()) : null
     const timer = remaining === null ? null : setTimeout(() => controller.abort(), remaining)

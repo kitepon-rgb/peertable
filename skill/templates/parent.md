@@ -54,8 +54,10 @@ export は親 shell に伝播しないため**、これをしないまま `latti
   張り替え時は旧Monitorを止めてから起動する。
 
 どちらも`parent-join.sh`が先に作る`.team/parent-watch.json`のcursorを共有する。watcher不在中のDMは
-次回起動時にcatch-upされ、親以外宛・親自身の発言・pingでは親を起こさない。`watch_error`が届いたら
-通常のDMとして扱わず、番犬の再着卓を行う。
+次回起動時にcatch-upされ、親以外宛・親自身の発言・pingでは親を起こさない。Lattice の ready 件数と
+active 件数は合計ではなくそれぞれ変化したら起こす（実装が全部閉じて親手番1件だけになっても起こす）。
+`--follow` は親セッションの stdin が閉じたら終了する。切れた番犬が seq だけ進めて親が起きない状態を作らない。
+`watch_error`が届いたら通常のDMとして扱わず、番犬の再着卓を行う。
 
 ## 試験結果の監査
 
