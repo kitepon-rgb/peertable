@@ -64,6 +64,7 @@ function expectedBlock(addedNewline) {
   const explicitEnv = seatEnvNames
     .filter((name) => process.env[name] !== undefined && process.env[name] !== '')
     .map((name) => `${name} = ${JSON.stringify(process.env[name])}`)
+  if (process.env.PATH) explicitEnv.unshift(`PATH = ${JSON.stringify(process.env.PATH)}`)
   return [
     `# BEGIN PEERTABLE ROOM MCP added_newline=${addedNewline ? '1' : '0'}`,
     '[mcp_servers.room]',

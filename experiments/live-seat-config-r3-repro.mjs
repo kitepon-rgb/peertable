@@ -44,6 +44,7 @@ try {
   assert.match(configured, /PEERTABLE_MEMBER = "fixture-member"/)
   assert.match(configured, /PEERTABLE_CREDENTIAL_FILE = "\/tmp\/fixture-credential"/)
   assert.match(configured, /"TMUX_PANE"/)
+  if (process.env.PATH) assert.match(configured, /^PATH = /mu)
   const exclude = readFileSync(join(fixture, '.git/info/exclude'), 'utf8')
   assert.match(exclude, /# peertable:codex-room-mcp\n\/\.codex\/config\.toml/)
 

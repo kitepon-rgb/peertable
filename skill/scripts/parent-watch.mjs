@@ -120,6 +120,16 @@ let state = await ensurePrimed()
 if (mode === '--prime') process.exit(0)
 
 const alive = pid => { try { process.kill(pid, 0); return true } catch { return false } }
+function stopPid(pid) {
+  try { process.kill(pid, 'SIGTERM') } catch { return }
+  const deadline = Date.now() + 2000
+  while (Date.now() < deadline && alive(pid)) {
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50)
+  }
+  if (alive(pid)) {
+    try { process.kill(pid, 'SIGKILL') } catch {}
+  }
+}
 function acquireLock() {
   try {
     writeFileSync(lockPath, `${process.pid}\n`, { flag: 'wx', mode: 0o600 })
@@ -127,13 +137,13 @@ function acquireLock() {
     if (error.code !== 'EEXIST') throw error
     let owner = null
     try { owner = Number(readFileSync(lockPath, 'utf8').trim()) } catch {}
-    if (Number.isSafeInteger(owner) && !alive(owner)) {
-      unlinkSync(lockPath)
-      writeFileSync(lockPath, `${process.pid}\n`, { flag: 'wx', mode: 0o600 })
-      return
+    if (Number.isSafeInteger(owner) && owner === process.pid) return
+    if (Number.isSafeInteger(owner) && alive(owner)) {
+      process.stderr.write(`PARENT_WATCH_REPLACING: pid ${owner}\n`)
+      stopPid(owner)
     }
-    console.error(`PARENT_WATCH_ALREADY_RUNNING: pid ${Number.isSafeInteger(owner) ? owner : '不明'}`)
-    process.exit(1)
+    try { unlinkSync(lockPath) } catch {}
+    writeFileSync(lockPath, `${process.pid}\n`, { flag: 'wx', mode: 0o600 })
   }
 }
 function releaseLock() {

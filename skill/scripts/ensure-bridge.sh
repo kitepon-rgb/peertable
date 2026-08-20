@@ -18,7 +18,7 @@ if [ $# -eq 0 ] && [ -f "$record" ]; then
 fi
 if [ -f "$record" ]; then
   pid=$(node -e 'try{process.stdout.write(String(require(process.argv[1]).pid||""))}catch{}' "$record")
-  if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then exit 0; fi
+  if [ -n "$pid" ] && node "$(dirname "$0")/pid-alive.mjs" "$pid"; then exit 0; fi
   if ! "$force" && grep -q 'WRITE_DENIED' "$log" 2>/dev/null; then echo "${name}-bridge: 前回はWRITE_DENIEDで終了。--forceを指定すること" >&2; exit 1; fi
 fi
 # shellcheck disable=SC1091
@@ -30,7 +30,10 @@ session="peertable-${name}-${room}"
 # 新しい bridge が1バイトも動いていない段階で success を返す——「起動していないのに
 # 起動したと言う」＝この supervisor が塞ぐはずの穴そのものになる。
 rm -f "$record"
-: > "$log"
+if ! node -e 'import { writeFileSync } from "node:fs"; writeFileSync(process.argv[1], "")' "$log"; then
+  echo "${name}-bridge: log を切り詰められないので追記する" >&2
+  : >> "$log" || true
+fi
 # **手渡された env を常駐へ渡す。** 新しい session が継ぐのは tmux *server* の環境であって
 # 呼び出し元 client の環境ではないので、素で起こすと `PEERTABLE_TMUX_SOCKET` の手渡しが黙って消え、
 # 常駐が別の socket（本番の既定）を観測しにいく（2026-08-11 実測）。決定73 と同じ形の裏返しである。

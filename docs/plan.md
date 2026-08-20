@@ -5,7 +5,7 @@
 親（オーケストレーター）に最終判断が集中しない、メンバー並列型のマルチエージェント作業システム。
 
 作成日: 2026-08-08
-状態: 設計確定 / V0〜V3 通過・V4 封印（決定41）/ スキル化完了 / GitHub・npm 公開済み。Grok 4.6正規席を含む`0.4.0`出荷完了（決定84・85）。Grok起床とbroadcast本文は決定86。配送修正は`0.4.1`（決定87）。Windows psmux 着席は`0.4.2`（決定88）。parent-watch の DEP0190 回避は`0.4.3`。着座メンバー一覧の素性行に role を出すのは`0.4.10`（決定89）
+状態: 設計確定 / V0〜V3 通過・V4 封印（決定41）/ スキル化完了 / GitHub・npm 公開済み。Grok 4.6正規席を含む`0.4.0`出荷完了（決定84・85）。Grok起床とbroadcast本文は決定86。配送修正は`0.4.1`（決定87）。Windows psmux 着席は`0.4.2`（決定88）。parent-watch の DEP0190 回避は`0.4.3`。着座メンバー一覧の素性行に role を出すのは`0.4.10`（決定89）。Windows 着席の残穴（identity・Codex hooks・bridge pid・番犬張り替え）は決定90
 リポジトリ: github.com/kitepon/peertable（**公開済み 2026-08-08・MIT・public**）/ npm: **peertable@0.4.10**（2026-08-20）。Claude 席の起床は `notifications/claude/channel`。wakeup-bridge は Codex / Grok のみ。工程クローズは監査担当の `done.sh`。Fable ツール実行中の稼働チップは経過時間行と `/btw` 固定句で判定する
 工場: dotagents 開発工場の管理対象（**自作コア11製品の1つ**・wire v7 の固定15製品目）。統合契約は dotagents 側が所有し、本 repo の source・state・skill 配布・release は Peertable が所有し続ける
 
@@ -1444,4 +1444,22 @@ shasumは`1c141b2c60a023ab4dbaa1062ac9495df7d6a528`で、44 filesを公開した
 npm由来global installは0.4.10の非symlink packageで、2 bins、diagnostics ready、
 素性行 `vendor / model / effort / role` の配布source一致を確認した。
 これを`0.4.10`の公開受入とする。
+
+## 31. Windows 着席の残穴を製品で閉じる（決定90・2026-08-20）
+
+OpenLogicool Phase 5 の実円卓で、0.4.10 の Windows 着席が「既知の罠」のまま残っていた穴を
+製品側で閉じる。回避手順や npm 直叩きパッチを正としない。
+
+1. seat identity の `CreationDate` は PowerShell `ConvertTo-Json` が `/Date(ms)/` を出す。
+   `new Date` は Invalid time value になり `.team/seats/<name>.json` が書けない。
+   解釈は `parseWinCreationDate`、PowerShell 側は ISO-8601 を出す。
+2. Codex の `Hooks need review` は room MCP より前に出る。通さず 30 秒待つと
+   `SEAT_ROOM_MCP_NOT_READY` で rollback する。既知ダイアログとして
+   「2. Trust all and continue」を通し、失敗時は pane を残す。
+3. `ensure-bridge.sh` の `kill -0` は Git Bash から Win32 pid を見ない。生きている
+   bridge を死んだと誤認して log truncate が `Device or resource busy` になる。
+   生死は `pid-alive.mjs`（`process.kill(pid, 0)`）で見る。
+4. parent-watch の lock は先代が生きていると後着を拒否する。親セッション張り替えでは
+   先代を止めて1匹にする。
+5. Codex room MCP の closed env に `PATH` を明示する。
 

@@ -216,13 +216,13 @@ try {
   await writeFile(latticeStatus, `${JSON.stringify({ next_ready: [{}, {}], active_set: [{}, {}, {}] })}\n`)
   await run(['--poll'])
 
-  const held = start(['--next'], { PEERTABLE_PARENT_WATCH_WINDOW_MS: '1000' })
+  const held = start(['--next'], { PEERTABLE_PARENT_WATCH_WINDOW_MS: '1500' })
   await sleep(80)
   const competing = await run(['--next'], { PEERTABLE_PARENT_WATCH_WINDOW_MS: '200' })
-  check('同じ親の番犬を二世代同時に起動しない', competing.status === 1
-    && competing.stderr.includes('PARENT_WATCH_ALREADY_RUNNING'), competing.stderr)
-  held.child.kill('SIGTERM')
-  await held.result
+  const heldResult = await held.result
+  check('後着の番犬が先代を止めて1匹になる', competing.status === 0
+    && competing.stderr.includes('PARENT_WATCH_REPLACING'), competing.stderr)
+  check('先代はlockを譲って終了する', heldResult.status !== null, String(heldResult.status))
 } catch (error) {
   console.error(`HARNESS ERROR: ${error.stack}`)
   green = false

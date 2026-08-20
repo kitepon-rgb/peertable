@@ -290,6 +290,7 @@ async function runDiagnostics(asJson) {
       'scripts/tmux-at.bash',
       'scripts/tmux-socket.mjs',
       'scripts/seat-identity.mjs',
+      'scripts/pid-alive.mjs',
       'scripts/parent-watch.mjs',
       'scripts/seat-credential.mjs',
       'scripts/ensure-room-mcp.mjs',

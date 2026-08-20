@@ -328,10 +328,49 @@ room_ready_deadline=$((SECONDS + 30))
 room_ready=false
 grok_trust_accepted=false
 mcp_consent_accepted=false
+codex_hooks_accepted=false
+codex_update_accepted=false
+codex_trust_accepted=false
 while [ $SECONDS -lt "$room_ready_deadline" ]; do
   # Grok Build は初めて開く作業treeで、room MCPを初期化する前にworkspace trustを尋ねる。
   # Peertableが正式に着席させるtreeなので、この既知文言だけを一度通す。未知の確認画面を
   # 汎用的に承認するfallbackにはしない。承認後のMCP初期化時間は改めて30秒確保する。
+  if [ "$vendor" = codex ]; then
+    codex_screen=$(tmux_at capture-pane -t "$sess" -p 2>/dev/null || true)
+    if [ "$codex_update_accepted" != true ]; then
+      case "$codex_screen" in
+        *"Update now"*)
+          if tmux_at send-keys -t "$sess" Down && tmux_at send-keys -t "$sess" Enter; then
+            codex_update_accepted=true
+            room_ready_deadline=$((SECONDS + 30))
+            echo "codex update prompt: skipped"
+          fi
+          ;;
+      esac
+    fi
+    if [ "$codex_hooks_accepted" != true ]; then
+      case "$codex_screen" in
+        *"Hooks need review"*)
+          if tmux_at send-keys -t "$sess" Down && tmux_at send-keys -t "$sess" Enter; then
+            codex_hooks_accepted=true
+            room_ready_deadline=$((SECONDS + 30))
+            echo "codex hooks prompt: trust all"
+          fi
+          ;;
+      esac
+    fi
+    if [ "$codex_trust_accepted" != true ]; then
+      case "$codex_screen" in
+        *"Yes, continue"*)
+          if tmux_at send-keys -t "$sess" Enter; then
+            codex_trust_accepted=true
+            room_ready_deadline=$((SECONDS + 30))
+            echo "codex directory trust: accepted"
+          fi
+          ;;
+      esac
+    fi
+  fi
   if [ "$vendor" = grok ] && [ "$grok_trust_accepted" != true ]; then
     grok_screen=$(tmux_at capture-pane -t "$sess" -p 2>/dev/null || true)
     case "$grok_screen" in
@@ -371,6 +410,8 @@ while [ $SECONDS -lt "$room_ready_deadline" ]; do
 done
 if [ "$room_ready" != true ]; then
   echo "SEAT_ROOM_MCP_NOT_READY: room member登録を観測できない（無関係MCP warningとroom不成立を分離。席をrollbackする）" >&2
+  tmux_at capture-pane -t "$sess" -p >"$proj/.team/${name}-pane-on-fail.txt" 2>/dev/null || true
+  echo "pane saved: $proj/.team/${name}-pane-on-fail.txt" >&2
   exit 1
 fi
 echo "room ready: ${room}/${name}"
@@ -460,7 +501,7 @@ seat_pid=""
 pane_pid=$(tmux_at list-panes -t "$sess" -F '#{pane_pid}' 2>/dev/null | head -1 || true)
 seat_ident=""
 if [ -n "$pane_pid" ]; then
-  seat_ident=$(node "$(dirname "$0")/seat-identity.mjs" "$pane_pid" 2>/dev/null || true)
+  seat_ident=$(node "$(dirname "$0")/seat-identity.mjs" "$pane_pid") || seat_ident=""
 fi
 if [ -n "$seat_ident" ]; then
   seat_pid=$(python3 -c "import json,sys;print(json.load(sys.stdin)['pid'])" <<<"$seat_ident")
