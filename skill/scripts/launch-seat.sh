@@ -370,7 +370,9 @@ echo "launched: ${sess}（${vendor} / ${model}${effort:+ / $effort} / room=${roo
 # CodexのヘッダはCLIが起動した証拠であって、必須room MCPが初期化された証拠ではない。
 # 無関係MCPのwarningが画面へ出ても、room clientがmember登録まで到達した席だけを着席として扱う。
 # 登録が無ければ「着席済み」と丸めず、on_exitのrollbackへ渡す。
-room_ready_deadline=$((SECONDS + 30))
+# brief を launch prompt に載せると初手ターンが MCP 初期化と重なり、30秒では
+# member 登録前に rollback する（2026-08-20 ひなた再着席）。
+room_ready_deadline=$((SECONDS + 90))
 room_ready=false
 grok_trust_accepted=false
 mcp_consent_accepted=false
@@ -388,7 +390,7 @@ while [ $SECONDS -lt "$room_ready_deadline" ]; do
         *"Update now"*)
           if tmux_at send-keys -t "$sess" Down && tmux_at send-keys -t "$sess" Enter; then
             codex_update_accepted=true
-            room_ready_deadline=$((SECONDS + 30))
+            room_ready_deadline=$((SECONDS + 90))
             echo "codex update prompt: skipped"
           fi
           ;;
@@ -399,7 +401,7 @@ while [ $SECONDS -lt "$room_ready_deadline" ]; do
         *"Hooks need review"*)
           if tmux_at send-keys -t "$sess" Down && tmux_at send-keys -t "$sess" Enter; then
             codex_hooks_accepted=true
-            room_ready_deadline=$((SECONDS + 30))
+            room_ready_deadline=$((SECONDS + 90))
             echo "codex hooks prompt: trust all"
           fi
           ;;
@@ -410,7 +412,7 @@ while [ $SECONDS -lt "$room_ready_deadline" ]; do
         *"Yes, continue"*)
           if tmux_at send-keys -t "$sess" Enter; then
             codex_trust_accepted=true
-            room_ready_deadline=$((SECONDS + 30))
+            room_ready_deadline=$((SECONDS + 90))
             echo "codex directory trust: accepted"
           fi
           ;;
@@ -426,7 +428,7 @@ while [ $SECONDS -lt "$room_ready_deadline" ]; do
           exit 1
         fi
         grok_trust_accepted=true
-        room_ready_deadline=$((SECONDS + 30))
+        room_ready_deadline=$((SECONDS + 90))
         echo "grok workspace trust: accepted"
         ;;
     esac
@@ -442,7 +444,7 @@ while [ $SECONDS -lt "$room_ready_deadline" ]; do
           exit 1
         fi
         mcp_consent_accepted=true
-        room_ready_deadline=$((SECONDS + 30))
+        room_ready_deadline=$((SECONDS + 90))
         echo "claude room MCP consent: accepted"
         ;;
     esac

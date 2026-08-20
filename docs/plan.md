@@ -1534,6 +1534,14 @@ patch `0.4.16`。
 Windows の seat identity は Git Bash pane_pid ではなく winpid を使う。
 patch `0.4.17`。
 
+## 38. room MCP 待ちを brief 初手ターンより短くしない（決定97・2026-08-20）
+
+着任指示を Aiterm launch prompt に載せると Codex の初手ターンが room MCP 初期化と重なる。
+member 登録待ちを 30 秒にすると、動いている席を `SEAT_ROOM_MCP_NOT_READY` で rollback する。
+待ちは 90 秒。既知ダイアログ通過後も同じ長さを残す。
+patch `0.4.18`。
+
+
 
 
 
