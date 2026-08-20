@@ -606,28 +606,8 @@ fi
 
 # 席の素性（roles / settings / mission）を room へ渡す。一覧チップと席の名簿が同じ欄を見る。
 tmux_ns=$(node "$(dirname "$0")/tmux-socket.mjs" --namespace)
-meta=$(python3 - "$name" "$vendor" "$model" "$effort" "$sock" "$sess" "$role" "$mission" "$aiterm_session_id" "$tmux_ns" <<'PY'
-import json, sys
-name, vendor, model, effort, sock, sess, roles_raw, mission, aiterm_session_id, tmux_ns = sys.argv[1:11]
-observe = {'tmux_socket': sock, 'tmux_target': sess}
-if tmux_ns:
-    observe['tmux_namespace'] = tmux_ns
-roles = [item for item in roles_raw.split(',') if item]
-settings = {'vendor': vendor, 'model': model}
-if effort:
-    settings['effort'] = effort
-body = {
-    'name': name, 'vendor': vendor, 'model': model, 'role': roles[0] if roles else '',
-    'roles': roles, 'settings': settings, 'aiterm_session_id': aiterm_session_id,
-    'observe': observe,
-}
-if effort:
-    body['effort'] = effort
-if mission:
-    body['mission'] = mission
-print(json.dumps(body, ensure_ascii=False))
-PY
-)
+# python stdout は Windows で cp932 になり 実装 が壊れる。Node が UTF-8 JSON を出す。
+meta=$(node "$(dirname "$0")/seat-metadata.mjs" "$name" "$vendor" "$model" "$effort" "$sock" "$sess" "$role" "$mission" "$aiterm_session_id" "$tmux_ns")
 if env -u PEERTABLE_POST_TOKEN node "$credential_helper" request "$credential_file" POST \
     "$url/api/$room/members" "$meta" >/dev/null; then
   # **200 は保存の証拠にならない**。素性欄を知らない server も 200 {"ok":true} を返して黙って捨てる

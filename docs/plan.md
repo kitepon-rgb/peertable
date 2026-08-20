@@ -1541,6 +1541,13 @@ member 登録待ちを 30 秒にすると、動いている席を `SEAT_ROOM_MCP
 待ちは 90 秒。既知ダイアログ通過後も同じ長さを残す。
 patch `0.4.18`。
 
+## 39. 着席 metadata の日本語は Node が UTF-8 で出す（決定98・2026-08-20）
+
+Windows で python stdout が cp932 になり、`実装` が room へ壊れて保存された。
+`seat-metadata.mjs` が JSON を UTF-8 で出す。
+patch `0.4.19`。
+
+
 
 
 
