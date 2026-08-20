@@ -20,6 +20,8 @@
 
 - 着卓（member 登録）と席数制御（決定68の運用側: ready＋active実装ToDo数に合わせて起こす/畳む）
 - 作業者から監査担当への最終試験結果提出と、監査担当による工程クローズが正本へ記録されたことの観測
+- 監査OKの feat SHA を `origin/main` へ着地させる。`done.sh` は着地後にしか通らない
+- remaining A（まだ done でない ready / blocked）を witness に含めて `independence compile` する。現在の ready だけを compile すると、次の frontier の `todo start` が `INDEPENDENCE_UNVERIFIED` になる
 - 承認 gate・オーナーとの接点、裁定依頼の運搬（自分で判断せずオーナー宛の議題として運ぶ）
 - model / effort 変更依頼への対応（本人の自然文を親が判断し、確定したtargetだけを
   `change-seat.sh`へ渡す。定型文への言い直しや完全一致の再送は求めない）

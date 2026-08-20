@@ -214,22 +214,23 @@ try {
   })
   assert.equal((await doneCalls()).length, 1)
 
-  // 6. push状態は工程closeを止めず、未push件数だけを案内する
+  // 6. feat SHA が origin/main の祖先でなければ todo done を打たない
   assert.equal(git('commit', '--allow-empty', '-q', '-m', 'unlanded fixture').status, 0)
   await setMode('accepted', { done_seq: 1 })
   await resetLog()
   result = run('x1')
-  check('未pushでも完了処理を通して件数だけ案内する', () => {
-    assert.equal(result.status, 0, result.stderr)
-    assert.match(result.stderr, /未push 1本/)
+  check('未着地の feat SHA では done を打たずに落ちる', () => {
+    assert.notEqual(result.status, 0, result.stderr)
+    assert.match(result.stderr, /LANDING_NOT_ON_MAIN/)
   })
-  assert.equal((await doneCalls()).length, 1)
+  assert.deepEqual(await doneCalls(), [], '未着地の feat で todo done を呼んでいない')
   assert.equal(git('push', '-q').status, 0)
   await resetLog()
   result = run('x1')
-  check('push後の再試行も通す', () => {
+  check('origin/main へ着地したあとの再試行は通す', () => {
     assert.equal(result.status, 0, result.stderr)
   })
+  assert.equal((await doneCalls()).length, 1)
 
   // 7. reopen後の新しいdoneを通す
   await setMode('accepted', { done_seq: 2 })
@@ -257,11 +258,22 @@ try {
   })
   assert.equal((await doneCalls()).length, 1)
 
-  // 10. pull型では隔離worktreeの証跡本文をそのままtest_resultへ渡す
+  // 10. 隔離worktreeの feat が origin/main の祖先になるまで done しない
+  const pullEvidence = join(pullWorktree, `evidence/${plan}/x1.md`)
   await setMode('no_run')
   await resetLog()
-  result = run('x1', '--evidence-from', join(pullWorktree, `evidence/${plan}/x1.md`))
-  check('pull型も隔離worktreeの証跡本文をtest_resultへ渡す', () => {
+  result = run('x1', '--evidence-from', pullEvidence)
+  check('未着地の worktree HEAD では done を打たずに落ちる', () => {
+    assert.notEqual(result.status, 0, result.stderr)
+    assert.match(result.stderr, /LANDING_NOT_ON_MAIN/)
+  })
+  assert.deepEqual(await doneCalls(), [], '未着地の worktree で todo done を呼んでいない')
+  assert.equal(git('merge', '-q', '--no-edit', 'pull-fixture').status, 0)
+  assert.equal(git('push', '-q').status, 0)
+  await setMode('no_run')
+  await resetLog()
+  result = run('x1', '--evidence-from', pullEvidence)
+  check('着地後は隔離worktreeの証跡本文をtest_resultへ渡す', () => {
     assert.equal(result.status, 0, result.stderr)
     const recorded = JSON.parse(readFileSync(state, 'utf8'))
     assert.equal(recorded.test_result, '# pull x1\n')

@@ -35,8 +35,9 @@ usage: done.sh <task_id> [--plan <plan_key>] [--evidence-from <隔離worktreeの
   evidence/<plan>/<task>.md を commit 済みにして done.sh <task_id> を実行する。
   wrapper が証跡から記述子を生成し、lattice todo doneで同じ本文を最終試験結果として canonical store へ記録する。
   pull run の worktree で作業した場合だけ --evidence-from に同じrepoの絶対pathを渡す。
-  この script は監査担当が打つ。accept は intake 席が todo done の後に打つ（engine 正順）。
-  未accept・未着地は警告だけで、done を止めない。
+  この script は監査担当が打つ。feat SHA が origin/main の祖先になってから打つ。
+  accept は intake 席が todo done の後に打つ（engine 正順）。
+  未accept と lattice run receipt の未着地は警告だけで、done を止めない。
 USAGE
 }
 
@@ -240,9 +241,33 @@ case "$task_status" in
   *) echo "ERROR: 完了処理を続けられない: ToDoが完了可能状態でない: $task_status" >&2; exit 1 ;;
 esac
 
+# feat SHA が origin/main の祖先になるまで todo done を打たない。
+# 監査担当の done は着地後。親が先に origin/main へ乗せる。
+# --evidence-from があるときは隔離 worktree の HEAD を feat とする。
+feat_dir="."
+if [ -n "$evidence_from" ]; then
+  feat_dir=$(dirname "$evidence_from")
+fi
+feat_sha=$(git -C "$feat_dir" rev-parse HEAD) || {
+  echo "ERROR: LANDING_HEAD_UNRESOLVED: feat HEAD を読めない" >&2
+  exit 1
+}
+if ! git fetch -q origin; then
+  echo "ERROR: LANDING_FETCH_FAILED: origin を fetch できない。done は打たない" >&2
+  exit 1
+fi
+if ! git rev-parse --verify --quiet origin/main >/dev/null; then
+  echo "ERROR: LANDING_ORIGIN_MISSING: origin/main が無い。done は打たない" >&2
+  exit 1
+fi
+if ! git merge-base --is-ancestor "$feat_sha" origin/main; then
+  echo "ERROR: LANDING_NOT_ON_MAIN: ${feat_sha} は origin/main の祖先ではない。親が着地してから done.sh を再実行すること" >&2
+  exit 1
+fi
+
 # **done と accept は別軸。** engine は todo done の後にだけ accept できる。
 # 監査担当が done.sh で閉じ、intake 席が accept する。未 accept を done の拒否条件にすると循環する。
-# 読めない状態は成功へ倒さない。未accept・未着地は警告（未push と同じ）。
+# 読めない状態は成功へ倒さない。未accept・run receipt 未着地は警告。
 # **実行層に載っていない task は素通しする**——pull run の利用は任意で、載っていない卓を止めない。
 gate_runs=$("$done_gate_cli" run list --json 2>&1) || {
   echo "ERROR: receipt の状態を読めない（run list が失敗）: $gate_runs" >&2; exit 1;

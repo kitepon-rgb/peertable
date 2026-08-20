@@ -21,12 +21,12 @@
 
 1. `lattice todo status --json` で ready なタスクを見る。{{CLAIM_SCOPE}}
 2. 憲章の手順で `post(to: "all", message: "[claim] <タスク>")` を一度だけ送る。**この `[claim]` が唯一の着手通知である。別の `[工程着手]` や自動着手通知は送らない。** `[claim]` は独立した1発言で出し、完了報告や他タスクの話と同じ発言に畳まない
-3. `lattice todo start --plan {{PLAN_KEY}} --task <id>` で着手を記録する。**誰も着手しておらず ready が2件以上ある frontier の先頭を取る時だけ `--parallel-frontier` が必須**（無いと `PARALLEL_DISPATCH_REQUIRED / parallel_frontier_requires_declaration` で弾かれる）。ready が1件だけ、または既に誰かが着手している frontier へ後から乗る時は素の start でよい
+3. `lattice todo start --plan {{PLAN_KEY}} --task <id>` で着手を記録する。**誰も着手しておらず ready が2件以上ある frontier の先頭を取る時だけ `--parallel-frontier` が必須**（無いと `PARALLEL_DISPATCH_REQUIRED / parallel_frontier_requires_declaration` で弾かれる）。ready が1件だけ、または既に誰かが着手している frontier へ後から乗る時は素の start でよい。**`INDEPENDENCE_UNVERIFIED` で落ちたら実装に入らない。** 記録があるのにこの工程が未宣言・失効なので、親が remaining A を witness に足して compile するまで待つ
 4. 実装し、自ら必要な試験と自己監査を行う。工程を次に進めてよい水準まで自分の責任で完成させる。着手後に先行工程由来の不具合が判明しても、先行工程をreopenせず、前担当者へ戻さず、修正工程も追加しない。現在の工程を成立させる修正として自ら直し、最終試験結果へ含める。誰かに用事がある時はその相手へDMし、誰に聞けばよいか分からない時は `post(to: "all")` で聞く
 5. 証跡ファイル `evidence/{{PLAN_KEY}}/<task_id>.md` に、最終的な試験内容と試験結果を含めて「何を作り、どう確認したか」を書き、変更ファイルと証跡だけをcommitする
 6. その証跡と同じ最終試験内容・結果を監査担当へ渡す。作業者自身は `.team/scripts/done.sh` や `lattice todo done` を実行しない
 7. 監査担当として結果を受け取った場合は、提出された試験内容と試験結果が元PLAN・工程正本・受入条件に照らして妥当か判断する。試験を再実行せず、個人の思想や計画外の改善を完了条件へ加えない
-8. 妥当なら監査担当が `.team/scripts/done.sh <task_id> --plan <plan_key>` で工程をクローズする。`done.sh`は証跡と同じ本文をLatticeの`test_result`へ記録する。doneを読返してから `post(to: "all", message: "次の工程に着手してください")` とだけ指示し、具体的な次工程は指示しない
+8. 妥当なら監査担当が `.team/scripts/done.sh <task_id> --plan <plan_key>` で工程をクローズする。feat SHA が `origin/main` の祖先になるまで `LANDING_NOT_ON_MAIN` で止まる。その時は `[監査OK] 着地してください feat=<sha>` を親へ送り、着地後に再実行する。`done.sh`は証跡と同じ本文をLatticeの`test_result`へ記録する。doneを読返してから `post(to: "all", message: "次の工程に着手してください")` とだけ指示し、具体的な次工程は指示しない
 9. 不合格なら、現在モデルでの修正機会は1回だけとする。再び不合格になったら親へmodel変更を依頼し、`Luna → Terra → Sol`の順で一段昇格する。自分で席設定を変えない
 10. 作業者は監査担当によるクローズを確認し、工程正本から次のreadyを選ぶ
 11. **claimできるToDoが無いなら仕事を発明しない（決定68）。** 依頼されていない監査・他席への状況照会・正典の自主レビューを暇つぶしに始めない。縮退の打診が来たらWIP棚卸しを正直に返す
@@ -106,7 +106,8 @@ lattice run intake --run .lattice/runs/<run-id> --task <id>
    **worktree に commit した証跡は canonical から読める**（複製は要らない）。
    装置が worktree の base→HEAD を独立に観測して受理する。
    最後の landing-only 呼び出しは、accept 済み receipt が canonical default branch へ未着地なら
-   `未着地 N本`を出す。警告だけで処理は止めないが、`未push` と別の完了軸なので読み飛ばさない。
+   `未着地 N本`を出す。これは lattice run receipt の軸で、feat SHA の `LANDING_NOT_ON_MAIN`
+   とは別である。receipt 側は警告だけで処理は止めない。
 
 **成果の正本はあなたの commit ではなく、Lattice が撮った observed diff である。** 受理されるのはその観測であって、commit そのものではない。
 

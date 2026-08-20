@@ -175,8 +175,10 @@ witness をどう生成するかは**対象 project 側の作法に従う**（La
   room で一声かけて各自の作業中変更を対象限定 commit してもらう必要がある。
 - **隔離実行層へ載せる前提**: companion planでも、current HEADへ束縛された
   witness と `independence compile` が揃ってから `lattice run intake` を実行する。
-  `coverage=missing` / `stale` のままではleaseを受けず、canonical共有木での作業と
-  隔離runを混同しない。
+  remaining A（まだ done でない ready / blocked）を同じ witness に含める。
+  現在の ready だけを compile すると、次の frontier の `todo start` が
+  `INDEPENDENCE_UNVERIFIED` になる。`coverage=missing` / `stale` のままではleaseを受けず、
+  canonical共有木での作業と隔離runを混同しない。
 - **task 単位の push はできない。** git の push は連続した history の先頭までを送る操作であり、
   途中の特定 commit だけを選んで送ることはできない（実測・結論: nagi, 2026-08-11）。ある task の
   クローズ済み成果を push すると、**その手前にある他 task の未クローズcommitも一緒にoriginへ運ばれる**。
@@ -225,7 +227,9 @@ witness をどう生成するかは**対象 project 側の作法に従う**（La
 ## 運用知識（V2/V3 実測の焼き込み）
 
 - Lattice 書込には actor 環境変数 3 点が必須
-- `--parallel-frontier` が要るのは、**ready が複数あって誰も着手していない frontier の最初の start だけ**（無いと `PARALLEL_DISPATCH_REQUIRED / parallel_frontier_requires_declaration` で弾かれる）。ready が1件だけ、または既に誰かが着手している frontier へ後から乗る場合は素の `start` でよい。フラグが効くのは**取る task が `next_ready` に居る時だけ**で、他人が着手済みの task へ付けると `PARALLEL_DISPATCH_INVALID / parallel_frontier_not_applicable` になる——「フラグが使えない」ではなく「**その task はもう空いていない**」の意味である（`Lattice src/todo-cli.mjs:698-704` が唯一の発生条件。independence の compile 状態は無関係で、未 compile でもフラグ付き start は通る。2026-08-08 実測）
+- `--parallel-frontier` が要るのは、**ready が複数あって誰も着手していない frontier の最初の start だけ**（無いと `PARALLEL_DISPATCH_REQUIRED / parallel_frontier_requires_declaration` で弾かれる）。ready が1件だけ、または既に誰かが着手している frontier へ後から乗る場合は素の `start` でよい。フラグが効くのは**取る task が `next_ready` に居る時だけ**で、他人が着手済みの task へ付けると `PARALLEL_DISPATCH_INVALID / parallel_frontier_not_applicable` になる——「フラグが使えない」ではなく「**その task はもう空いていない**」の意味である。記録があるのに対象工程が未宣言・失効なら `todo start` は `INDEPENDENCE_UNVERIFIED` で拒否する（Lattice ADR 0182）。記録が無い plan の start は従来どおり助言だけ
+- **`done.sh` は feat SHA が `origin/main` の祖先になるまで `LANDING_NOT_ON_MAIN` で止まる。** 親が着地してから監査担当が再実行する。lattice run receipt の未着地は別軸で、警告のまま
+- **independence compile は remaining A を含める。** 現在の ready だけを compile すると、次の frontier の start が拒否される。`next_ready` が witness に無い compile 自体も `INDEPENDENCE_READY_UNDECLARED` で拒否する
 - 同時書込は `STORE_WRITE_CONFLICT` 等で明示的に負ける。1〜2 秒待って再実行すれば通る（正常系）
 - evidence は記述子 JSON。記述子ファイル自体も repo 内相対パスに置く（repo 外絶対パスは INVALID_ARGUMENTS）。`.team/scripts/done.sh` が正規経路。証跡の置き場は **`evidence/<plan_key>/<task_id>.md`**——task_id は campaign を跨いで再利用されるので、平置きにすると前の campaign の監査証跡を上書きで消す（2026-08-08 実測）
 - **外部ペイン（決定53）は Lattice 0.50.0 以降が要る。** それ以前の Lattice に `external_pane` 入りの `project.json` を差すと、identity 検証が完全一致キーで落ちて `lattice todo status` ごと死ぬ（`PROJECT_IDENTITY_INVALID / identity_schema_invalid`・0.49.0 で実測）。工程正本が読めなくなる＝卓が止まるので、Lattice が古い環境では Lattice 併用 setup を走らせない
