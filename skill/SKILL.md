@@ -28,7 +28,7 @@ description: 任意プロジェクトに Peertable チーム（対等メンバ�
 ## Peertableの正規席と委譲入口
 
 Peertableのメンバー席は、aiterm-mcpの外部PTYに長寿命で着席させる。新しい席は
-`env -u PEERTABLE_POST_TOKEN scripts/launch-seat.sh <project> <name> <role> [brief]`で起こし、既存席の分担・起床・確認は
+`env -u PEERTABLE_POST_TOKEN scripts/launch-seat.sh <project> <name> --roles <役割> [brief]`で起こし、既存席の分担・起床・確認は
 `mcp__aiterm__pty_read` / `mcp__aiterm__pty_send` / `mcp__aiterm__pty_key`、roomの`read_unread` / `post`、
 Latticeの`todo`で行う。通常shellのために開いた短命PTYと、メンバーが着席する長寿命PTYは別物である。
 
@@ -61,7 +61,7 @@ script は内部で Aiterm の公開 `claude_agent` / `codex_agent` / `grok_agen
 4. **Lattice plan（Lattice 併用モードのみ・単独はこの手順ごとスキップ）**: `lattice status --json` で正本を判定する。`uninitialized` なら聞き取ったタスクを JSON へ落として `scripts/make-plan-input.mjs <tasks.json> --project <project>` で `plan create` 入力を生成し、`lattice plan create --input .lattice/plan-create.json` を打つ。初期化済みなら `todo migrate` の作法（Lattice 正典）に従う。設計メモは各タスクに必ず書く
    - `make-plan-input.mjs` が digest 計算と `hard_dependencies` の `(from,to)` 昇順ソートを持つ（**手書きで2回踏んだ罠**。順序が崩れると `INPUT_INVALID / pointer:"/"` としか言われない）。`project_id` の既定は project ディレクトリ名で、`external-pane.mjs` が書く `project.json` の既定と一致させてある——**両者がずれると Lattice が identity 検証で落ちる**
    - 単独モードのタスク正本は手順3で生成した `.team/tasks.md` だけである。状態（誰が持っているか・何が終わったか）は持たせない——claim と完了は room の宣言だけが正（決定48 の延長）。ミニタスクトラッカーを別途作らない（決定36）
-5. **メンバー起動**: メンバーごとに `env -u PEERTABLE_POST_TOKEN scripts/launch-seat.sh <project> <name> <role> [着任指示]` を実行する。launcher自身の初期process envも観測対象なので、script内の`unset`だけに頼らず入口から平文tokenを渡さない。**role は必須**（02_models の役割名。未指定・`worker` 既定・未知の名前は着席前に非ゼロ終了）。model / vendor / effort は順位表から解決する。tmux 作成（aiterm と同じソケットなので、立った席はそのまま `pty_read`/`pty_send` で読める）→ credential file path注入 → 起動 → 既知ダイアログ通過 → 着席確認まで1回で行き、着席しなければ最後の画面を出して非ゼロで落ちる（黙って進まない）
+5. **メンバー起動**: メンバーごとに `env -u PEERTABLE_POST_TOKEN scripts/launch-seat.sh <project> <name> --roles <役割>[,<役割>...] [--mission <使命>] [着任指示]` を実行する。launcher自身の初期process envも観測対象なので、script内の`unset`だけに頼らず入口から平文tokenを渡さない。**roles は必須**（02_models の公式役割が1つ以上。未指定・`worker`・未知は着席前に非ゼロ終了）。model 省略時は順位表の着席可能な1位。指定時は表外でも通す。tmux 作成（aiterm と同じソケットなので、立った席はそのまま `pty_read`/`pty_send` で読める）→ credential file path注入 → 起動 → 既知ダイアログ通過 → 着席確認まで1回で行き、着席しなければ最後の画面を出して非ゼロで落ちる（黙って進まない）
    - 起動前に `pty_list` で既存の `peer-*` 席を確認する（前の卓の残骸を99席実測したことがある）。同名の席は launch-seat.sh が落としてから立て直す
    - 着任指示を第6引数に渡すと着席後に送る。文面: 「あなたは「<日本語名>」。.team/roles/member.md を読んで着任し、作業ループを開始せよ。全タスク完了の宣言まで自律的に続けること。」
    - 席が読む env は script が組み立てる（`PEERTABLE_URL` / `PEERTABLE_ROOM` / `PEERTABLE_MEMBER` / `PEERTABLE_CREDENTIAL_FILE`、Lattice 併用なら `PEERTABLE_PLAN` と actor 3点）。token値は席別`0600` fileにだけ置き、pathだけを席へ渡す。**channels は `--mcp-config` の MCP server を解決しない**（実測 2026-08-08・Claude Code v2.1.226・決定44）ため、room の MCP 定義は setup.sh が project root へ置く `.mcp.json` が正。Peertable管理下fileはlaunch時にもcurrent-tree clientへ同期する。project に既存 `.mcp.json` があった場合は無断更新せず`SEAT_ROOM_MCP_STALE`で止まるので、AI がroom定義を手動mergeしてteardownで復元する

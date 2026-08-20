@@ -9,10 +9,11 @@ import { execFileSync } from 'node:child_process'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { isIdleSelfWake } from '../skill/scripts/wakeup-delivery.mjs'
+import { findModelsDoc, resolveSeatIdentity } from '../skill/scripts/resolve-seat-placement.mjs'
 
 // client.mjs 側のハードコード版数。package.json の version と一致していることを
 // diagnostics の version_consistency が見る（2 つの版数源の drift 検出。決定45）
-const MCP_VERSION = '0.4.16'
+const MCP_VERSION = '0.4.17'
 const PKG_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 
 const USAGE = `usage:
@@ -69,6 +70,7 @@ const mcp = new Server(
     capabilities: { experimental: { 'claude/channel': {} }, tools: {} },
     instructions:
       `あなたは Peertable room「${ROOM}」のメンバー「${ME}」である。` +
+      'メンバー一覧の名前・役割・設定・使命を見て連携せよ。members と read_unread 先頭に同じ欄がある。' +
       '<channel source="room"> の通知は「新着あり」の合図であり、本文は read_unread ツールで読む。' +
       '発言は post ツールを使う。to: "all" はroom全体、メンバー名はDM、配列は複数人宛である。' +
       `次にやる仕事があるターンを終える直前に post(to: "${ME}", message: "[次の行動] ...") を1回送れ。` +
@@ -103,11 +105,26 @@ mcp.setRequestHandler(ListToolsRequestSchema, async () => ({
     },
     { name: 'read_unread', description: 'room全体宛と自分宛の未読メッセージを読む。読んだ位置は記憶される', inputSchema: { type: 'object', properties: {} } },
     { name: 'read_log', description: 'room ログの直近 count 件を読む（既定 50。全宛先を含む）', inputSchema: { type: 'object', properties: { count: { type: 'number' } } } },
-    { name: 'members', description: 'room に居るメンバーの一覧', inputSchema: { type: 'object', properties: {} } },
+    { name: 'members', description: 'room に居るメンバーの一覧（名前・役割・設定・使命）', inputSchema: { type: 'object', properties: {} } },
   ],
 }))
 
 const fmt = m => `[${m.seq}] ${m.from} → ${Array.isArray(m.to_names) ? m.to_names.join(', ') : m.to} (${m.ts}): ${m.body}`
+const memberLine = (m) => {
+  const rolesText = Array.isArray(m.roles) && m.roles.length ? m.roles.join('・') : (m.role || '')
+  const settingsObj = m.settings && typeof m.settings === 'object' ? m.settings : {}
+  const settingsText = [settingsObj.model || m.model, settingsObj.effort || m.effort].filter(Boolean).join('×')
+  const parts = [m.name]
+  if (rolesText) parts.push(`役割=${rolesText}`)
+  if (settingsText) parts.push(`設定=${settingsText}`)
+  if (m.mission) parts.push(`使命=${m.mission}`)
+  return parts.join(' ')
+}
+const rosterText = async () => {
+  const { members } = await (await fetch(api('members'))).json()
+  if (!members?.length) return '席: （まだ誰も居ない）'
+  return `席: ${members.map(memberLine).join(' / ')}`
+}
 
 mcp.setRequestHandler(CallToolRequestSchema, async req => {
   const args = req.params.arguments ?? {}
@@ -124,7 +141,8 @@ mcp.setRequestHandler(CallToolRequestSchema, async req => {
       const { messages } = await (await fetch(api(`messages?since=${cursor}`))).json()
       if (messages.length) cursor = messages[messages.length - 1].seq
       const mine = messages.filter(relevant)
-      return text(mine.length ? mine.map(fmt).join('\n') : '未読なし')
+      const roster = await rosterText()
+      return text(mine.length ? `${roster}\n${mine.map(fmt).join('\n')}` : `${roster}\n未読なし`)
     }
     case 'read_log': {
       const { messages } = await (await fetch(api('messages'))).json()
@@ -132,7 +150,7 @@ mcp.setRequestHandler(CallToolRequestSchema, async req => {
     }
     case 'members': {
       const { members } = await (await fetch(api('members'))).json()
-      return text(members.map(m => `${m.name}（参加 ${m.joined_at}）`).join('\n') || '（誰も居ない）')
+      return text(members.map(memberLine).join('\n') || '（誰も居ない）')
     }
     default:
       throw new Error(`unknown tool: ${req.params.name}`)
@@ -177,14 +195,38 @@ function observeSelf() {
 }
 
 const observe = observeSelf()
+const parseRoles = (raw) => String(raw ?? '').split(/[,、]/u).map((item) => item.trim()).filter(Boolean)
+const roles = parseRoles(process.env.PEERTABLE_ROLES || process.env.PEERTABLE_ROLE)
+const settings = Object.fromEntries(Object.entries({
+  vendor: process.env.PEERTABLE_VENDOR,
+  model: process.env.PEERTABLE_MODEL,
+  effort: process.env.PEERTABLE_EFFORT,
+}).filter(([, v]) => v))
 const IDENTITY = Object.fromEntries(Object.entries({
   vendor: process.env.PEERTABLE_VENDOR,
   model: process.env.PEERTABLE_MODEL,
   effort: process.env.PEERTABLE_EFFORT,
-  role: process.env.PEERTABLE_ROLE,
+  role: roles[0],
+  roles,
+  settings: Object.keys(settings).length ? settings : undefined,
+  mission: process.env.PEERTABLE_MISSION,
   aiterm_session_id: process.env.AITERM_SESSION_ID,
   observe,
-}).filter(([, v]) => v))
+}).filter(([, v]) => v !== undefined && v !== '' && !(Array.isArray(v) && v.length === 0)))
+{
+  const modelsDoc = findModelsDoc()
+  if (!modelsDoc || !existsSync(modelsDoc)) {
+    throw new Error('SEAT_MODELS_DOC_MISSING: 02_models.md が見つからない')
+  }
+  const checked = resolveSeatIdentity({
+    roles,
+    model: process.env.PEERTABLE_MODEL,
+    effort: process.env.PEERTABLE_EFFORT,
+    vendor: process.env.PEERTABLE_VENDOR,
+    markdown: readFileSync(modelsDoc, 'utf8'),
+  })
+  if (checked.error) throw new Error(`${checked.error}: ${checked.message}`)
+}
 await fetch(api('members'), { method: 'POST', headers, body: JSON.stringify({ name: ME, ...IDENTITY }) })
 
 // SSE 購読 → 自分に関係する新着だけ一行通知へ変換。切断は外部障害なので再接続する。

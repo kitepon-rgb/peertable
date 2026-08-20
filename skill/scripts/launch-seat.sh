@@ -1,41 +1,36 @@
 #!/bin/bash
 # 席を1つ立てる（tmux 作成 → env 注入 → エージェント起動 → 既知ダイアログ通過 → 着席確認）。
-# usage: launch-seat.sh <project_dir> <name> <role> [brief] [--model <model> --vendor <vendor> --effort <effort>]
-#   role: 必須。dotagents docs/02_models.md の役割名（未指定・未知は着席前に拒否）
-#   model / vendor / effort: 省略時は 02_models 順位表から機械解決する。上書きするなら3つとも必須
-#   brief:  着席が成立したら送る着任指示（省略時は送らない）
-#
-# room 名・server URL・モード・plan key は <project>/.team/setup-state.json から読む（setup.sh の後に呼ぶ）。
-# 書込トークンは helper が ~/.config/peertable.env から席別 0600 file へ移し、pathだけを席へ渡す。
-# tmux は aiterm-mcp と同じソケットへ作るので、立てた席はそのまま pty_read / pty_send で読める。
+# usage: launch-seat.sh <project_dir> <name> --roles <role>[,<role>...] [--mission <text>] [--model <slug>] [--effort <effort>] [--vendor <vendor>] [brief]
+#   --roles: 必須。02_models の公式役割。位置引数に公式役割を置いてもよい
+#   --model: 任意。省略時は先頭役割の着席可能な1位。指定時は表外でも通す
+#   brief: 着席が成立したら送る着任指示（省略時は送らない）
 set -e
 usage() {
-  echo "usage: launch-seat.sh <project_dir> <name> <role> [brief] [--model <model> --vendor <vendor> --effort <effort>]" >&2
+  echo "usage: launch-seat.sh <project_dir> <name> --roles <role>[,<role>...] [--mission <text>] [--model <slug>] [--effort <effort>] [--vendor <vendor>] [brief]" >&2
 }
-proj="$1"; name="$2"; role="$3"
-[ -n "$proj" ] && [ -n "$name" ] && [ -n "$role" ] || { usage; exit 1; }
-shift 3
+proj="$1"; name="$2"
+[ -n "$proj" ] && [ -n "$name" ] || { usage; exit 1; }
+shift 2
 brief=""
+roles=""; mission=""
 opt_model=""; opt_vendor=""; opt_effort=""
 while [ $# -gt 0 ]; do
   case "$1" in
+    --roles) roles="${2:-}"; shift 2 ;;
+    --mission) mission="${2:-}"; shift 2 ;;
     --model) opt_model="${2:-}"; shift 2 ;;
     --vendor) opt_vendor="${2:-}"; shift 2 ;;
     --effort) opt_effort="${2:-}"; shift 2 ;;
     --*) echo "SEAT_LAUNCH_ARGS_INVALID: 不明な引数 $1" >&2; usage; exit 1 ;;
     *)
-      if [ -z "$brief" ]; then brief="$1"; shift
+      if [ -z "$roles" ]; then roles="$1"; shift
+      elif [ -z "$brief" ]; then brief="$1"; shift
       else echo "SEAT_LAUNCH_ARGS_INVALID: 余分な引数 $1" >&2; usage; exit 1
       fi
       ;;
   esac
 done
-if [ -n "$opt_model$opt_vendor$opt_effort" ]; then
-  [ -n "$opt_model" ] && [ -n "$opt_vendor" ] && [ -n "$opt_effort" ] || {
-    echo "SEAT_LAUNCH_PLACEMENT_INCOMPLETE: --model / --vendor / --effort は3つ揃える" >&2
-    exit 1
-  }
-fi
+[ -n "$roles" ] || { usage; exit 1; }
 
 if [ -n "${PEERTABLE_MEMBER:-}" ]; then
   echo "SEAT_LAUNCH_DELEGATED_CHILD_FORBIDDEN: PEERTABLE_MEMBER=${PEERTABLE_MEMBER} を継承した呼出元からの席起動を拒否" >&2
@@ -58,21 +53,24 @@ credential_file=""
 credential_persist=false
 aiterm_session_id=""
 
-if [ -n "$opt_model" ]; then
-  model="$opt_model"; vendor="$opt_vendor"; effort="$opt_effort"
-  echo "SEAT_PLACEMENT_OVERRIDE: ${role} → ${vendor} / ${model} / ${effort}"
-else
-  placement=$(node "$placement_helper" "$role") || exit "$?"
-  IFS=$'\t' read -r model vendor effort rank <<EOF
-$(python3 -c 'import json,sys;p=json.load(sys.stdin);print("\t".join((p["model"],p["vendor"],p.get("effort") or "",str(p["rank"]))))' <<<"$placement")
+placement_argv=(--roles "$roles")
+[ -n "$opt_model" ] && placement_argv+=(--model "$opt_model")
+[ -n "$opt_effort" ] && placement_argv+=(--effort "$opt_effort")
+[ -n "$opt_vendor" ] && placement_argv+=(--vendor "$opt_vendor")
+placement=$(node "$placement_helper" "${placement_argv[@]}") || exit "$?"
+IFS=$'\t' read -r model vendor effort role <<EOF
+$(python3 -c 'import json,sys
+p=json.load(sys.stdin)
+s=p.get("settings") or {}
+roles=",".join(p.get("roles") or [])
+print("\t".join((s.get("model") or "", s.get("vendor") or "", s.get("effort") or "", roles)))' <<<"$placement")
 EOF
-  echo "SEAT_PLACEMENT: ${role} → ${vendor} / ${model}${effort:+ / $effort}（02_models ${rank}位）"
-  python3 -c 'import json,sys
+echo "SEAT_PLACEMENT: ${role} → ${vendor} / ${model}${effort:+ / $effort}"
+python3 -c 'import json,sys
 p=json.load(sys.stdin)
 for item in p.get("dropped") or []:
     print("SEAT_PLACEMENT_DROPPED: rank %s %s %s" % (item.get("rank"), item.get("reason"), item.get("cell") or ""), file=sys.stderr)
 ' <<<"$placement" || true
-fi
 case "$vendor" in
   claude|codex|grok) ;;
   *) echo "SEAT_LAUNCH_VENDOR_UNSUPPORTED: vendor=${vendor}" >&2; exit 1 ;;
@@ -296,8 +294,11 @@ PY
 case "$stale_member_rc" in
   1) : ;; # 同名memberなし。DELETEを発行せず、そのまま新席を起こす
   0)
-    echo "SEAT_ROOM_MEMBER_CONFLICT: 同名room memberが残っているため着席前に停止（明示的に退席してから再実行）" >&2
-    exit 1
+    echo "SEAT_ROOM_MEMBER_RELAUNCH: 同名room memberが残っているので畳んでから起こす: ${name}" >&2
+    if ! env -u PEERTABLE_POST_TOKEN "$(dirname "$0")/leave-seat.sh" "$proj" "$name"; then
+      echo "SEAT_ROOM_MEMBER_RELAUNCH_FAILED: 同名席を畳めない: ${name}" >&2
+      exit 1
+    fi
     ;;
   *)
     echo "SEAT_ROOM_MEMBER_STATE_UNREADABLE: room member一覧を読み取れない（席は立てない）" >&2
@@ -320,12 +321,14 @@ launch_env=(
   "PEERTABLE_MODEL=$model"
   "PEERTABLE_EFFORT=$effort"
   "PEERTABLE_ROLE=$role"
+  "PEERTABLE_ROLES=$role"
+  "PEERTABLE_MISSION=$mission"
   "PEERTABLE_TMUX_SOCKET=$sock"
 )
 if [ "$mode" = "lattice" ]; then
   launch_env+=(
     "PEERTABLE_PLAN=$plan"
-    "LATTICE_TODO_ACTOR_HOST=${LATTICE_TODO_ACTOR_HOST:-mac}"
+    "LATTICE_TODO_ACTOR_HOST=${LATTICE_TODO_ACTOR_HOST:-$(hostname | tr -d '\r')}"
     "LATTICE_TODO_ACTOR_SESSION=$name"
     "LATTICE_TODO_ACTOR_AGENT=$name"
   )
@@ -543,6 +546,9 @@ fi
 seat_pid=""
 pane_pid=$(tmux_at list-panes -t "$sess" -F '#{pane_pid}' 2>/dev/null | head -1 || true)
 seat_ident=""
+if [ -n "$pane_pid" ] && [ -r "/proc/${pane_pid}/winpid" ]; then
+  pane_pid=$(tr -d '[:space:]' < "/proc/${pane_pid}/winpid")
+fi
 if [ -n "$pane_pid" ]; then
   seat_ident=$(node "$(dirname "$0")/seat-identity.mjs" "$pane_pid") || seat_ident=""
 fi
@@ -596,23 +602,28 @@ PY
   fi
 fi
 
-# 席の素性（vendor / model / effort / role）を room へ渡す。参加者一覧のホバー表示に使う。
-# 席自身の client も起動時に `{name}` だけで登録するので、server 側は
-# **欄が無い登録で既存の素性を消さない**（upsert）ことが前提である。
-# effort は渡された時だけ入れる——欄が無い＝「不明」ではなく「CLI 既定で走っている」。
-# ここが失敗しても席は着席済みなので落とさない。ただし黙っては飲まない。
+# 席の素性（roles / settings / mission）を room へ渡す。一覧チップと席の名簿が同じ欄を見る。
 tmux_ns=$(node "$(dirname "$0")/tmux-socket.mjs" --namespace)
-meta=$(python3 - "$name" "$vendor" "$model" "$effort" "$sock" "$sess" "$role" "$aiterm_session_id" "$tmux_ns" <<'PY'
+meta=$(python3 - "$name" "$vendor" "$model" "$effort" "$sock" "$sess" "$role" "$mission" "$aiterm_session_id" "$tmux_ns" <<'PY'
 import json, sys
-name, vendor, model, effort, sock, sess, role, aiterm_session_id, tmux_ns = sys.argv[1:10]
+name, vendor, model, effort, sock, sess, roles_raw, mission, aiterm_session_id, tmux_ns = sys.argv[1:11]
 observe = {'tmux_socket': sock, 'tmux_target': sess}
 if tmux_ns:
     observe['tmux_namespace'] = tmux_ns
-body = {'name': name, 'vendor': vendor, 'model': model, 'role': role, 'aiterm_session_id': aiterm_session_id,
-        'observe': observe}
+roles = [item for item in roles_raw.split(',') if item]
+settings = {'vendor': vendor, 'model': model}
+if effort:
+    settings['effort'] = effort
+body = {
+    'name': name, 'vendor': vendor, 'model': model, 'role': roles[0] if roles else '',
+    'roles': roles, 'settings': settings, 'aiterm_session_id': aiterm_session_id,
+    'observe': observe,
+}
 if effort:
     body['effort'] = effort
-print(json.dumps(body))
+if mission:
+    body['mission'] = mission
+print(json.dumps(body, ensure_ascii=False))
 PY
 )
 if env -u PEERTABLE_POST_TOKEN node "$credential_helper" request "$credential_file" POST \
@@ -632,7 +643,7 @@ try:
 except Exception:
     members = []
 m = next((x for x in members if x.get('name') == sys.argv[1]), {})
-print('yes' if m.get('model') and m.get('role') and m.get('aiterm_session_id') and m.get('observe', {}).get('tmux_target') else 'no')
+print('yes' if m.get('model') and (m.get('roles') or m.get('role')) and m.get('aiterm_session_id') and m.get('observe', {}).get('tmux_target') else 'no')
 PY
 )
   if [ "$stored" = yes ]; then

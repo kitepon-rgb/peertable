@@ -24,10 +24,14 @@ const roomHeader = /^\s*\[mcp_servers\.room\]\s*$/mu
 const seatEnvNames = [
   'PEERTABLE_URL', 'PEERTABLE_ROOM', 'PEERTABLE_MEMBER', 'PEERTABLE_CREDENTIAL_FILE',
   'PEERTABLE_VENDOR', 'PEERTABLE_MODEL', 'PEERTABLE_EFFORT', 'PEERTABLE_ROLE',
+  'PEERTABLE_ROLES', 'PEERTABLE_MISSION',
   'PEERTABLE_PLAN', 'LATTICE_CLI', 'LATTICE_TODO_ACTOR_HOST',
   'LATTICE_TODO_ACTOR_SESSION', 'LATTICE_TODO_ACTOR_AGENT',
 ]
-const requiredSeatEnv = seatEnvNames.slice(0, 8)
+const requiredSeatEnv = [
+  'PEERTABLE_URL', 'PEERTABLE_ROOM', 'PEERTABLE_MEMBER', 'PEERTABLE_CREDENTIAL_FILE',
+  'PEERTABLE_VENDOR', 'PEERTABLE_MODEL', 'PEERTABLE_ROLE', 'PEERTABLE_ROLES',
+]
 
 function atomicWrite(file, body, mode = 0o644) {
   mkdirSync(dirname(file), { recursive: true })

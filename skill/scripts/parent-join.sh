@@ -10,6 +10,8 @@
 # 親は MCP を後付けできないので room へは HTTP API 直で入る（決定40 の operating notes）。
 set -e
 proj="$1"; name="${2:-bell}"; model="$3"; effort="$4"; vendor="$5"
+mission=""
+if [ "${6:-}" = "--mission" ]; then mission="${7:-}"; fi
 state="$proj/.team/setup-state.json"
 room=$(python3 -c "import json;print(json.load(open('$state'))['room'])")
 url=$(python3 -c "import json;print(json.load(open('$state'))['server_url'])")
@@ -21,21 +23,37 @@ fi
 
 # 親はAiterm席ではない。Claude/Codex/Grokとも、親自身が所有するparent-watchを配送先にする。
 # tmux observeやCodex thread IDを登録すると、通常席bridge／外部resumeへ誤配送される。
-parent_vendor="${vendor:-claude}"
-member=$(python3 - "$name" "$model" "$effort" "$parent_vendor" <<'PY'
+parent_vendor="$vendor"
+if [ -z "$parent_vendor" ] && [ -n "$model" ]; then
+  case "$model" in
+    gpt-*|o[0-9]*) parent_vendor=codex ;;
+    grok*) parent_vendor=grok ;;
+    claude*|opus*|sonnet*|haiku*|fable*) parent_vendor=claude ;;
+  esac
+fi
+member=$(python3 - "$name" "$model" "$effort" "$parent_vendor" "$mission" <<'PY'
 import json, sys
-name, model, effort, vendor = sys.argv[1:5]
-body = {'name': name}
-# 渡された欄だけ載せる。空欄を送ると、素性を持つ既存登録を空で上書きしうる
-if model or vendor:
-    body['vendor'] = vendor or 'claude'
+name, model, effort, vendor, mission = sys.argv[1:6]
+body = {'name': name, 'roles': ['統括'], 'role': '統括'}
+if vendor:
+    body['vendor'] = vendor
 if model:
     body['model'] = model
+settings = {}
+if vendor:
+    settings['vendor'] = vendor
+if model:
+    settings['model'] = model
 if effort:
     body['effort'] = effort
+    settings['effort'] = effort
+if settings:
+    body['settings'] = settings
+if mission:
+    body['mission'] = mission
 body['observe'] = None
-body['delivery'] = {'kind': 'parent_watch', 'host': vendor}
-print(json.dumps(body))
+body['delivery'] = {'kind': 'parent_watch', 'host': vendor or ''}
+print(json.dumps(body, ensure_ascii=False))
 PY
 )
 curl -sf -X POST "$url/api/$room/members" \

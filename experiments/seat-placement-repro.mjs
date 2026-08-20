@@ -1,11 +1,11 @@
 #!/usr/bin/env node
-// 着席が role 未指定を worker 既定で通し、02_models を読まない退行を止める。
-import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { dirname, join, resolve } from 'node:path'
-import { resolveSeatPlacement } from '../skill/scripts/resolve-seat-placement.mjs'
+import {
+  resolveSeatPlacement, resolveSeatIdentity,
+} from '../skill/scripts/resolve-seat-placement.mjs'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const fixture = await readFile(join(root, 'experiments/fixtures/02_models.md'), 'utf8')
@@ -18,45 +18,83 @@ const check = (name, pass, detail = '') => {
 }
 
 check('launch-seat は role 既定 worker を持たない', !launch.includes('role="${7:-worker}"'))
-check('launch-seat の usage は role を位置引数にする', launch.includes('<project_dir> <name> <role>'))
+check('launch-seat は --roles を usage に持つ', launch.includes('--roles'))
+check('launch-seat は三者上書き経路を持たない', !launch.includes('SEAT_PLACEMENT_OVERRIDE'))
 check('launch-seat は 02_models 解決器を呼ぶ', launch.includes('resolve-seat-placement.mjs'))
 
-const empty = resolveSeatPlacement('', fixture)
-check('空の role を拒否する', empty.error === 'SEAT_ROLE_REQUIRED', empty.error)
+const empty = resolveSeatIdentity({ roles: '', markdown: fixture })
+check('空の roles を拒否する', empty.error === 'SEAT_ROLE_REQUIRED', empty.error)
 
-const worker = resolveSeatPlacement('worker', fixture)
+const worker = resolveSeatIdentity({ roles: 'worker', markdown: fixture })
 check('旧 worker を未知役割として拒否する', worker.error === 'SEAT_ROLE_UNKNOWN', worker.error)
 
-const auditor = resolveSeatPlacement('auditor', fixture)
+const auditor = resolveSeatIdentity({ roles: 'auditor', markdown: fixture })
 check('旧 auditor を未知役割として拒否する', auditor.error === 'SEAT_ROLE_UNKNOWN', auditor.error)
 
-const impl = resolveSeatPlacement('実装', fixture)
-check('実装は台帳1位 Terra×high へ解決する',
-  impl.vendor === 'codex' && impl.model === 'gpt-5.6-terra' && impl.effort === 'high' && impl.rank === 1,
+const impl = resolveSeatIdentity({ roles: '実装', markdown: fixture })
+check('実装は省略時 Terra×high を settings へ書く',
+  impl.settings?.vendor === 'codex' && impl.settings?.model === 'gpt-5.6-terra' && impl.settings?.effort === 'high'
+    && impl.roles?.[0] === '実装',
   JSON.stringify(impl))
 
-const consult = resolveSeatPlacement('相談', fixture)
-check('相談の ChatGPT 1位は着席不能として落とし Grok 2位へ進む',
-  consult.rank === 2 && consult.vendor === 'grok' && consult.model === 'grok-4.6' && consult.effort === 'medium'
-    && consult.dropped?.[0]?.reason === 'not-a-seat',
+const consult = resolveSeatIdentity({ roles: '相談', markdown: fixture })
+check('相談の省略は着席不能1位を落として Grok 2位',
+  consult.settings?.vendor === 'grok' && consult.settings?.model === 'grok-4.6' && consult.settings?.effort === 'medium',
   JSON.stringify(consult))
 
-const parent = resolveSeatPlacement('統括', fixture)
-check('統括はオーナー指定のため着席解決できない', parent.error === 'SEAT_PLACEMENT_UNRESOLVABLE', parent.error)
+const parentSeat = resolveSeatIdentity({ roles: '統括', markdown: fixture })
+check('統括を席として起こすのは拒否', parentSeat.error === 'SEAT_ROLE_PARENT_ONLY', parentSeat.error)
 
-const missing = spawnSync('bash', [join(root, 'skill/scripts/launch-seat.sh')], { encoding: 'utf8' })
-check('launch-seat は role 無しで usage を出して落ちる',
-  missing.status !== 0 && /usage:/.test(missing.stderr), missing.stderr.trim())
+const parentOk = resolveSeatIdentity({ roles: '統括', markdown: fixture, allowParentRole: true })
+check('統括は親フラグ付きなら通る（配置はオーナー）',
+  !parentOk.error && parentOk.roles?.[0] === '統括',
+  JSON.stringify(parentOk))
+
+const both = resolveSeatIdentity({ roles: '実装,調査', markdown: fixture })
+check('実装と調査は複数役割として通る',
+  Array.isArray(both.roles) && both.roles.includes('実装') && both.roles.includes('調査')
+    && both.settings?.model === 'gpt-5.6-terra',
+  JSON.stringify(both))
+
+const conflict = resolveSeatIdentity({ roles: '実装,反証', markdown: fixture })
+check('実装と反証の同時は拒否', conflict.error === 'SEAT_ROLE_CONFLICT', conflict.error)
+
+const outside = resolveSeatIdentity({ roles: '実装', model: 'gpt-5.6-sol', effort: 'medium', markdown: fixture })
+check('表外でも指定 model は通す',
+  outside.settings?.model === 'gpt-5.6-sol' && outside.settings?.effort === 'medium',
+  JSON.stringify(outside))
+
+const custom = resolveSeatIdentity({ roles: '実装', model: 'not-in-table-xyz', vendor: 'codex', markdown: fixture })
+check('台帳に無い model は vendor 付きなら通す',
+  custom.settings?.model === 'not-in-table-xyz' && custom.settings?.vendor === 'codex',
+  JSON.stringify(custom))
+
+const first = resolveSeatPlacement('実装', fixture)
+check('単役割 helper は1位 Terra のまま', first.model === 'gpt-5.6-terra' && first.rank === 1, JSON.stringify(first))
+
+const bash = process.platform === 'win32' ? 'C:\\Program Files\\Git\\bin\\bash.exe' : 'bash'
+const missing = spawnSync(bash, [join(root, 'skill/scripts/launch-seat.sh')], { encoding: 'utf8' })
+check('launch-seat は roles 無しで usage を出して落ちる',
+  missing.status !== 0 && /usage:/.test(missing.stderr || missing.stdout || ''), (missing.stderr || missing.stdout || '').trim())
 
 const env = { ...process.env, PEERTABLE_MODELS_DOC: join(root, 'experiments/fixtures/02_models.md') }
 const resolveBin = join(root, 'skill/scripts/resolve-seat-placement.mjs')
-const viaCli = spawnSync(process.execPath, [resolveBin, '実装'], { encoding: 'utf8', env })
+const viaCli = spawnSync(process.execPath, [resolveBin, '--roles', '実装'], { encoding: 'utf8', env })
 check('CLI が fixture から 実装 を解決する',
-  viaCli.status === 0 && JSON.parse(viaCli.stdout).model === 'gpt-5.6-terra', viaCli.stderr)
+  viaCli.status === 0 && JSON.parse(viaCli.stdout).settings.model === 'gpt-5.6-terra', viaCli.stderr)
 
 const viaEmpty = spawnSync(process.execPath, [resolveBin], { encoding: 'utf8', env })
-check('CLI は role 無しで SEAT_ROLE_REQUIRED',
+check('CLI は roles 無しで SEAT_ROLE_REQUIRED',
   viaEmpty.status !== 0 && /SEAT_ROLE_REQUIRED/.test(viaEmpty.stderr), viaEmpty.stderr.trim())
+
+const server = await readFile(join(root, 'room/server.mjs'), 'utf8')
+check('server は役割不足の 400 を足していない', !/SEAT_ROLE_REQUIRED/.test(server))
+check('チップに roles/settings/mission を出す',
+  server.includes("el('span','roles'") && server.includes("el('span','settings'") && server.includes("el('span','mission'"))
+
+const client = await readFile(join(root, 'room/client.mjs'), 'utf8')
+check('MCP members は memberLine を返す', client.includes('members.map(memberLine)'))
+check('read_unread は名簿を先頭に付ける', client.includes('rosterText'))
 
 console.log(ok ? 'seat placement repro: green' : 'seat placement repro: RED')
 process.exit(ok ? 0 : 1)

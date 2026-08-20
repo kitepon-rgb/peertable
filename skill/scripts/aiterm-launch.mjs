@@ -13,6 +13,7 @@ await client.connect(new StdioClientTransport({ command: 'aiterm-mcp', env: proc
 const env_vars = [
   'PEERTABLE_URL', 'PEERTABLE_ROOM', 'PEERTABLE_MEMBER', 'PEERTABLE_CREDENTIAL_FILE',
   'PEERTABLE_VENDOR', 'PEERTABLE_MODEL', 'PEERTABLE_EFFORT', 'PEERTABLE_ROLE',
+  'PEERTABLE_ROLES', 'PEERTABLE_MISSION',
   'PEERTABLE_TMUX_SOCKET',
 ]
 if (process.env.PEERTABLE_PLAN) env_vars.push(

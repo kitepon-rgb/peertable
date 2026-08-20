@@ -207,10 +207,10 @@ else
     exit 1
   }
   brief="席設定が変更され（${changes}）、席を再起動しました。.team/roles/member.mdと工程正本・roomログから再着任し、進行中taskを続けてください。"
-  if ! "$launch" "$proj" "$name" "$old_role" "$brief" --model "$model" --vendor "$vendor" --effort "$effort"; then
+  if ! "$launch" "$proj" "$name" --roles "$old_role" --model "$model" --effort "$effort" "$brief"; then
     echo "SEAT_CHANGE_RESTART_FAILED: ${changes}。旧設定（vendor=${old_vendor} / model=${old_model} / effort=${old_effort:-default}）へrollbackする" >&2
     rollback_brief="席設定の変更に失敗して旧設定へrollbackしました。.team/roles/member.mdと工程正本・roomログから再着任してください。"
-    if "$launch" "$proj" "$name" "$old_role" "$rollback_brief" --model "$old_model" --vendor "$old_vendor" --effort "$old_effort"; then
+    if "$launch" "$proj" "$name" --roles "$old_role" --model "$old_model" --effort "$old_effort" "$rollback_brief"; then
       echo "SEAT_CHANGE_ROLLED_BACK: ${name} は vendor=${old_vendor} / model=${old_model} / effort=${old_effort:-default} で再着席" >&2
     else
       echo "SEAT_CHANGE_ROLLBACK_FAILED: ${name} の席を手動で復旧する必要がある" >&2

@@ -100,7 +100,7 @@ function normalizeAudience(to, toNames) {
 }
 
 // SSE の member イベントで押し込む欄。閲覧者が気づく欄だけに絞る（POST /members 参照）
-const MEMBER_EVENT_FIELDS = ['status', 'busy_since', 'vendor', 'model', 'effort', 'role']
+const MEMBER_EVENT_FIELDS = ['status', 'busy_since', 'vendor', 'model', 'effort', 'role', 'roles', 'settings', 'mission']
 
 // room ログへは書かない・system 発言も出さない稼働状態の push。post() とは別の経路
 function emitMember(room, name, meta) {
@@ -267,8 +267,10 @@ const UI = room => `<!doctype html><html lang="ja"><head><meta charset="utf-8"><
 .metapop{position:fixed;z-index:20;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:8px 10px;font-size:12px;box-shadow:0 6px 20px rgba(0,0,0,.18);max-width:70vw}
 .metapop .metaname{font-weight:600;margin-bottom:2px}
 .metapop .metaline{color:var(--dim)}
-.chip{position:relative;flex:none;display:flex;align-items:center;gap:7px;padding:3px 11px 3px 3px;border:1px solid var(--line);border-radius:999px;background:var(--surface);font-size:12px;font-weight:600}
-.chip .av{width:22px;height:22px;font-size:11px}
+.chip{position:relative;flex:none;display:flex;align-items:flex-start;gap:7px;padding:5px 11px 5px 5px;border:1px solid var(--line);border-radius:12px;background:var(--surface);font-size:12px;font-weight:600}
+.chip .av{width:22px;height:22px;font-size:11px;flex:none}
+.chip .id{display:flex;flex-direction:column;gap:1px;min-width:0;line-height:1.25}
+.chip .roles,.chip .settings,.chip .mission{font-weight:500;font-size:11px;color:var(--dim)}
 .chip.recent{border-color:hsl(var(--h) var(--sat) var(--edge))}
 .chip.recent .nm{color:hsl(var(--h) var(--sat) var(--name))}
 .chip.pulse .av{animation:pulse 1.6s ease-out 2}
@@ -462,10 +464,10 @@ async function refreshMembers(){
     const c=el('span','chip'+(m.name===recent?' recent':''))
     const color=avatarColor(m.name)
     c.style.setProperty('--h',color.h);c.style.setProperty('--av-bg',color.bg);c.style.setProperty('--av-fg',color.fg);c.dataset.name=m.name
-    // 素性は任意欄。名乗っていない席は行ごと出ない（空欄を「不明」として見せない）。
-    // vendor/model/effort/role を1行へ畳む（着席ログと読み口を揃える。effort / role の語は出さない）
-    const idParts=[m.vendor,m.model,m.effort,m.role].filter(Boolean)
-    const meta=[idParts.length?idParts.join(' / '):null].filter(Boolean)
+    const rolesText=Array.isArray(m.roles)&&m.roles.length?m.roles.join('・'):(m.role||'')
+    const settingsObj=m.settings&&typeof m.settings==='object'?m.settings:{}
+    const settingsText=[settingsObj.model||m.model,settingsObj.effort||m.effort].filter(Boolean).join('×')
+    const meta=[rolesText,settingsText,m.mission].filter(Boolean)
     // 稼働状態は**報告が新しい時だけ**採る。途絶えたら unknown へ落とす——古い状態を出し続けるのが
     // いちばん悪い（動いていない席を「動いている」と見せる）。閾値は bridge の心拍30秒の3倍
     const age=m.status_at?Date.now()-Date.parse(m.status_at):Infinity
@@ -478,8 +480,15 @@ async function refreshMembers(){
     if(Number.isSafeInteger(m.pane_token_hint)&&m.pane_token_hint>=0)usage.push(compactCount(m.pane_token_hint)+' tokens')
     if(usage.length)meta.push('消費目安 '+usage.join(' / ')+'（pane観測）')
     c.title=m.name+'（参加 '+new Date(m.joined_at).toLocaleString()+'）'+(meta.length?'\\n'+meta.join('\\n'):'')
-    c.appendChild(el('span','av',initial(m.name)));c.appendChild(el('span','nm',m.name))
-    if(st)c.appendChild(el('span','st '+st))
+    c.appendChild(el('span','av',initial(m.name)))
+    const id=el('span','id')
+    const nameRow=el('span','nm',m.name)
+    if(st)nameRow.appendChild(el('span','st '+st))
+    id.appendChild(nameRow)
+    if(rolesText)id.appendChild(el('span','roles',rolesText))
+    if(settingsText)id.appendChild(el('span','settings',settingsText))
+    if(m.mission)id.appendChild(el('span','mission',m.mission))
+    c.appendChild(id)
     // タップ環境には hover が無いので、押した時に同じ内容を出す（ホバーは title が担う）
     if(meta.length){c.classList.add('has-meta');c.addEventListener('click',ev=>{ev.stopPropagation();showMeta(c,m,meta)})}
     membersEl.appendChild(c)

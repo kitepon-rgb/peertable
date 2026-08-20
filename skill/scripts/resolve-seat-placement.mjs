@@ -25,6 +25,8 @@ export function findModelsDoc({ env = process.env, exists = existsSync, scriptDi
   if (env.DOTAGENTS_ROOT) return join(resolve(env.DOTAGENTS_ROOT), 'docs/02_models.md')
   const sibling = resolve(scriptDir, '../../../dotagents/docs/02_models.md')
   if (exists(sibling)) return sibling
+  const bundled = join(scriptDir, '../02_models.snapshot.md')
+  if (exists(bundled)) return bundled
   return null
 }
 
@@ -95,6 +97,34 @@ const matchLedger = (modelKey, ledger) => {
   return null
 }
 
+export function listOfficialRoles(markdown) {
+  return parseMarkdownTable(section(markdown, '順位表（役割→1位〜3位）'))
+    .map((row) => row['役割'])
+    .filter(Boolean)
+}
+
+export function vendorFromSlug(slug) {
+  const text = String(slug ?? '').trim().toLowerCase()
+  if (!text) return null
+  if (/^(gpt-|gpt\b|o[0-9])/u.test(text)) return 'codex'
+  if (/^(claude|opus|sonnet|haiku|fable)\b/u.test(text)) return 'claude'
+  if (/^grok\b/u.test(text)) return 'grok'
+  return null
+}
+
+const parseRoleList = (roles) => {
+  const raw = Array.isArray(roles) ? roles : String(roles ?? '').split(/[,、]/u)
+  const seen = new Set()
+  const list = []
+  for (const item of raw) {
+    const role = String(item ?? '').trim()
+    if (!role || seen.has(role)) continue
+    seen.add(role)
+    list.push(role)
+  }
+  return list
+}
+
 export function resolveSeatPlacement(role, markdown, { source = '' } = {}) {
   const wanted = String(role ?? '').trim()
   if (!wanted) {
@@ -144,9 +174,89 @@ export function resolveSeatPlacement(role, markdown, { source = '' } = {}) {
   }
 }
 
+export function resolveSeatIdentity({
+  roles, model, effort, vendor, markdown, source = '', allowParentRole = false,
+} = {}) {
+  const roleList = parseRoleList(roles)
+  if (roleList.length === 0) {
+    return { error: 'SEAT_ROLE_REQUIRED', message: 'roles が空（02_models の役割名が1つ以上要る）' }
+  }
+  const official = listOfficialRoles(markdown)
+  const unknown = roleList.filter((role) => !official.includes(role))
+  if (unknown.length > 0) {
+    return {
+      error: 'SEAT_ROLE_UNKNOWN',
+      message: `未知の役割: ${unknown.join(', ')}（${official.join(' / ')}）`,
+    }
+  }
+  if (roleList.includes('実装') && roleList.includes('反証')) {
+    return { error: 'SEAT_ROLE_CONFLICT', message: '同一人物に実装と反証を同時に付けられない' }
+  }
+  if (!allowParentRole && roleList.includes('統括')) {
+    return { error: 'SEAT_ROLE_PARENT_ONLY', message: '統括は親セッションの役割であり席を起こさない' }
+  }
+  if (allowParentRole && roleList.includes('統括') && !String(model ?? '').trim()) {
+    return {
+      roles: roleList,
+      settings: {
+        vendor: String(vendor ?? '').trim(),
+        model: '',
+        effort: String(effort ?? '').trim(),
+      },
+      source,
+    }
+  }
+
+  const requestedModel = String(model ?? '').trim()
+  const requestedEffort = String(effort ?? '').trim()
+  const requestedVendor = String(vendor ?? '').trim()
+  if (requestedModel) {
+    const resolvedVendor = requestedVendor || vendorFromSlug(requestedModel)
+      || parseLedger(markdown).find((row) => row.slug === requestedModel)?.vendor
+    if (!resolvedVendor) {
+      return {
+        error: 'SEAT_VENDOR_UNRESOLVED',
+        message: `model=${requestedModel} の vendor を推定できない（--vendor が要る）`,
+      }
+    }
+    return {
+      roles: roleList,
+      settings: { vendor: resolvedVendor, model: requestedModel, effort: requestedEffort },
+      source,
+    }
+  }
+
+  const first = resolveSeatPlacement(roleList[0], markdown, { source })
+  if (first.error) return first
+  return {
+    roles: roleList,
+    settings: {
+      vendor: first.vendor,
+      model: first.model,
+      effort: requestedEffort || first.effort || '',
+    },
+    source,
+    dropped: first.dropped,
+  }
+}
+
 const isMain = process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)
 if (isMain) {
-  const role = process.argv[2]
+  const args = process.argv.slice(2)
+  let roles = ''
+  let model = ''
+  let effort = ''
+  let vendor = ''
+  const positional = []
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i]
+    if (arg === '--roles') { roles = args[++i] ?? ''; continue }
+    if (arg === '--model') { model = args[++i] ?? ''; continue }
+    if (arg === '--effort') { effort = args[++i] ?? ''; continue }
+    if (arg === '--vendor') { vendor = args[++i] ?? ''; continue }
+    positional.push(arg)
+  }
+  if (!roles) roles = positional[0] ?? ''
   const doc = findModelsDoc()
   if (!doc) {
     fail('SEAT_MODELS_DOC_MISSING', '02_models.md が見つからない（PEERTABLE_MODELS_DOC または DOTAGENTS_ROOT を渡す）')
@@ -154,7 +264,9 @@ if (isMain) {
   if (!existsSync(doc)) {
     fail('SEAT_MODELS_DOC_MISSING', `02_models.md が無い: ${doc}`)
   }
-  const result = resolveSeatPlacement(role, readFileSync(doc, 'utf8'), { source: doc })
+  const result = resolveSeatIdentity({
+    roles, model, effort, vendor, markdown: readFileSync(doc, 'utf8'), source: doc,
+  })
   if (result.error) fail(result.error, result.message)
   process.stdout.write(`${JSON.stringify(result)}\n`)
 }
