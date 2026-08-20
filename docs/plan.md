@@ -1547,6 +1547,13 @@ Windows で python stdout が cp932 になり、`実装` が room へ壊れて�
 `seat-metadata.mjs` が JSON を UTF-8 で出す。
 patch `0.4.19`。
 
+## 40. Grok preflight は MCP 無しの GROK_HOME で ping する（決定99・2026-08-20）
+
+`grok -p ping` が user config の booth MCP（startup 120s）を待って空ログのまま 120 秒で死ぬ。
+別 model へ落とさない。認証だけ借りた一時 GROK_HOME で ping する。
+patch `0.4.20`。
+
+
 
 
 

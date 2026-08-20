@@ -217,11 +217,29 @@ fi
 # model unavailable で 0 秒失敗し、席は一度も仕事をできなかった（room [11]）。
 # バナーは CLI が起動したことしか言わないので、**live に応答するかは非対話入口で先に測る**。
 # 席を畳む前に測るのが要点である——ここで落ちれば、動いている席を殺さずに済む。
+export PATH="${HOME}/.grok/bin:${PATH}"
 preflight_dir="${TMPDIR:-/tmp}"
 case "$vendor" in
   claude) preflight_cmd=(claude --model "$model" -p "ping") ;;
   codex)  preflight_cmd=(codex exec --model "$model" --skip-git-repo-check "ping") ;;
-  grok)   preflight_cmd=(grok --model "$model" --reasoning-effort "$effort" -p "ping") ;;
+  grok)
+    grok_bin=$(command -v grok || true)
+    if [ -z "$grok_bin" ]; then
+      echo "SEAT_GROK_CLI_MISSING: grok が PATH に無い（席は立てない）" >&2
+      exit 1
+    fi
+    # 通常 GROK_HOME の config は booth 等 MCP を起動する。preflight がそれを待つと
+    # 120 秒で空ログのまま死ぬ（2026-08-20）。認証だけ借りて MCP 無しで ping する。
+    grok_home=$(mktemp -d "${TMPDIR:-/tmp}/peertable-grok-home.XXXXXX")
+    if [ ! -f "${HOME}/.grok/auth.json" ]; then
+      echo "SEAT_GROK_AUTH_MISSING: ${HOME}/.grok/auth.json が無い（席は立てない）" >&2
+      exit 1
+    fi
+    cp "${HOME}/.grok/auth.json" "${grok_home}/auth.json"
+    printf '%s\n' '[ui]' 'permission_mode = "always-approve"' >"${grok_home}/config.toml"
+    echo "grok preflight: GROK_HOME=${grok_home} ${grok_bin} --model ${model} --reasoning-effort ${effort} -p ping"
+    preflight_cmd=(env GROK_HOME="$grok_home" "$grok_bin" --model "$model" --reasoning-effort "$effort" -p "ping")
+    ;;
   *) echo "unknown vendor: ${vendor}（claude / codex / grok）" >&2; exit 1 ;;
 esac
 preflight_log=$(mktemp "${TMPDIR:-/tmp}/peertable-preflight.XXXXXX")
@@ -242,16 +260,20 @@ done
 if [ -z "$preflight_rc" ]; then
   kill "$preflight_pid" 2>/dev/null || true
   echo "model preflight が 120 秒で返らない: ${vendor} / ${model}（席は立てない）" >&2
-  rm -f "$preflight_log"
+  echo "preflight log: ${preflight_log}" >&2
+  cat "$preflight_log" >&2 || true
+  [ -n "${grok_home:-}" ] && rm -rf "$grok_home"
   exit 1
 fi
 if [ "$preflight_rc" != 0 ]; then
   echo "model が live で使えない: ${vendor} / ${model}（preflight rc=${preflight_rc}・席は立てない）" >&2
-  tail -5 "$preflight_log" >&2
+  cat "$preflight_log" >&2 || true
   rm -f "$preflight_log"
+  [ -n "${grok_home:-}" ] && rm -rf "$grok_home"
   exit 1
 fi
 rm -f "$preflight_log"
+[ -n "${grok_home:-}" ] && rm -rf "$grok_home"
 
 sock=$(node "$(dirname "$0")/tmux-socket.mjs")
 sess="peer-$name"
