@@ -1589,6 +1589,10 @@ patch `0.4.25`。
 independence の未宣言 start 拒否は Lattice 0.63.0 / ADR 0182。
 patch `0.4.29`。
 
+## 47. npm publish は完遂であり H ではない（2026-08-21）
+
+決定70の「publish は編入後も H 操作」を撤回する。自作製品の npm publish は push と同じく完遂に含める。オーナー承認待ちへ分解しない。既定ブランチ祖先は `verify-release-commit` が強制する。credential・本番・意図的障害は従来どおり明示承認。
+
 
 
 

@@ -12,14 +12,14 @@ Peertable で働く全 AI エージェント共通のプロジェクト規約。
 - 計画・設計・決定履歴の正本: [docs/plan.md](docs/plan.md)。**作業前に必ず読む**
 - 実装物は room（サーバー + セッションクライアント + 読み取り専用 Web UI）と peertable スキルのみ。Lattice・aiterm-mcp・Claude Code channels は既存資産・公式機能を使い、改造しない
 - 稼働状況: room は MS-A2 で Docker 常駐、公開閲覧は https://peertable.kitepon.dev（読み取り専用・決定42）。書込は API + トークンのみ
-- 配布: npm **peertable**（bin: `peertable-room` / `peertable-client`）。publish はオーナーの明示指示時のみ。version bump と `npm pack --dry-run` の files 確認を publish 前に行う
+- 配布: npm **peertable**（bin: `peertable-room` / `peertable-client`）。成果は利用面まで届ける。version bump、既定ブランチへの着地、npm publish、global install、公開後smokeまで一連の完遂とする。`npm pack --dry-run` の files 確認を publish 前に行う
 
 ## 開発規範
 
 - **過剰設計を禁止する**（docs/plan.md 2.5 が正）。過度なセキュリティ・安全対策・失敗チェック機構を作らない。自プロジェクト内で完結する処理は、チェックで守るのではなくそもそも失敗しないように書く。チェック機構は外部プログラムに依存する境界だけに置く
 - 検証ゲートは完結済み（V0〜V3 通過・V4 封印。docs/plan.md 6章）。以後の挙動変更は関連する実測を伴わせる
 - **push は既定で行う**。Peertable は 2026-08-10 に dotagents 開発工場の管理対象（自作コア11製品の1つ）へ編入され、工場管理 repo への恒久 push 裁定の対象になった（dotagents `PLAN.md` 原則2・共通憲法 git 鉄則）。作業後は fetch→照合→push で真実を返す
-- **publish・リモート作成・force 系・履歴改変はオーナーの明示指示時だけ行う**（編入後も変わらない。publish は H 操作であり、目的・影響・rollback を提示して承認を取る）
+- **自作製品の npm publish は完遂に含める。** 既定ブランチの祖先であることは `verify-release-commit` が強制する。リモート作成・force 系・履歴改変はオーナーの明示指示時だけ行う
 
 ## 構成
 
