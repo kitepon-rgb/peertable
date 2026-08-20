@@ -1452,7 +1452,7 @@ OpenLogicool Phase 5 の実円卓で、0.4.10 の Windows 着席が「既知の�
 
 1. seat identity の `CreationDate` は PowerShell `ConvertTo-Json` が `/Date(ms)/` を出す。
    `new Date` は Invalid time value になり `.team/seats/<name>.json` が書けない。
-   解釈は `parseWinCreationDate`、PowerShell 側は ISO-8601 を出す。
+   解釈は `parseWinCreationDate`（`/Date(ms)/` と ISO の両方）。
 2. Codex の `Hooks need review` は room MCP より前に出る。通さず 30 秒待つと
    `SEAT_ROOM_MCP_NOT_READY` で rollback する。既知ダイアログとして
    「2. Trust all and continue」を通し、失敗時は pane を残す。
@@ -1462,4 +1462,12 @@ OpenLogicool Phase 5 の実円卓で、0.4.10 の Windows 着席が「既知の�
 4. parent-watch の lock は先代が生きていると後着を拒否する。親セッション張り替えでは
    先代を止めて1匹にする。
 5. Codex room MCP の closed env に `PATH` を明示する。
+
+公開対象commit `d9d0fa55b0e4`を`v0.4.11`へ固定した。
+npmのintegrityは
+`sha512-reQj3xtrwUahQp1srJt+jf++NbgS+V5eDyyQYdkrZFE9jU8Y3mB8tz5d9R7toUuN079e64wHwDB3cpOidNxGPA==`、
+shasumは`74c9fce51556adb46e52170baafbfd4d9a7595e8`で、45 filesを公開した。
+npm由来global installは0.4.11、diagnostics ready、`pid-alive.mjs` 同梱、
+`launch-seat.sh` に `Hooks need review` があることを確認した。
+これを`0.4.11`の公開受入とする。
 
