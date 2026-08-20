@@ -193,7 +193,10 @@ http.createServer(async (req, res) => {
       // 素性（vendor/model/effort/role）や稼働状態は、名前以外の欄をそのまま任意欄として持つ。
       // **渡された欄だけ更新し、渡されなかった欄は既存を保つ**——席の client は `{name}` だけで
       // 登録するので、これが無いと再接続のたびに素性が消える。`joined_at` は最初の登録を保つ。
+      // observe:null は「取れなかった」であって「記述子を消せ」ではない。上書きすると
+      // wakeup-bridge が席を飛ばす（2026-08-20 なぎ）。
       const known = room.members.get(name)
+      if (meta.observe == null && known?.observe) delete meta.observe
       const merged = { joined_at: known?.joined_at ?? new Date().toISOString(), ...known, ...meta }
       room.members.set(name, merged)
       saveMembers(room)

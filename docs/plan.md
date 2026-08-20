@@ -1576,6 +1576,12 @@ Windows の `python3 -c json.dumps` は stdout が cp932 になり、日本語�
 `post-message.mjs` が UTF-8 JSON を出す。`change-seat.sh` と親の投稿入口はこれを使う。
 patch `0.4.24`。
 
+## 45. observe:null で記述子を消さない（2026-08-20）
+
+Codex client が Windows で observe を取れず null を POST すると、wakeup 対象から外れる。
+null は既存記述子を消さない。PEERTABLE_TMUX_SOCKET があればそれを使う。
+patch `0.4.25`。
+
 
 
 

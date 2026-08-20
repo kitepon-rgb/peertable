@@ -13,7 +13,7 @@ import { findModelsDoc, resolveSeatIdentity } from '../skill/scripts/resolve-sea
 
 // client.mjs 側のハードコード版数。package.json の version と一致していることを
 // diagnostics の version_consistency が見る（2 つの版数源の drift 検出。決定45）
-const MCP_VERSION = '0.4.24'
+const MCP_VERSION = '0.4.25'
 const PKG_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 
 const USAGE = `usage:
@@ -164,6 +164,11 @@ await mcp.connect(new StdioServerTransport())
 // 登録は client の起動ごとに繰り返し起きるので、1回きりの経路に置くと
 // member の状態が失われた時に二度と戻らない（server 側は渡された欄だけ更新する upsert）
 function observeSelf() {
+  const named = process.env.PEERTABLE_MEMBER ? `peer-${process.env.PEERTABLE_MEMBER}` : ''
+  const handed = process.env.PEERTABLE_TMUX_SOCKET
+  if (handed && named) {
+    return { tmux_socket: handed, tmux_target: named, tmux_namespace: handed }
+  }
   if (!process.env.TMUX) {
     process.stderr.write('peertable-client: observe unavailable: TMUX 不在\n')
     return null
@@ -212,7 +217,7 @@ const IDENTITY = Object.fromEntries(Object.entries({
   mission: process.env.PEERTABLE_MISSION,
   aiterm_session_id: process.env.AITERM_SESSION_ID,
   observe,
-}).filter(([, v]) => v !== undefined && v !== '' && !(Array.isArray(v) && v.length === 0)))
+}).filter(([, v]) => v != null && v !== '' && !(Array.isArray(v) && v.length === 0)))
 {
   const modelsDoc = findModelsDoc()
   if (!modelsDoc || !existsSync(modelsDoc)) {
