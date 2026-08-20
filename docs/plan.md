@@ -1553,6 +1553,12 @@ patch `0.4.19`。
 別 model へ落とさない。認証だけ借りた一時 GROK_HOME で ping する。
 patch `0.4.20`。
 
+## 41. Grok live 席も席専用 GROK_HOME を使う（決定100・2026-08-20）
+
+preflight だけ隔離しても live 席は user config の lattice／booth MCP を読み、監査席が数分固まる。
+`.team/seats/<name>.grok-home` を live `GROK_HOME` にも渡し、退席で消す。通らなければ席を立てない。
+patch `0.4.21`。
+
 
 
 
