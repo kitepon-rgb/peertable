@@ -5,8 +5,8 @@
 親（オーケストレーター）に最終判断が集中しない、メンバー並列型のマルチエージェント作業システム。
 
 作成日: 2026-08-08
-状態: 設計確定 / V0〜V3 通過・V4 封印（決定41）/ スキル化完了 / GitHub・npm 公開済み。Grok 4.6正規席を含む`0.4.0`出荷完了（決定84・85）。Grok起床とbroadcast本文は決定86。配送修正は`0.4.1`（決定87）。Windows psmux 着席は`0.4.2`（決定88）。parent-watch の DEP0190 回避は`0.4.3`。着座メンバー一覧の素性行に role を出すのは`0.4.10`（決定89）。Windows 着席の残穴は決定90。着席の役割必須と 02_models 機械解決は決定91（`0.4.12`）。ターン終了の自己DMを MCP 毎回面へ載せるのは決定92（`0.4.13`）。親番犬の件数比較と切れた follow は決定93（`0.4.14`）。待機自己DMの無限起こし禁止は決定94（`0.4.15`）
-リポジトリ: github.com/kitepon/peertable（**公開済み 2026-08-08・MIT・public**）/ npm: **peertable@0.4.15**（2026-08-20）。Claude 席の起床は `notifications/claude/channel`。wakeup-bridge は Codex / Grok のみ。工程クローズは監査担当の `done.sh`。Fable ツール実行中の稼働チップは経過時間行と `/btw` 固定句で判定する
+状態: 設計確定 / V0〜V3 通過・V4 封印（決定41）/ スキル化完了 / GitHub・npm 公開済み。Grok 4.6正規席を含む`0.4.0`出荷完了（決定84・85）。Grok起床とbroadcast本文は決定86。配送修正は`0.4.1`（決定87）。Windows psmux 着席は`0.4.2`（決定88）。parent-watch の DEP0190 回避は`0.4.3`。着座メンバー一覧の素性行に role を出すのは`0.4.10`（決定89）。Windows 着席の残穴は決定90。着席の役割必須と 02_models 機械解決は決定91（`0.4.12`）。ターン終了の自己DMを MCP 毎回面へ載せるのは決定92（`0.4.13`）。親番犬の件数比較と切れた follow は決定93（`0.4.14`）。待機自己DMの無限起こし禁止は決定94（`0.4.15`）。Claude channel の同じ穴は決定95（`0.4.16`）
+リポジトリ: github.com/kitepon/peertable（**公開済み 2026-08-08・MIT・public**）/ npm: **peertable@0.4.16**（2026-08-20）。Claude 席の起床は `notifications/claude/channel`。wakeup-bridge は Codex / Grok のみ。工程クローズは監査担当の `done.sh`。Fable ツール実行中の稼働チップは経過時間行と `/btw` 固定句で判定する
 工場: dotagents 開発工場の管理対象（**自作コア11製品の1つ**・wire v7 の固定15製品目）。統合契約は dotagents 側が所有し、本 repo の source・state・skill 配布・release は Peertable が所有し続ける
 
 ---
@@ -1515,6 +1515,14 @@ patch `0.4.14`。
 橋は `変化なし|待機継続|黙って待機` の自己 `[次の行動]` を起こさない。
 監査待ちなど次の仕事がある自己DMは起こす。
 patch `0.4.15`。
+
+## 36. Claude 席の待機自己DMは channel 通知しない（決定95・2026-08-20）
+
+すずねの無限ループは Codex の wakeup-bridge ではなく、room MCP の
+`notifications/claude/channel` だった。`relevant()` は `to === 自分` を新着とし、
+自己DMも Claude を起こす。0.4.15 の橋抑制だけでは Claude 席は止まらない。
+subscribe は `isIdleSelfWake` を channel 通知の前に捨てる。仕事がある自己DMは通知する。
+patch `0.4.16`。
 
 
 

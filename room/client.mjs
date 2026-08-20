@@ -8,10 +8,11 @@ import { existsSync, readFileSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { isIdleSelfWake } from '../skill/scripts/wakeup-delivery.mjs'
 
 // client.mjs 側のハードコード版数。package.json の version と一致していることを
 // diagnostics の version_consistency が見る（2 つの版数源の drift 検出。決定45）
-const MCP_VERSION = '0.4.15'
+const MCP_VERSION = '0.4.16'
 const PKG_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 
 const USAGE = `usage:
@@ -207,7 +208,7 @@ async function subscribe() {
           const data = lines.filter(l => l.startsWith('data: ')).map(l => l.slice(6)).join('')
           if (!data) continue
           const m = JSON.parse(data)
-          if (!relevant(m)) continue
+          if (!relevant(m) || isIdleSelfWake(m)) continue
           await mcp.notification({
             method: 'notifications/claude/channel',
             params: {
