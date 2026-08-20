@@ -330,6 +330,19 @@ case "$stale_member_rc" in
     ;;
 esac
 
+# leave-seat が席専用 GROK_HOME を消す。同名再着席では preflight 後に空になるので、
+# live 起動の直前に auth と ui だけを書き直す（user booth MCP は載せない）。
+if [ "$vendor" = grok ]; then
+  mkdir -p "$grok_home"
+  if [ ! -f "${HOME}/.grok/auth.json" ]; then
+    echo "SEAT_GROK_AUTH_MISSING: ${HOME}/.grok/auth.json が無い（席は立てない）" >&2
+    exit 1
+  fi
+  cp "${HOME}/.grok/auth.json" "${grok_home}/auth.json"
+  chmod 600 "${grok_home}/auth.json" 2>/dev/null || true
+  printf '%s\n' '[ui]' 'permission_mode = "always-approve"' >"${grok_home}/config.toml"
+fi
+
 # 前の卓の残骸を回収してから、Aiterm の公開 agent launcher を唯一の席起動経路として呼ぶ。
 # direct CLI launch へ戻るfallbackは置かない。Aiterm が作る同名PTYと launch receipt が、
 # 以後の `pty_read` / `agent_configure` / room metadata を同じsessionへ束縛する。

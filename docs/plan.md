@@ -1559,6 +1559,11 @@ preflight だけ隔離しても live 席は user config の lattice／booth MCP 
 `.team/seats/<name>.grok-home` を live `GROK_HOME` にも渡し、退席で消す。通らなければ席を立てない。
 patch `0.4.21`。
 
+## 42. 同名再着席でも GROK_HOME を書き直す（2026-08-20）
+
+leave-seat が席専用 GROK_HOME を消すので、同名 relaunch は live 起動直前に auth を書き直す。
+patch `0.4.22`。
+
 
 
 
