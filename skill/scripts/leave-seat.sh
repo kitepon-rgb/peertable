@@ -81,6 +81,7 @@ if ! rm -f "$proj/.team/seats/$name.json"; then
   failed=1
 fi
 rm -rf "$proj/.team/seats/${name}.grok-home"
+rm -rf "$proj/.team/seats/${name}.codex"
 if ! env -u PEERTABLE_POST_TOKEN node "$credential_helper" remove "$proj" "$credential_file"; then
   echo "SEAT_LEAVE_CREDENTIAL_FAILED: $name" >&2
   failed=1

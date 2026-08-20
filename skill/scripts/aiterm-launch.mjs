@@ -21,6 +21,7 @@ if (process.env.PEERTABLE_PLAN) env_vars.push(
   'LATTICE_TODO_ACTOR_SESSION', 'LATTICE_TODO_ACTOR_AGENT',
 )
 if (vendor === 'grok' && process.env.GROK_HOME) env_vars.push('GROK_HOME')
+if (vendor === 'codex' && process.env.CODEX_HOME) env_vars.push('CODEX_HOME')
 const result = await client.callTool({
   name: `${vendor}_agent`,
   arguments: {

@@ -374,6 +374,15 @@ fi
 if [ "$vendor" = grok ]; then
   launch_env+=("GROK_HOME=$grok_home")
 fi
+if [ "$vendor" = codex ]; then
+  codex_home="${proj}/.team/seats/${name}.codex"
+  mkdir -p "$codex_home"
+  if [ -f "${HOME}/.codex/auth.json" ]; then
+    cp "${HOME}/.codex/auth.json" "${codex_home}/auth.json"
+    chmod 600 "${codex_home}/auth.json" 2>/dev/null || true
+  fi
+  launch_env+=("CODEX_HOME=$codex_home")
+fi
 if [ "$vendor" = codex ] \
   && ! env -u PEERTABLE_POST_TOKEN "${launch_env[@]}" node "$codex_room_mcp_helper" ensure "$proj" "$peertable_repo"; then
   echo "SEAT_CODEX_ROOM_MCP_INVALID: Codexのproject設定へseat固有room clientを装備できない（席は立てない）" >&2

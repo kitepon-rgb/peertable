@@ -16,7 +16,7 @@ const [action, project, peertableRepo] = process.argv.slice(2)
 if (!['ensure', 'remove'].includes(action) || !project || !peertableRepo)
   fail('SEAT_CODEX_ROOM_MCP_ARGS_INVALID', '<ensure|remove> <project> <peertable_repo>')
 
-const configDir = resolve(project, '.codex')
+const configDir = resolve(process.env.CODEX_HOME || join(project, '.codex'))
 const configFile = join(configDir, 'config.toml')
 const startPattern = /^# BEGIN PEERTABLE ROOM MCP added_newline=([01])$/mu
 const endMarker = '# END PEERTABLE ROOM MCP'

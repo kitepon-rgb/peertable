@@ -1564,6 +1564,12 @@ patch `0.4.21`。
 leave-seat が席専用 GROK_HOME を消すので、同名 relaunch は live 起動直前に auth を書き直す。
 patch `0.4.22`。
 
+## 43. Codex 席は席専用 CODEX_HOME に room MCP を書く（2026-08-20）
+
+project `.codex/config.toml` の last-writer が PEERTABLE_MEMBER を上書きしていた。
+`.team/seats/<name>.codex` へ書き、live 席へ `CODEX_HOME` を渡す。
+patch `0.4.23`。
+
 
 
 
