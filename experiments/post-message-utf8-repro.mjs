@@ -25,4 +25,8 @@ const change = readFileSync(resolve(root, 'skill/scripts/change-seat.sh'), 'utf8
 assert.match(change, /post-message\.mjs/)
 assert.doesNotMatch(change, /json\.dumps\(\{"from":sys\.argv\[1\],"to":sys\.argv\[2\],"body":sys\.argv\[3\]\}/)
 
+const parent = readFileSync(resolve(root, 'skill/templates/parent.md'), 'utf8')
+assert.match(parent, /post-message\.mjs/)
+assert.doesNotMatch(parent, /python3 -c 'import json,sys; print\(json\.dumps\(\{"from":sys\.argv\[1\]/)
+
 console.log('post-message utf8 repro: green')

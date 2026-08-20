@@ -106,8 +106,13 @@ peertable_parent_post() {
   fi
   local to="$1"
   shift
-  python3 -c 'import json,sys; print(json.dumps({"from":sys.argv[1],"to":sys.argv[2],"body":sys.argv[3]}))' \
-    "$PEERTABLE_PARENT_NAME" "$to" "$*" \
+  local poster
+  poster="$(npm root -g)/peertable/skill/scripts/post-message.mjs"
+  if [ ! -f "$poster" ]; then
+    echo "PEERTABLE_POSTER_MISSING: $poster" >&2
+    return 1
+  fi
+  node "$poster" "$PEERTABLE_PARENT_NAME" "$to" "$*" \
     | curl -sf -X POST "$PEERTABLE_ROOM_API/messages" \
         -H "X-Peertable-Token: $PEERTABLE_POST_TOKEN" \
         -H 'content-type: application/json' --data-binary @-
