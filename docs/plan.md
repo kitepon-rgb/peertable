@@ -5,8 +5,8 @@
 親（オーケストレーター）に最終判断が集中しない、メンバー並列型のマルチエージェント作業システム。
 
 作成日: 2026-08-08
-状態: 設計確定 / V0〜V3 通過・V4 封印（決定41）/ スキル化完了 / GitHub・npm 公開済み。Grok 4.6正規席を含む`0.4.0`出荷完了（決定84・85）。Grok起床とbroadcast本文は決定86。配送修正は`0.4.1`（決定87）。Windows psmux 着席は`0.4.2`（決定88）。parent-watch の DEP0190 回避は`0.4.3`。着座メンバー一覧の素性行に role を出すのは`0.4.10`（決定89）。Windows 着席の残穴は決定90。着席の役割必須と 02_models 機械解決は決定91
-リポジトリ: github.com/kitepon/peertable（**公開済み 2026-08-08・MIT・public**）/ npm: **peertable@0.4.11**（2026-08-20）。Claude 席の起床は `notifications/claude/channel`。wakeup-bridge は Codex / Grok のみ。工程クローズは監査担当の `done.sh`。Fable ツール実行中の稼働チップは経過時間行と `/btw` 固定句で判定する
+状態: 設計確定 / V0〜V3 通過・V4 封印（決定41）/ スキル化完了 / GitHub・npm 公開済み。Grok 4.6正規席を含む`0.4.0`出荷完了（決定84・85）。Grok起床とbroadcast本文は決定86。配送修正は`0.4.1`（決定87）。Windows psmux 着席は`0.4.2`（決定88）。parent-watch の DEP0190 回避は`0.4.3`。着座メンバー一覧の素性行に role を出すのは`0.4.10`（決定89）。Windows 着席の残穴は決定90。着席の役割必須と 02_models 機械解決は決定91（`0.4.12`）
+リポジトリ: github.com/kitepon/peertable（**公開済み 2026-08-08・MIT・public**）/ npm: **peertable@0.4.12**（2026-08-20）。Claude 席の起床は `notifications/claude/channel`。wakeup-bridge は Codex / Grok のみ。工程クローズは監査担当の `done.sh`。Fable ツール実行中の稼働チップは経過時間行と `/btw` 固定句で判定する
 工場: dotagents 開発工場の管理対象（**自作コア11製品の1つ**・wire v7 の固定15製品目）。統合契約は dotagents 側が所有し、本 repo の source・state・skill 配布・release は Peertable が所有し続ける
 
 ---
@@ -1477,5 +1477,8 @@ npm由来global installは0.4.11、diagnostics ready、`pid-alive.mjs` 同梱、
 `launch-seat.sh` は役割名を必須にし、未指定・空・未知（旧 `worker`/`auditor` を含む）を着席前に拒否する。
 model / vendor / effort は順位表の着席可能な最上位から機械解決する。呼び出し側が三者を渡して正本を迂回する経路は、席の再起動上書きに限る。
 親の配置はオーナー領分のまま、`parent-join.sh` は役割を要求しない。
+patch `0.4.12` として出す。公開後は registry 由来 global install で version・bin・diagnostics
+と `resolve-seat-placement.mjs` 同梱、役割未指定拒否を確認して受入を閉じる。
+
 
 
