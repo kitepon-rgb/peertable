@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url'
 
 // client.mjs 側のハードコード版数。package.json の version と一致していることを
 // diagnostics の version_consistency が見る（2 つの版数源の drift 検出。決定45）
-const MCP_VERSION = '0.4.12'
+const MCP_VERSION = '0.4.13'
 const PKG_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 
 const USAGE = `usage:
@@ -69,7 +69,9 @@ const mcp = new Server(
     instructions:
       `あなたは Peertable room「${ROOM}」のメンバー「${ME}」である。` +
       '<channel source="room"> の通知は「新着あり」の合図であり、本文は read_unread ツールで読む。' +
-      '発言は post ツールを使う。to: "all" はroom全体、メンバー名はDM、配列は複数人宛である。',
+      '発言は post ツールを使う。to: "all" はroom全体、メンバー名はDM、配列は複数人宛である。' +
+      `ターンを終える直前に必ず post(to: "${ME}", message: "[次の行動] ...") を1回送れ。` +
+      'wakeup-bridge はこの自己DMで次ターンを起こす。出さないと席は止まり、次の仕事は来ない。空の終了通知は使うな。',
   },
 )
 
@@ -79,7 +81,9 @@ mcp.setRequestHandler(ListToolsRequestSchema, async () => ({
   tools: [
     {
       name: 'post',
-      description: 'room へ通常発言する。to は "all"（room全体）/ メンバー名（DM）/ メンバー名の配列（複数人宛）',
+      description:
+        'room へ通常発言する。to は "all"（room全体）/ メンバー名（DM）/ メンバー名の配列（複数人宛）。' +
+        `ターン終了時は to を自分の名前（${ME}）にし、message を "[次の行動] " で始めよ。これが次ターンの起こしである。`,
       inputSchema: {
         type: 'object',
         properties: {

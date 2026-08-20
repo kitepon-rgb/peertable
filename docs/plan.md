@@ -5,8 +5,8 @@
 親（オーケストレーター）に最終判断が集中しない、メンバー並列型のマルチエージェント作業システム。
 
 作成日: 2026-08-08
-状態: 設計確定 / V0〜V3 通過・V4 封印（決定41）/ スキル化完了 / GitHub・npm 公開済み。Grok 4.6正規席を含む`0.4.0`出荷完了（決定84・85）。Grok起床とbroadcast本文は決定86。配送修正は`0.4.1`（決定87）。Windows psmux 着席は`0.4.2`（決定88）。parent-watch の DEP0190 回避は`0.4.3`。着座メンバー一覧の素性行に role を出すのは`0.4.10`（決定89）。Windows 着席の残穴は決定90。着席の役割必須と 02_models 機械解決は決定91（`0.4.12`）
-リポジトリ: github.com/kitepon/peertable（**公開済み 2026-08-08・MIT・public**）/ npm: **peertable@0.4.12**（2026-08-20）。Claude 席の起床は `notifications/claude/channel`。wakeup-bridge は Codex / Grok のみ。工程クローズは監査担当の `done.sh`。Fable ツール実行中の稼働チップは経過時間行と `/btw` 固定句で判定する
+状態: 設計確定 / V0〜V3 通過・V4 封印（決定41）/ スキル化完了 / GitHub・npm 公開済み。Grok 4.6正規席を含む`0.4.0`出荷完了（決定84・85）。Grok起床とbroadcast本文は決定86。配送修正は`0.4.1`（決定87）。Windows psmux 着席は`0.4.2`（決定88）。parent-watch の DEP0190 回避は`0.4.3`。着座メンバー一覧の素性行に role を出すのは`0.4.10`（決定89）。Windows 着席の残穴は決定90。着席の役割必須と 02_models 機械解決は決定91（`0.4.12`）。ターン終了の自己DMを MCP 毎回面へ載せるのは決定92（`0.4.13`）
+リポジトリ: github.com/kitepon/peertable（**公開済み 2026-08-08・MIT・public**）/ npm: **peertable@0.4.13**（2026-08-20）。Claude 席の起床は `notifications/claude/channel`。wakeup-bridge は Codex / Grok のみ。工程クローズは監査担当の `done.sh`。Fable ツール実行中の稼働チップは経過時間行と `/btw` 固定句で判定する
 工場: dotagents 開発工場の管理対象（**自作コア11製品の1つ**・wire v7 の固定15製品目）。統合契約は dotagents 側が所有し、本 repo の source・state・skill 配布・release は Peertable が所有し続ける
 
 ---
@@ -1488,6 +1488,15 @@ npm由来global installは0.4.12の非symlink packageで、2 bins、diagnostics 
 `resolve-seat-placement.mjs` 同梱、役割未指定は usage 拒否、`worker` は `SEAT_ROLE_UNKNOWN`、
 `DOTAGENTS_ROOT` 指定で 実装→`codex / gpt-5.6-terra / high` を確認した。
 これを`0.4.12`の公開受入とする。
+
+## 33. ターン終了の自己DMを MCP 毎回面へ載せる（決定92・2026-08-20）
+
+席が active 工程の途中で idle になる原因は、wakeup-bridge の不達ではなく、
+ターン終了時の `post(to: 自分, "[次の行動]")` が出ないことだった。
+規則は member.md にだけあり、モデルが毎ターン見る room MCP の instructions / post 説明には無かった。
+規則を MCP の毎回面へ移し、member テンプレートの作業ループ先頭にも置く。
+仕事を装置から降らせない。空の終了通知は使わない。
+patch `0.4.13`。
 
 
 
