@@ -19,15 +19,13 @@ export function formatWakeNotice(msg) {
   return `[Peertable DM #${msg.seq}] ${msg.from} → ${audience}: ${body}`
 }
 
-/** 親番犬と tmux を持たない member は通常席 bridge の宛先にしない。 */
+/**
+ * 親番犬は別経路なので通常席の TUI 配達から外す。
+ * observe 欠落は対象外ではない——配達できない故障であり、黙って飛ばさない。
+ */
 export function isWakeupBridgeTarget(member) {
   if (!member || typeof member.name !== 'string' || member.name.length === 0) return false
   if (member.delivery?.kind === 'parent_watch') return false
-  if (member.observe === null) return false
-  const observe = member.observe
-  if (!observe || typeof observe !== 'object' || typeof observe.tmux_target !== 'string' || !observe.tmux_target) {
-    return false
-  }
   return true
 }
 

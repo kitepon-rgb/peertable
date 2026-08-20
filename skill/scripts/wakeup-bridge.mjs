@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// room のSSEを購読し、明示宛先の新着を current member descriptor の通常席へ
-// 素送信して起こす。親セッションは parent-watch が所有し、このbridgeでは扱わない。
+// room のSSEを購読し、明示宛先の新着を current member descriptor の通常席 TUI へ
+// 素送信する。専用の起床デーモンではない。親は parent-watch が所有し、ここでは扱わない。
 //
 // usage: wakeup-bridge.mjs <project_dir> [legacy-seat...]     起動（前面。nohup で常駐させる）
 //        wakeup-bridge.mjs <project_dir> --stop               停止
@@ -255,7 +255,7 @@ async function wake(seat, msgs) {
   await run('tmux', tmuxArgv(['send-keys', '-l', '-t', observation.target, text], { socket: observation.socket }))
   await sleep(750)
   await run('tmux', tmuxArgv(['send-keys', '-t', observation.target, 'Enter'], { socket: observation.socket }))
-  log(`起こした: ${seat} ← ${msgs.length} 件（最新 seq ${last.seq}）`)
+  log(`TUIへ入れた: ${seat} ← ${msgs.length} 件（最新 seq ${last.seq}）`)
 }
 
 function dispatch(msg) {

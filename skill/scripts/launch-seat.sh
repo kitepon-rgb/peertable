@@ -692,13 +692,13 @@ else
   echo "seat-status-bridge の起動確認に失敗した（席は着席済み）" >&2
 fi
 
-# Claude 席の起床は room client の notifications/claude/channel。ブリッジは channels を持たない
+# Claude 席の新着は room client の notifications/claude/channel。TUI 配達は channels を持たない
 # Codex / Grok 席だけ。Claude に立てると channel と二重配達になる。
 if [ "$vendor" = codex ] || [ "$vendor" = grok ]; then
   if PEERTABLE_CREDENTIAL_FILE="$credential_file" "$(dirname "$0")/ensure-bridge.sh" "$proj" wakeup; then
-    echo "wakeup-bridge: 起動確認済み"
+    echo "wakeup-bridge: TUI配達 起動確認済み"
   else
-    echo "SEAT_WAKEUP_BRIDGE_NOT_READY: Codex／Grok席の起床bridgeを準備できない" >&2
+    echo "SEAT_WAKEUP_BRIDGE_NOT_READY: Codex／Grok席の TUI 配達を準備できない" >&2
     exit 1
   fi
 fi

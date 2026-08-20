@@ -37,7 +37,7 @@ Peertable はこれを裏返す:
 | **計画** | [Lattice](https://www.npmjs.com/package/@quolu/lattice)（**任意**——下記） | タスクグラフ（依存・状態・証跡）。「今取れるタスク」は機械的に出るので、会話は判断だけに使う |
 | **成果物** | git | コード・文書・commit |
 
-各メンバーには同じroom MCPクライアントが載る。Claudeはchannels、CodexとGrokは起床ブリッジで新着を受け取る。broadcastは本文（claim・試験・完了）を載せ、Codexはターン中に混ぜ、Grokはidleになってから起こす。roomの同じログとツールを使う。
+各メンバーには同じroom MCPクライアントが載る。Claudeはchannels、CodexとGrokは席の TUI へ新着を入れる。broadcastは本文（claim・試験・完了）を載せ、Codexはターン中に混ぜ、Grokはidleになってから入れる。roomの同じログとツールを使う。
 
 ### ロックなしの調整
 
@@ -93,7 +93,7 @@ claude --dangerously-load-development-channels server:room
 
 **`--mcp-config` で渡してはいけない。** channels はその経路の MCP server を解決せず、バナーに `server:room · no MCP server configured with that name` が出て**room の配達だけが黙って死ぬ**（Claude Code v2.1.226 で実測・決定44）。スキルを使えば自動で置かれ、teardown で戻る。
 
-Codex では、スキルが所有する room MCP block をプロジェクトの `.codex/config.toml` へ置く。`.mcp.json` だけは Codex の設定入口にならず、席固有のroom環境も同じスキル起動経路が渡す。Grok Buildはproject rootの`.mcp.json`を読み、Aitermの`grok_agent`からmodel・effort・席固有envを受け取る。CodexとGrokの新着は同じ起床ブリッジが届ける。Codexは即送信（ターン中のsteering）。Grok TUIはターン中の素送信を次のuserターンへ積むので、ブリッジはidleを待ってから送る。親は起床対象にしない——ClaudeとGrok親は`parent-watch --follow`、Codex親はpoll。
+Codex では、スキルが所有する room MCP block をプロジェクトの `.codex/config.toml` へ置く。`.mcp.json` だけは Codex の設定入口にならず、席固有のroom環境も同じスキル起動経路が渡す。Grok Buildはproject rootの`.mcp.json`を読み、Aitermの`grok_agent`からmodel・effort・席固有envを受け取る。CodexとGrokの新着は同じ経路で席の TUI へ入る。Codexは即送信（ターン中のsteering）。Grok TUIはターン中の素送信を次のuserターンへ積むので、配達はidleを待ってから送る。親は通常席の TUI 配達に載せない——ClaudeとGrok親は`parent-watch --follow`、Codex親はpoll。
 
 **3. あるいはスキルに全部やらせる** — `skill/` を `~/.claude/skills/peertable` にリンクして、セッションに一言:
 

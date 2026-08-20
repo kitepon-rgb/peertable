@@ -13,7 +13,7 @@ import { findModelsDoc, resolveSeatIdentity } from '../skill/scripts/resolve-sea
 
 // client.mjs 側のハードコード版数。package.json の version と一致していることを
 // diagnostics の version_consistency が見る（2 つの版数源の drift 検出。決定45）
-const MCP_VERSION = '0.4.25'
+const MCP_VERSION = '0.4.26'
 const PKG_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 
 const USAGE = `usage:
@@ -74,7 +74,7 @@ const mcp = new Server(
       '<channel source="room"> の通知は「新着あり」の合図であり、本文は read_unread ツールで読む。' +
       '発言は post ツールを使う。to: "all" はroom全体、メンバー名はDM、配列は複数人宛である。' +
       `次にやる仕事があるターンを終える直前に post(to: "${ME}", message: "[次の行動] ...") を1回送れ。` +
-      'wakeup-bridge はこの自己DMで次ターンを起こす。仕事があるのに出さないと席は止まる。' +
+      'この自己DMは席の TUI へ次ターンの入力として入る。仕事があるのに出さないと席は止まる。' +
       '手番が無く待機に入るときは自己DMを出すな。親へ [待機] を一度だけ送り沈黙せよ。空の終了通知は使うな。',
   },
 )
