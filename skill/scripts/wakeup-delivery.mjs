@@ -31,6 +31,27 @@ export function isWakeupBridgeTarget(member) {
   return true
 }
 
+/**
+ * 手番の無い待機自己DMは起こさない。
+ * 実測 2026-08-20: 監査席が `[次の行動] 変化なし／待機継続` を自分へ送り、
+ * wakeup-bridge がそれを次ターンとして注入し、18秒周期で無限自己DMになった。
+ * 次の仕事がある自己DM（監査待ちを含む）は起こす。
+ */
+export function isIdleSelfWake(msg) {
+  const from = msg?.from
+  if (typeof from !== 'string' || from.length === 0) return false
+  const recipients = Array.isArray(msg.to_names)
+    ? msg.to_names
+    : typeof msg.to === 'string'
+      ? [msg.to]
+      : []
+  if (recipients.includes(BROADCAST_RECIPIENT)) return false
+  if (!recipients.includes(from)) return false
+  const body = String(msg.body ?? '')
+  if (!body.startsWith('[次の行動]')) return false
+  return /変化なし|待機継続|黙って待機/.test(body)
+}
+
 /** Grok 既定はキュー投入。busy 中に積むと今のターンへ混ざらない。 */
 export function shouldDeferGrokWake(vendor, tail) {
   if (vendor !== 'grok') return false

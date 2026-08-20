@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict'
 import {
   formatWakeNotice,
+  isIdleSelfWake,
   isWakeupBridgeTarget,
   shouldDeferGrokWake,
 } from '../skill/scripts/wakeup-delivery.mjs'
@@ -34,4 +35,25 @@ assert.equal(shouldDeferGrokWake('grok', '#1 [Peertable #7] room\nEnter:send now
 assert.equal(shouldDeferGrokWake('grok', 'grok-4.6 high · ~/Developer/Throughline'), false)
 assert.equal(shouldDeferGrokWake('grok', 'Enter:send now'), false)
 
-console.log('wakeup delivery: 17/17 green')
+assert.equal(isIdleSelfWake({
+  from: 'suzune',
+  to: 'suzune',
+  body: '[次の行動] 変化なし（active 0）。待機継続。黙って待機を続ける。',
+}), true)
+assert.equal(isIdleSelfWake({
+  from: 'hinata',
+  to: 'hinata',
+  body: '[次の行動] t04-continuity-dispatch の監査結果を待つ。',
+}), false)
+assert.equal(isIdleSelfWake({
+  from: 'suzune',
+  to: 'bell',
+  body: '[待機] 実装 ToDo は全て done。',
+}), false)
+assert.equal(isIdleSelfWake({
+  from: 'suzune',
+  to: 'all',
+  body: '[次の行動] 変化なし。待機継続。',
+}), false)
+
+console.log('wakeup delivery: 21/21 green')

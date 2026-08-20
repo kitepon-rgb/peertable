@@ -17,7 +17,7 @@ import { existsSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { resolveSeatObservation, tmuxArgv } from './seat-usage.mjs'
-import { BROADCAST_RECIPIENT, formatWakeNotice, isWakeupBridgeTarget, shouldDeferGrokWake } from './wakeup-delivery.mjs'
+import { BROADCAST_RECIPIENT, formatWakeNotice, isIdleSelfWake, isWakeupBridgeTarget, shouldDeferGrokWake } from './wakeup-delivery.mjs'
 
 const run = promisify(execFile)
 const [proj, ...rest] = process.argv.slice(2)
@@ -260,6 +260,11 @@ async function wake(seat, msgs) {
 
 function dispatch(msg) {
   if (deliveryStates.has(msg.seq)) return
+  if (isIdleSelfWake(msg)) {
+    deliveryStates.set(msg.seq, { message: msg, targets: new Set(), delivered: new Set() })
+    advanceLastSeq()
+    return
+  }
   const targets = recipientNames(msg).filter(seat => isWakeupBridgeTarget(members.get(seat)))
   const state = { message: msg, targets: new Set(targets), delivered: new Set() }
   for (const seat of targets) {
