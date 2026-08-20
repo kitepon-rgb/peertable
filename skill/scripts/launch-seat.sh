@@ -229,8 +229,11 @@ case "$vendor" in
       exit 1
     fi
     # 通常 GROK_HOME の config は booth 等 MCP を起動する。preflight がそれを待つと
-    # 120 秒で空ログのまま死ぬ（2026-08-20）。認証だけ借りて MCP 無しで ping する。
-    grok_home=$(mktemp -d "${TMPDIR:-/tmp}/peertable-grok-home.XXXXXX")
+    # 120 秒で空ログのまま死ぬ（2026-08-20）。live 席も同じ config を読むと
+    # lattice MCP が数分固まる。認証だけ借りて MCP 無しの席専用 HOME を残す。
+    grok_home="${proj}/.team/seats/${name}.grok-home"
+    rm -rf "$grok_home"
+    mkdir -p "$grok_home"
     if [ ! -f "${HOME}/.grok/auth.json" ]; then
       echo "SEAT_GROK_AUTH_MISSING: ${HOME}/.grok/auth.json が無い（席は立てない）" >&2
       exit 1
@@ -273,7 +276,6 @@ if [ "$preflight_rc" != 0 ]; then
   exit 1
 fi
 rm -f "$preflight_log"
-[ -n "${grok_home:-}" ] && rm -rf "$grok_home"
 
 sock=$(node "$(dirname "$0")/tmux-socket.mjs")
 sess="peer-$name"
@@ -355,6 +357,9 @@ if [ "$mode" = "lattice" ]; then
     "LATTICE_TODO_ACTOR_AGENT=$name"
   )
   [ -n "$lattice_cli" ] && launch_env+=("LATTICE_CLI=$lattice_cli")
+fi
+if [ "$vendor" = grok ]; then
+  launch_env+=("GROK_HOME=$grok_home")
 fi
 if [ "$vendor" = codex ] \
   && ! env -u PEERTABLE_POST_TOKEN "${launch_env[@]}" node "$codex_room_mcp_helper" ensure "$proj" "$peertable_repo"; then
