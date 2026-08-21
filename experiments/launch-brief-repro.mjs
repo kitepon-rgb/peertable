@@ -50,6 +50,15 @@ await writeFile(join(root, 'tmux-socket.mjs'),
 process.stdout.write(process.argv.includes('--prefix') ? '-S ' + sock : sock)
 `)
 await writeFile(join(root, 'tmux-at.bash'), await readFile(join(REPO, 'skill/scripts/tmux-at.bash'), 'utf8'))
+// 役割必須化（v0.4.12）で launch-seat.sh が配置ヘルパーへ依存するようになったので、
+// fixture にも置く。無いと launch 側が MODULE_NOT_FOUND で落ち、本題の assertion まで届かない。
+await writeFile(join(root, 'resolve-seat-placement.mjs'), `#!/usr/bin/env node
+process.stdout.write(JSON.stringify({
+  settings: { model: 'sonnet', vendor: 'claude', effort: 'medium' },
+  roles: ['実装'],
+  dropped: [],
+}))
+`)
 await writeFile(join(root, 'ensure-bridge.sh'), '#!/bin/bash\nexit 0\n')
 await chmod(join(root, 'ensure-bridge.sh'), 0o755)
 await writeFile(credentialHelper, `#!/usr/bin/env node
@@ -215,6 +224,8 @@ const env = {
   ...process.env,
   PATH: `${bin}:${process.env.PATH}`,
   PEERTABLE_CREDENTIAL_HELPER: credentialHelper,
+  // fixture は script を temp へ写すので、tree の在り処は明示する（派生に頼らない）。
+  PEERTABLE_REPO: REPO,
   PEERTABLE_TMUX_SOCKET: tmuxSocket,
   TMUX_LOG: tmuxLog,
   CLAUDE_LOG: claudeLog,
