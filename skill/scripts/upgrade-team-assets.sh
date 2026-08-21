@@ -161,6 +161,7 @@ function main() {
     ? [
         ['.team/roles/member.md', 'skill/templates/member.md', 0o644],
         ['.team/scripts/done.sh', 'skill/templates/done.sh', 0o755],
+        ['.team/scripts/independence-refresh.sh', 'skill/templates/independence-refresh.sh', 0o755],
       ]
     : [['.team/roles/member.md', 'skill/templates/member-standalone.md', 0o644]]
   const definitions = [...common, ...modeSpecific]

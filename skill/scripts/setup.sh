@@ -117,6 +117,7 @@ else
   fi
   sed -e "s|{{PLAN_KEY}}|$plan|g" -e "s|{{CLAIM_SCOPE}}|$scope|g" "$tpl/member.md" > "$tdir/roles/member.md"
   cp "$tpl/done.sh" "$tdir/scripts/done.sh" && chmod +x "$tdir/scripts/done.sh"
+  cp "$tpl/independence-refresh.sh" "$tdir/scripts/independence-refresh.sh" && chmod +x "$tdir/scripts/independence-refresh.sh"
 fi
 # room MCP 定義は project root の .mcp.json が正（channels は --mcp-config を解決しない。決定44）
 added_root_mcp=false

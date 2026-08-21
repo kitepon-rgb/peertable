@@ -21,12 +21,12 @@
 
 1. `lattice todo status --json` で ready なタスクを見る。{{CLAIM_SCOPE}}
 2. 憲章の手順で `post(to: "all", message: "[claim] <タスク>")` を一度だけ送る。**この `[claim]` が唯一の着手通知である。別の `[工程着手]` や自動着手通知は送らない。** `[claim]` は独立した1発言で出し、完了報告や他タスクの話と同じ発言に畳まない
-3. `lattice todo start --plan {{PLAN_KEY}} --task <id>` で着手を記録する。**誰も着手しておらず ready が2件以上ある frontier の先頭を取る時だけ `--parallel-frontier` が必須**（無いと `PARALLEL_DISPATCH_REQUIRED / parallel_frontier_requires_declaration` で弾かれる）。ready が1件だけ、または既に誰かが着手している frontier へ後から乗る時は素の start でよい。**`INDEPENDENCE_UNVERIFIED` で落ちたら実装に入らない。** 記録があるのにこの工程が未宣言・失効なので、親が remaining A を witness に足して compile するまで待つ
+3. `lattice todo start --plan {{PLAN_KEY}} --task <id>` で着手を記録する。**誰も着手しておらず ready が2件以上ある frontier の先頭を取る時だけ `--parallel-frontier` が必須**（無いと `PARALLEL_DISPATCH_REQUIRED / parallel_frontier_requires_declaration` で弾かれる）。ready が1件だけ、または既に誰かが着手している frontier へ後から乗る時は素の start でよい。**`INDEPENDENCE_UNVERIFIED` で落ちたら実装に入らない。** 記録があるのにこの工程が未宣言・失効なので、親を待たない。canonical の cwd で `.team/scripts/independence-refresh.sh {{PLAN_KEY}}` を打ち、remaining A が witness に無ければ自分で足してから再 compile し、もう一度 `todo start` する
 4. 実装し、自ら必要な試験と自己監査を行う。工程を次に進めてよい水準まで自分の責任で完成させる。着手後に先行工程由来の不具合が判明しても、先行工程をreopenせず、前担当者へ戻さず、修正工程も追加しない。現在の工程を成立させる修正として自ら直し、最終試験結果へ含める。誰かに用事がある時はその相手へDMし、誰に聞けばよいか分からない時は `post(to: "all")` で聞く
 5. 証跡ファイル `evidence/{{PLAN_KEY}}/<task_id>.md` に、最終的な試験内容と試験結果を含めて「何を作り、どう確認したか」を書き、変更ファイルと証跡だけをcommitする
 6. その証跡と同じ最終試験内容・結果を監査担当へ渡す。作業者自身は `.team/scripts/done.sh` や `lattice todo done` を実行しない
 7. 監査担当として結果を受け取った場合は、提出された試験内容と試験結果が元PLAN・工程正本・受入条件に照らして妥当か判断する。試験を再実行せず、個人の思想や計画外の改善を完了条件へ加えない
-8. 妥当なら監査担当が `.team/scripts/done.sh <task_id> --plan <plan_key>` で工程をクローズする。feat SHA が `origin/main` の祖先になるまで `LANDING_NOT_ON_MAIN` で止まる。その時は `[監査OK] 着地してください feat=<sha>` を親へ送り、着地後に再実行する。`done.sh`は証跡と同じ本文をLatticeの`test_result`へ記録する。doneを読返してから `post(to: "all", message: "次の工程に着手してください")` とだけ指示し、具体的な次工程は指示しない
+8. 妥当なら監査担当が `.team/scripts/done.sh <task_id> --plan <plan_key>` で工程をクローズする。未着地の feat は `done.sh` が canonical main へ merge して push する。親へ着地を依頼しない。`done.sh` は証跡と同じ本文を Lattice の `test_result` へ記録し、remaining の並列記録も更新してから戻る。done を読返してから `post(to: "all", message: "次の工程に着手してください")` とだけ指示し、具体的な次工程は指示しない
 9. 不合格なら、現在モデルでの修正機会は1回だけとする。再び不合格になったら親へmodel変更を依頼し、`Luna → Terra → Sol`の順で一段昇格する。自分で席設定を変えない
 10. 作業者は監査担当によるクローズを確認し、工程正本から次のreadyを選ぶ
 11. **claimできるToDoが無いなら仕事を発明しない（決定68）。** 依頼されていない監査・他席への状況照会・正典の自主レビューを暇つぶしに始めない。縮退の打診が来たらWIP棚卸しを正直に返す
@@ -73,7 +73,7 @@ lattice run intake --run .lattice/runs/<run-id> --task <id>
 空のまま**である。作った席が他の席の仕事を決めたことにはならない。
 
 1. **`todo start` を先に済ませてから intake する。** 装置は Todo 正本の start event へ束縛するので、start していない task は intake できない。**逆順にしない。**
-2. **`intervention.state` を読む。** `none` なら worktree を使ってそのまま進める。新しく起きた席または次工程を探した席が`hold`を受け、まだ既存WIPを持たない場合は待機席として残らない。競合理由と未着手をroomへ一度記録し、未受理intakeを解放して`leave-seat.sh`で直ちに退席する。既存WIPがある席だけは工程正本へhandoffを残してから畳む。**hold を無視して進めず、競合解除pollのために席を温存しない。**
+2. **`intervention.state` を読む。** `none` なら worktree を使ってそのまま進める。`hold` の理由が `record_stale` または `artifact_binding_mismatch`（並列記録の失効・再 compile との交差）なら、親へ退席も待ちも出さない。未受理 intake を解放し、canonical で `.team/scripts/independence-refresh.sh {{PLAN_KEY}}` を通してから intake を打ち直す。**他の着手済み task と同じ書き込み資源でぶつかった hold** だけが退席対象である。その場合、新しく起きた席または次工程を探した席で既存WIPが無ければ、競合理由と未着手を room へ一度記録し、未受理 intake を解放して `leave-seat.sh` で直ちに退席する。既存WIPがある席だけは工程正本へhandoffを残してから畳む。**hold を無視して進めず、競合解除 poll のために席を温存しない。**
 3. **worktree を受け取ったら、自分の pid を装置へ渡す（attach）。** これをしないと、装置は競合時に「留まれ」と言うことはできても、実際に止めることができない（協調 hold のまま）。
    ```
    lattice run intake attach --run <ref> --task <id> --input <file>
@@ -106,8 +106,8 @@ lattice run intake --run .lattice/runs/<run-id> --task <id>
    **worktree に commit した証跡は canonical から読める**（複製は要らない）。
    装置が worktree の base→HEAD を独立に観測して受理する。
    最後の landing-only 呼び出しは、accept 済み receipt が canonical default branch へ未着地なら
-   `未着地 N本`を出す。これは lattice run receipt の軸で、feat SHA の `LANDING_NOT_ON_MAIN`
-   とは別である。receipt 側は警告だけで処理は止めない。
+   `未着地 N本`を出す。これは lattice run receipt の軸で、feat SHA を `done.sh` が origin/main
+   へ載せる着地とは別である。receipt 側は警告だけで処理は止めない。
 
 **成果の正本はあなたの commit ではなく、Lattice が撮った observed diff である。** 受理されるのはその観測であって、commit そのものではない。
 

@@ -363,6 +363,8 @@ async function runDiagnostics(asJson) {
       'scripts/archive-room-log.py',
       'templates/gen-plan.mjs',
       'templates/done.sh',
+      'templates/independence-refresh.sh',
+      'templates/parent.md',
       'templates/charter.md',
       'templates/member.md',
       'templates/member-standalone.md',

@@ -35,7 +35,8 @@ usage: done.sh <task_id> [--plan <plan_key>] [--evidence-from <隔離worktreeの
   evidence/<plan>/<task>.md を commit 済みにして done.sh <task_id> を実行する。
   wrapper が証跡から記述子を生成し、lattice todo doneで同じ本文を最終試験結果として canonical store へ記録する。
   pull run の worktree で作業した場合だけ --evidence-from に同じrepoの絶対pathを渡す。
-  この script は監査担当が打つ。feat SHA が origin/main の祖先になってから打つ。
+  この script は監査担当が打つ。feat SHA が origin/main の祖先でなければ、
+  この script が canonical main へ merge して push する。親は着地しない。
   accept は intake 席が todo done の後に打つ（engine 正順）。
   未accept と lattice run receipt の未着地は警告だけで、done を止めない。
 USAGE
@@ -242,7 +243,7 @@ case "$task_status" in
 esac
 
 # feat SHA が origin/main の祖先になるまで todo done を打たない。
-# 監査担当の done は着地後。親が先に origin/main へ乗せる。
+# 未着地ならこの script が canonical main へ載せて push する。親は呼ばない。
 # --evidence-from があるときは隔離 worktree の HEAD を feat とする。
 feat_dir="."
 if [ -n "$evidence_from" ]; then
@@ -260,9 +261,34 @@ if ! git rev-parse --verify --quiet origin/main >/dev/null; then
   echo "ERROR: LANDING_ORIGIN_MISSING: origin/main が無い。done は打たない" >&2
   exit 1
 fi
-if ! git merge-base --is-ancestor "$feat_sha" origin/main; then
-  echo "ERROR: LANDING_NOT_ON_MAIN: ${feat_sha} は origin/main の祖先ではない。親が着地してから done.sh を再実行すること" >&2
+current_branch=$(git rev-parse --abbrev-ref HEAD) || {
+  echo "ERROR: LANDING_HEAD_UNRESOLVED: canonical の branch を読めない" >&2
   exit 1
+}
+if [ "$current_branch" != main ]; then
+  echo "ERROR: LANDING_NOT_ON_MAIN_BRANCH: canonical HEAD が main ではない（${current_branch}）。done は打たない" >&2
+  exit 1
+fi
+if ! git merge-base --is-ancestor "$feat_sha" origin/main; then
+  if [ "$(git rev-parse HEAD)" != "$feat_sha" ]; then
+    if ! git merge --no-edit -m "着地: ${t} feat=${feat_sha}" "$feat_sha"; then
+      echo "ERROR: LANDING_MERGE_FAILED: ${feat_sha} を main へ merge できない。done は打たない" >&2
+      exit 1
+    fi
+  fi
+  if ! git push -q origin main; then
+    echo "ERROR: LANDING_PUSH_FAILED: origin/main へ push できない。done は打たない" >&2
+    exit 1
+  fi
+  if ! git fetch -q origin; then
+    echo "ERROR: LANDING_FETCH_FAILED: 着地後の origin を fetch できない。done は打たない" >&2
+    exit 1
+  fi
+  if ! git merge-base --is-ancestor "$feat_sha" origin/main; then
+    echo "ERROR: LANDING_NOT_ON_MAIN: ${feat_sha} を origin/main へ載せられなかった。done は打たない" >&2
+    exit 1
+  fi
+  echo "着地: ${feat_sha} を origin/main の祖先にした" >&2
 fi
 
 # **done と accept は別軸。** engine は todo done の後にだけ accept できる。
@@ -386,12 +412,42 @@ task_status=$(task_field status 2>&1) || {
   exit 1
 }
 
-# pushは工程closeの前提ではない。upstreamがある時だけ未push件数を案内する。
+# remaining の並列記録をこの場で更新する。親は compile しない。
+# 次の工程の start / intake より前に終わるので、記録書き換え中の hold を作らない。
+witness=".lattice/todo/witness/${plan}.json"
+if [ -f "$witness" ]; then
+  compile_out=""
+  compile_rc=0
+  compile_out=$("$done_gate_cli" todo independence compile --plan "$plan" --input "$witness" 2>&1) || compile_rc=$?
+  printf '%s\n' "$compile_out"
+  if [ "$compile_rc" != 0 ]; then
+    echo "ERROR: INDEPENDENCE_COMPILE_FAILED: remaining の並列記録を更新できない。次の工程を始めるな" >&2
+    exit 1
+  fi
+  independence_ref=".lattice/todo/plans/${plan}/v1/independence.json"
+  git add -- "$witness"
+  [ -f "$independence_ref" ] && git add -- "$independence_ref"
+  if ! git diff --cached --quiet -- "$witness" "$independence_ref" 2>/dev/null; then
+    compile_msg=$(mktemp "${TMPDIR:-/tmp}/peertable-independence.XXXXXX")
+    printf 'Lattice independence を再 compile する plan=%s\n' "$plan" > "$compile_msg"
+    if ! git commit -q -F "$compile_msg" -- "$witness" "$independence_ref"; then
+      rm -f "$compile_msg"
+      echo "ERROR: INDEPENDENCE_COMPILE_FAILED: 更新した並列記録を commit できない。次の工程を始めるな" >&2
+      exit 1
+    fi
+    rm -f "$compile_msg"
+  fi
+fi
+
+# feat 着地と store / independence の commit を origin へ載せる。親は push しない。
 upstream_ref=$(git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null || true)
 if [ -n "$upstream_ref" ]; then
   unpushed=$(git rev-list --count "${upstream_ref}..HEAD" 2>/dev/null || true)
   if [ -n "$unpushed" ] && [ "$unpushed" != 0 ]; then
-    echo "未push ${unpushed}本: この done の成果物はまだ upstream へ着地していない" >&2
+    if ! git push -q origin HEAD; then
+      echo "ERROR: LANDING_PUSH_FAILED: 未push ${unpushed}本を origin へ載せられない" >&2
+      exit 1
+    fi
   fi
 fi
 

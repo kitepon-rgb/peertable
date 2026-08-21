@@ -214,23 +214,21 @@ try {
   })
   assert.equal((await doneCalls()).length, 1)
 
-  // 6. feat SHA が origin/main の祖先でなければ todo done を打たない
+  // 6. feat SHA が origin/main の祖先でなければ、done.sh が自分で載せてから todo done する
   assert.equal(git('commit', '--allow-empty', '-q', '-m', 'unlanded fixture').status, 0)
   await setMode('accepted', { done_seq: 1 })
   await resetLog()
   result = run('x1')
-  check('未着地の feat SHA では done を打たずに落ちる', () => {
-    assert.notEqual(result.status, 0, result.stderr)
-    assert.match(result.stderr, /LANDING_NOT_ON_MAIN/)
-  })
-  assert.deepEqual(await doneCalls(), [], '未着地の feat で todo done を呼んでいない')
-  assert.equal(git('push', '-q').status, 0)
-  await resetLog()
-  result = run('x1')
-  check('origin/main へ着地したあとの再試行は通す', () => {
-    assert.equal(result.status, 0, result.stderr)
+  check('未着地の feat SHA は done.sh が origin/main へ載せてから done する', () => {
+    assert.equal(result.status, 0, `${result.error ?? ''}\n${result.stdout}\n${result.stderr}`)
+    assert.match(result.stderr, /着地:/)
   })
   assert.equal((await doneCalls()).length, 1)
+  const landedHead = git('rev-parse', 'HEAD').stdout.trim()
+  const originMain = git('rev-parse', 'origin/main').stdout.trim()
+  check('着地後の HEAD は origin/main と一致する', () => {
+    assert.equal(landedHead, originMain)
+  })
 
   // 7. reopen後の新しいdoneを通す
   await setMode('accepted', { done_seq: 2 })
@@ -258,27 +256,19 @@ try {
   })
   assert.equal((await doneCalls()).length, 1)
 
-  // 10. 隔離worktreeの feat が origin/main の祖先になるまで done しない
+  // 10. 隔離worktreeの feat も done.sh が canonical main へ載せる
   const pullEvidence = join(pullWorktree, `evidence/${plan}/x1.md`)
   await setMode('no_run')
   await resetLog()
   result = run('x1', '--evidence-from', pullEvidence)
-  check('未着地の worktree HEAD では done を打たずに落ちる', () => {
-    assert.notEqual(result.status, 0, result.stderr)
-    assert.match(result.stderr, /LANDING_NOT_ON_MAIN/)
-  })
-  assert.deepEqual(await doneCalls(), [], '未着地の worktree で todo done を呼んでいない')
-  assert.equal(git('merge', '-q', '--no-edit', 'pull-fixture').status, 0)
-  assert.equal(git('push', '-q').status, 0)
-  await setMode('no_run')
-  await resetLog()
-  result = run('x1', '--evidence-from', pullEvidence)
-  check('着地後は隔離worktreeの証跡本文をtest_resultへ渡す', () => {
-    assert.equal(result.status, 0, result.stderr)
+  check('未着地の worktree HEAD は done.sh が merge して done する', () => {
+    assert.equal(result.status, 0, `${result.error ?? ''}\n${result.stdout}\n${result.stderr}`)
+    assert.match(result.stderr, /着地:/)
     const recorded = JSON.parse(readFileSync(state, 'utf8'))
     assert.equal(recorded.test_result, '# pull x1\n')
     assert.equal(existsSync(join(repo, '.test-result-fixture-plan-x1.md')), false)
   })
+  assert.equal((await doneCalls()).length, 1)
 
   // 11. --plan は環境の互換既定より優先し、同名taskでも全操作と証跡を呼出しPLANへ束縛する
   const explicitPlan = 'explicit-plan'
