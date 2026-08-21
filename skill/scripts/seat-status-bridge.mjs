@@ -7,9 +7,10 @@
 //
 // 判定（2026-08-08 実測。**推測でパターンを書かない**）:
 //   busy    = pane の末尾に `esc to interrupt` が在る。Claude 席のステータス行にも Codex 席の `Working (…)` にも
-//             同じ文字列が入るので **vendor 分岐が要らない**。実行中の動名詞（Cogitating/Coalescing/Effecting/
-//             Gallivanting/Fermenting/Symbioting…）は**毎回変わる**ので判定に使わない——語で照合すると全席を
-//             idle と誤判定して、画面が嘘をつく
+//             同じ文字列が入る。Grok はこれを出さず `Waiting for response` / `Responding…` / `[stop]` を出す
+//             （2026-08-21 実測。これを見ないと作業中の Grok 席が idle に見える）。実行中の動名詞
+//             （Cogitating/Coalescing/Effecting/Gallivanting/Fermenting/Symbioting…）は**毎回変わる**ので
+//             判定に使わない——語で照合すると全席を idle と誤判定して、画面が嘘をつく
 //   blocked = 既知の承認ダイアログ文言が末尾に在る（`esc to interrupt` は消えている）。2026-08-08 実測:
 //             確認ダイアログで停止した席が busy と `esc to interrupt` 不在から idle 側に誤判定され、
 //             動けない席へ卓が代走を申し出るところまで進んだ。判定順は busy → blocked → idle

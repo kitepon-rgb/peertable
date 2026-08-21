@@ -20,7 +20,10 @@ if (process.env.PEERTABLE_PLAN) env_vars.push(
   'PEERTABLE_PLAN', 'LATTICE_CLI', 'LATTICE_TODO_ACTOR_HOST',
   'LATTICE_TODO_ACTOR_SESSION', 'LATTICE_TODO_ACTOR_AGENT',
 )
-if (vendor === 'grok' && process.env.GROK_HOME) env_vars.push('GROK_HOME')
+if (vendor === 'grok') {
+  if (process.env.GROK_HOME) env_vars.push('GROK_HOME')
+  env_vars.push('GROK_PRIVACY_NOTICE_ROLLOUT')
+}
 if (vendor === 'codex' && process.env.CODEX_HOME) env_vars.push('CODEX_HOME')
 const result = await client.callTool({
   name: `${vendor}_agent`,

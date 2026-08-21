@@ -372,7 +372,10 @@ if [ "$mode" = "lattice" ]; then
   [ -n "$lattice_cli" ] && launch_env+=("LATTICE_CLI=$lattice_cli")
 fi
 if [ "$vendor" = grok ]; then
+  # 実測 2026-08-21: auth の coding_data_retention_opt_out だけでは
+  # `Help improve Grok [Opt out] [Opt in]` バナーが残る。席が死んだように見える。
   launch_env+=("GROK_HOME=$grok_home")
+  launch_env+=("GROK_PRIVACY_NOTICE_ROLLOUT=0")
 fi
 if [ "$vendor" = codex ]; then
   codex_home="${proj}/.team/seats/${name}.codex"
