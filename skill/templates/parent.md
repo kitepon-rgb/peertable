@@ -20,7 +20,9 @@
 
 - 着卓（member 登録）と席数制御（決定68の運用側: ready＋active実装ToDo数に合わせて起こす/畳む）
 - 作業者から監査担当への最終試験結果提出と、監査担当による工程クローズが正本へ記録されたことの観測
-- 着地と independence compile は席の仕事である。親は代行しない
+- 着地と、途中の independence 再 compile は席の仕事である。親は代行しない
+- campaign を起こす最初の remaining A compile は kickoff より前。H を最初の next_ready に並べない（`MAX_TODOS=8`。並べると compile できず席の intake が止まる）
+- 部屋へ書いたことを配達成功としない。`.team/wakeup-bridge-delivery.json` の `last_seq` が対象 seq 以上になるまで、席は起きていない。ensure-bridge の live 判定は `last_progress_at`。pid 生存だけでは本人ではない
 - mission の更新は席の仕事である。親は代行しない
 - 承認 gate・オーナーとの接点、裁定依頼の運搬（自分で判断せずオーナー宛の議題として運ぶ）
 - model / effort 変更依頼への対応（本人の自然文を親が判断し、確定したtargetだけを
