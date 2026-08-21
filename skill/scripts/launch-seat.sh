@@ -47,8 +47,17 @@ aiterm_launch_helper="${PEERTABLE_AITERM_LAUNCH_HELPER:-$(dirname "$0")/aiterm-l
 placement_helper="${PEERTABLE_PLACEMENT_HELPER:-$(dirname "$0")/resolve-seat-placement.mjs}"
 # shellcheck disable=SC1091
 . "$(dirname "$0")/tmux-at.bash"
-peertable_repo=$(cd "$(dirname "$0")/../.." && pwd -P)
+# 先に script 自身の物理パスを確定してから遡る。~/.claude/skills/peertable が
+# <repo>/skill へのシンボリックリンクなので、`dirname "$0"` へ `../..` を付けてから
+# 一度に cd すると、bash が `..` をリンク先ではなく論理パス上で畳み、
+# repo ではなく ~/.claude/skills を指す（skill 経由＝正規の呼び方だけで壊れる）。
+peertable_script_dir=$(cd "$(dirname "$0")" && pwd -P)
+peertable_repo="${PEERTABLE_REPO:-$(cd "$peertable_script_dir/../.." && pwd -P)}"
 peertable_client="$peertable_repo/room/client.mjs"
+if [ ! -f "$peertable_client" ]; then
+  echo "SEAT_PEERTABLE_TREE_UNRESOLVED: room client が見つからない: $peertable_client（script=$0）" >&2
+  exit 1
+fi
 credential_file=""
 credential_persist=false
 aiterm_session_id=""
