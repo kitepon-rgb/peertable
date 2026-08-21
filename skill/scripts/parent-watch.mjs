@@ -159,8 +159,12 @@ const addressedToParent = message => messageAddressedToParent(message, parent)
 
 function exitWhenParentStdinCloses() {
   if (mode !== '--follow') return
+  // Claude Monitor など stdin を与えない persistent 実行では、stdin が最初から
+  // 閉じているのを親端末の終了と誤認して即死する。stdin が TTY でない、または
+  // PEERTABLE_WATCH_NO_STDIN=1 の時は stdin 追従を張らない（SKILL は Monitor 起動を指示する）。
+  if (process.env.PEERTABLE_WATCH_NO_STDIN === '1') return
   const stdin = process.stdin
-  if (!stdin || stdin.destroyed) return
+  if (!stdin || stdin.destroyed || stdin.isTTY !== true) return
   const quit = () => process.exit(0)
   stdin.on('end', quit)
   stdin.on('close', quit)
