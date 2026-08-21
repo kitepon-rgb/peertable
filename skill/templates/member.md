@@ -38,6 +38,18 @@
 完全一致の再送は不要で、変更targetは親が判断する。自分でCLI設定を変えたり、broadcastで依頼したり
 しない。席が再起動された場合は、下の再着任手順でrole・工程正本・roomログから現在地を取り直す。
 
+## 工程が変わった時の mission
+
+着席時の mission は起動スナップショットである。campaign / plan が次のフェーズへ進んだら、
+自分で更新する。親に依頼しない。席は再起動しない。
+
+```
+env -u PEERTABLE_POST_TOKEN "$(npm root -g)/peertable/skill/scripts/set-mission.sh" . "$PEERTABLE_MEMBER" "<新しい使命>"
+```
+
+room の member 欄（チップ）と `[mission] <名前>: <使命>` の全員宛1行が正本になる。
+起動時の `PEERTABLE_MISSION` env は古いままでよい。
+
 ## Lattice の実行層へ自分の着手を載せる（pull 型・載っている卓だけ）
 
 **仕事は降ってこない。** 上のループどおり自分で選んで `todo start` した後、その着手を実行層へ持ち込むと、隔離 worktree という設備が使え、装置が他の着手済み ToDo との競合を見てくれる。**持ち込みは許可申請ではない**——装置は通す／通さないを決めるのではなく、競合した時だけ「留まれ」と言う。載っていない卓ではこの節は静かに眠る。

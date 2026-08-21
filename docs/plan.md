@@ -6,7 +6,7 @@
 
 作成日: 2026-08-08
 状態: 設計確定 / V0〜V3 通過・V4 封印（決定41）/ スキル化完了 / GitHub・npm 公開済み。Grok 4.6正規席を含む`0.4.0`出荷完了（決定84・85）。Grok起床とbroadcast本文は決定86。配送修正は`0.4.1`（決定87）。Windows psmux 着席は`0.4.2`（決定88）。parent-watch の DEP0190 回避は`0.4.3`。着座メンバー一覧の素性行に role を出すのは`0.4.10`（決定89）。Windows 着席の残穴は決定90。着席の役割必須と 02_models 機械解決は決定91（`0.4.12`）。ターン終了の自己DMを MCP 毎回面へ載せるのは決定92（`0.4.13`）。親番犬の件数比較と切れた follow は決定93（`0.4.14`）。待機自己DMの無限起こし禁止は決定94（`0.4.15`）。Claude channel の同じ穴は決定95（`0.4.16`）。役割・settings・mission の機械強制とチップ掲載は決定96（`0.4.17`）
-リポジトリ: github.com/kitepon/peertable（**公開済み 2026-08-08・MIT・public**）/ npm: **peertable@0.4.30**（2026-08-21）。Claude 席は `notifications/claude/channel`。Codex / Grok は同じ経路で席 TUI へ新着を入れる。親の再着卓投稿も `post-message.mjs` の UTF-8（Windows python stdout の cp932 で本文を壊さない）。工程クローズは監査担当の `done.sh`（feat SHA が origin/main の祖先でなければ script が着地する。親は着地しない）。Fable ツール実行中の稼働チップは経過時間行と `/btw` 固定句で判定する
+リポジトリ: github.com/kitepon/peertable（**公開済み 2026-08-08・MIT・public**）/ npm: **peertable@0.4.31**（2026-08-21）。Claude 席は `notifications/claude/channel`。Codex / Grok は同じ経路で席 TUI へ新着を入れる。親の再着卓投稿も `post-message.mjs` の UTF-8（Windows python stdout の cp932 で本文を壊さない）。工程クローズは監査担当の `done.sh`（feat SHA が origin/main の祖先でなければ script が着地する。親は着地しない）。mission の更新は席の `set-mission.sh`（chip と `[mission]` 1行。再起動しない）。Fable ツール実行中の稼働チップは経過時間行と `/btw` 固定句で判定する
 工場: dotagents 開発工場の管理対象（**自作コア11製品の1つ**・wire v7 の固定15製品目）。統合契約は dotagents 側が所有し、本 repo の source・state・skill 配布・release は Peertable が所有し続ける
 
 ---
@@ -1597,6 +1597,12 @@ patch `0.4.29`。`0.4.30` で着地を `done.sh` が自分で行う。
 
 feat の origin/main 着地と remaining の independence compile は監査担当の `done.sh` と着手席の `independence-refresh.sh` がやる。親は代行しない。`record_stale` / `artifact_binding_mismatch` の hold は席が compile し直して intake し直す。資源衝突の hold だけ退席する。
 patch `0.4.30`。
+
+## 49. mission の更新は席が自分で打つ（2026-08-21）
+
+`launch-seat.sh --mission` は着席時のスナップショットだけである。工程が進んでも chip は古いまま残り、他席へ文章でも届かない。
+席が `skill/scripts/set-mission.sh` で `POST /members` の mission 欄を書き換え、`[mission] <name>: <text>` を全員へ1行出す。席は再起動しない。親は代行しない。`change-seat.sh` に mission を足さない。
+patch `0.4.31`。
 
 
 

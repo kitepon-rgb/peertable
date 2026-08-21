@@ -34,6 +34,18 @@
 しない。席が再起動された場合は、下の再着任手順でrole・`.team/tasks.md`・roomログから現在地を
 取り直す。
 
+## 工程が変わった時の mission
+
+着席時の mission は起動スナップショットである。議題の塊が次へ進んだら、自分で更新する。
+親に依頼しない。席は再起動しない。
+
+```
+env -u PEERTABLE_POST_TOKEN "$(npm root -g)/peertable/skill/scripts/set-mission.sh" . "$PEERTABLE_MEMBER" "<新しい使命>"
+```
+
+room の member 欄（チップ）と `[mission] <名前>: <使命>` の全員宛1行が正本になる。
+起動時の `PEERTABLE_MISSION` env は古いままでよい。
+
 ## 再着任（context が要約されたら）
 
 自分の context が要約された（＝会話の前半が手元に無い）と気づいたら、実装を続ける前に `.team/roles/member.md` と `.team/CLAUDE.md` を読み直して着任し直し、room へ `[再着任] <名前>` を一行投稿する。進行中 claim の状態は自分の記憶でなく**工程正本で取り直す**——この卓の工程正本は room の宣言だけなので、`read_log` で自分の claim・他人の claim・完了報告を全部照合する（機械に問い合わせる先は無い）。記憶と正本が食い違ったら、正本を正として食い違いを room で報告する。
