@@ -18,6 +18,7 @@ import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { resolveSeatObservation, tmuxArgv } from './seat-usage.mjs'
 import { BROADCAST_RECIPIENT, formatWakeNotice, isIdleSelfWake, isWakeupBridgeTarget, shouldDeferGrokWake } from './wakeup-delivery.mjs'
+import { bridgeRecordLive } from './bridge-record-live.mjs'
 
 const run = promisify(execFile)
 const [proj, ...rest] = process.argv.slice(2)
@@ -64,10 +65,32 @@ async function acquireStartupLock() {
   }
 }
 
+function readRecord() {
+  try { return JSON.parse(readFileSync(record, 'utf8')) } catch { return null }
+}
+
+function writeRecord(next) {
+  const temp = `${record}.${process.pid}.tmp`
+  writeFileSync(temp, JSON.stringify(next) + '\n')
+  renameSync(temp, record)
+}
+
+function touchProgress() {
+  if (!existsSync(record)) return
+  const current = readRecord()
+  if (!current || current.pid !== process.pid) return
+  writeRecord({ ...current, last_progress_at: new Date().toISOString() })
+}
+
 async function stopRecorded() {
   if (!existsSync(record)) return
-  const { pid } = JSON.parse(readFileSync(record, 'utf8'))
-  if (!alive(pid)) { unlinkSync(record); log(`死んだ記録を掃除した（pid ${pid}）`); return }
+  const saved = readRecord()
+  const pid = Number(saved?.pid)
+  if (!bridgeRecordLive(saved)) {
+    unlinkSync(record)
+    log(`他人の pid または死んだ記録を掃除した（pid ${Number.isInteger(pid) ? pid : '不明'}）。kill しない`)
+    return
+  }
   process.kill(pid, 'SIGTERM')
   for (let i = 0; i < 25 && alive(pid); i++) await sleep(200)
   if (alive(pid)) {
@@ -101,9 +124,10 @@ const parentName = (() => {
   }
 })()
 const targetOpts = { parentName }
-writeFileSync(record, JSON.stringify({
-  pid: process.pid, room, server_url: url, requested_seats: requestedSeats, started_at: new Date().toISOString(),
-}) + '\n')
+writeRecord({
+  pid: process.pid, room, server_url: url, requested_seats: requestedSeats,
+  started_at: new Date().toISOString(), last_progress_at: new Date().toISOString(),
+})
 releaseStartupLock()
 
 const cleanup = () => { if (existsSync(record)) unlinkSync(record); process.exit(0) }
@@ -167,10 +191,12 @@ async function refreshMembers() {
 reconcileSeats()
 await refreshMembers()
 function markReady() {
-  const next = { ...JSON.parse(readFileSync(record, 'utf8')), ready_at: new Date().toISOString() }
-  const temp = `${record}.tmp`
-  writeFileSync(temp, JSON.stringify(next) + '\n')
-  renameSync(temp, record)
+  const current = readRecord() || {}
+  writeRecord({
+    ...current,
+    ready_at: new Date().toISOString(),
+    last_progress_at: new Date().toISOString(),
+  })
 }
 
 function loadDeliveryState() {
@@ -436,6 +462,7 @@ for (;;) {
       let buf = ''
       for await (const chunk of res.body) {
         lastByteAt = Date.now()
+        touchProgress()
         buf += Buffer.from(chunk).toString('utf8')
         const parts = buf.split('\n\n')
         buf = parts.pop()

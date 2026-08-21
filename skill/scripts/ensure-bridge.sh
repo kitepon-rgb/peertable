@@ -17,8 +17,7 @@ if [ $# -eq 0 ] && [ -f "$record" ]; then
   fi
 fi
 if [ -f "$record" ]; then
-  pid=$(node -e 'try{process.stdout.write(String(require(process.argv[1]).pid||""))}catch{}' "$record")
-  if [ -n "$pid" ] && node "$(dirname "$0")/pid-alive.mjs" "$pid"; then exit 0; fi
+  if node "$(dirname "$0")/bridge-record-live.mjs" "$record"; then exit 0; fi
   if ! "$force" && grep -q 'WRITE_DENIED' "$log" 2>/dev/null; then echo "${name}-bridge: 前回はWRITE_DENIEDで終了。--forceを指定すること" >&2; exit 1; fi
 fi
 # shellcheck disable=SC1091
