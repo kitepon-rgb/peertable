@@ -440,6 +440,7 @@ mcp_consent_accepted=false
 codex_hooks_accepted=false
 codex_update_accepted=false
 codex_trust_accepted=false
+claude_trust_accepted=false
 while [ $SECONDS -lt "$room_ready_deadline" ]; do
   # Grok Build は初めて開く作業treeで、room MCPを初期化する前にworkspace trustを尋ねる。
   # Peertableが正式に着席させるtreeなので、この既知文言だけを一度通す。未知の確認画面を
@@ -491,6 +492,22 @@ while [ $SECONDS -lt "$room_ready_deadline" ]; do
         grok_trust_accepted=true
         room_ready_deadline=$((SECONDS + 90))
         echo "grok workspace trust: accepted"
+        ;;
+    esac
+  fi
+  # 未信頼ディレクトリでは room MCP 同意より前に workspace trust が出る。既定選択肢
+  # （1. Yes, I trust this folder）を Enter で通す。この既知文言だけを一度通す。
+  if [ "$vendor" = claude ] && [ "$claude_trust_accepted" != true ]; then
+    claude_trust_screen=$(tmux_at capture-pane -t "$sess" -p 2>/dev/null || true)
+    case "$claude_trust_screen" in
+      *"Is this a project you created or one you trust"*|*"trust this folder"*)
+        if ! tmux_at send-keys -t "$sess" Enter; then
+          echo "SEAT_CLAUDE_TRUST_FAILED: workspace trustへ応答できない" >&2
+          exit 1
+        fi
+        claude_trust_accepted=true
+        room_ready_deadline=$((SECONDS + 90))
+        echo "claude workspace trust: accepted"
         ;;
     esac
   fi
