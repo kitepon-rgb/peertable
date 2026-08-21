@@ -6,7 +6,7 @@
 
 作成日: 2026-08-08
 状態: 設計確定 / V0〜V3 通過・V4 封印（決定41）/ スキル化完了 / GitHub・npm 公開済み。Grok 4.6正規席を含む`0.4.0`出荷完了（決定84・85）。Grok起床とbroadcast本文は決定86。配送修正は`0.4.1`（決定87）。Windows psmux 着席は`0.4.2`（決定88）。parent-watch の DEP0190 回避は`0.4.3`。着座メンバー一覧の素性行に role を出すのは`0.4.10`（決定89）。Windows 着席の残穴は決定90。着席の役割必須と 02_models 機械解決は決定91（`0.4.12`）。ターン終了の自己DMを MCP 毎回面へ載せるのは決定92（`0.4.13`）。親番犬の件数比較と切れた follow は決定93（`0.4.14`）。待機自己DMの無限起こし禁止は決定94（`0.4.15`）。Claude channel の同じ穴は決定95（`0.4.16`）。役割・settings・mission の機械強制とチップ掲載は決定96（`0.4.17`）
-リポジトリ: github.com/kitepon/peertable（**公開済み 2026-08-08・MIT・public**）/ npm: **peertable@0.4.36**（2026-08-21）。Claude 席は `notifications/claude/channel`。Codex / Grok は同じ経路で席 TUI へ新着を入れる。親の再着卓投稿も `post-message.mjs` の UTF-8（Windows python stdout の cp932 で本文を壊さない）。工程クローズは監査担当の `done.sh`（feat SHA が origin/main の祖先でなければ script が着地する。親は着地しない）。mission の更新は席の `set-mission.sh`（chip と `[mission]` 1行。再起動しない）。Fable ツール実行中の稼働チップは経過時間行と `/btw` 固定句で判定する。Grok 作業中は `Waiting for response` / `[stop]`。privacy バナーは `GROK_PRIVACY_NOTICE_ROLLOUT=0`
+リポジトリ: github.com/kitepon/peertable（**公開済み 2026-08-08・MIT・public**）/ npm: **peertable@0.4.37**（2026-08-21）。Claude 席は `notifications/claude/channel`。Codex / Grok は同じ経路で席 TUI へ新着を入れる。親の再着卓投稿も `post-message.mjs` の UTF-8（Windows python stdout の cp932 で本文を壊さない）。工程クローズは監査担当の `done.sh`（feat SHA が origin/main の祖先でなければ script が着地する。親は着地しない）。mission の更新は席の `set-mission.sh`（chip と `[mission]` 1行。再起動しない）。Fable ツール実行中の稼働チップは経過時間行と `/btw` 固定句で判定する。Grok 作業中は `Waiting for response` / `[stop]`。privacy バナーは `GROK_PRIVACY_NOTICE_ROLLOUT=0`
 工場: dotagents 開発工場の管理対象（**自作コア11製品の1つ**・wire v7 の固定15製品目）。統合契約は dotagents 側が所有し、本 repo の source・state・skill 配布・release は Peertable が所有し続ける
 
 ---
@@ -1622,7 +1622,8 @@ Grok Build TUI は `esc to interrupt` を出さない。作業中は `Waiting fo
 `Help improve Grok [Opt out] [Opt in]` は auth の `coding_data_retention_opt_out` だけでは消えない。着席 env へ `GROK_PRIVACY_NOTICE_ROLLOUT=0` を渡す（実測でバナー非表示）。キー送信では消えない。
 `~/.claude/skills/peertable` は `<repo>/skill` へのシンボリックリンクである。`dirname "$0"` へ `../..` を付けてから一度に `cd` すると、bash は `..` をリンク先ではなく論理パス上で畳むので、repo ではなく `~/.claude/skills` を指す。room client のパスが存在しないものになり、Codex 設定と root の `.mcp.json` の両方が壊れて席が立たない。**repo の実パスから呼んだ時だけ正しく、SKILL.md が案内する skill 経由だけが壊れる**ので、呼び出しパスを変えるまで再現しない。script 自身の物理パスを先に確定してから遡り、`PEERTABLE_REPO` で上書きでき、見つからなければ `SEAT_PEERTABLE_TREE_UNRESOLVED` で落とす。
 未信頼 project への初回着席では workspace trust（`Is this a project you created or one you trust`）が room MCP 同意より前に出る。launch-seat の claude 分岐は同意しか通さず、trust で止まって readiness poll がタイムアウトしていた。既定選択肢を Enter で通す一段を足した。あわせて `--model` を伴わない `--vendor` が役割ランキングへ効かず codex 1 位へ解決されていたのを、vendor フィルタで直した。
-patch `0.4.36`。
+親番犬 `--follow` は stdin の end/close で exit する設計だが、SKILL が指示する Claude persistent Monitor は stdin を与えないため即死していた。stdin 追従を TTY 限定にし、`PEERTABLE_WATCH_NO_STDIN=1` でも無効化できるようにした。
+patch `0.4.37`。
 
 
 
