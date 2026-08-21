@@ -125,7 +125,8 @@ const parseRoleList = (roles) => {
   return list
 }
 
-export function resolveSeatPlacement(role, markdown, { source = '' } = {}) {
+export function resolveSeatPlacement(role, markdown, { source = '', vendor = '' } = {}) {
+  const wantVendor = String(vendor ?? '').trim()
   const wanted = String(role ?? '').trim()
   if (!wanted) {
     return { error: 'SEAT_ROLE_REQUIRED', message: 'role が空（02_models の役割名が要る）' }
@@ -150,6 +151,10 @@ export function resolveSeatPlacement(role, markdown, { source = '' } = {}) {
       dropped.push({ rank, reason: 'not-in-ledger', cell: parsed.cell })
       continue
     }
+    if (wantVendor && hit.vendor !== wantVendor) {
+      dropped.push({ rank, reason: `vendor-mismatch(want ${wantVendor})`, cell: parsed.cell })
+      continue
+    }
     if (hit.slug === 'haiku') {
       return { role: wanted, rank, vendor: hit.vendor, model: hit.slug, effort: '', source, dropped }
     }
@@ -169,7 +174,7 @@ export function resolveSeatPlacement(role, markdown, { source = '' } = {}) {
   }
   return {
     error: 'SEAT_PLACEMENT_UNRESOLVABLE',
-    message: `${wanted} を着席可能な vendor/model/effort へ解決できない`,
+    message: `${wanted}${wantVendor ? `（vendor=${wantVendor}）` : ''} を着席可能な vendor/model/effort へ解決できない`,
     dropped,
   }
 }
@@ -226,7 +231,7 @@ export function resolveSeatIdentity({
     }
   }
 
-  const first = resolveSeatPlacement(roleList[0], markdown, { source })
+  const first = resolveSeatPlacement(roleList[0], markdown, { source, vendor: requestedVendor })
   if (first.error) return first
   return {
     roles: roleList,
