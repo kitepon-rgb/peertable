@@ -121,6 +121,8 @@ else
 fi
 # 目覚まし係の登録口は全モード共通で配る（member.md の待機作法が参照する）
 cp "$repo/skill/scripts/alarm-set.sh" "$tdir/scripts/alarm-set.sh" && chmod +x "$tdir/scripts/alarm-set.sh"
+# member.md が attach 手順で参照する。配り漏れると席が attach できず停止する（実被弾 2026-08-22）
+cp "$repo/skill/scripts/pull-attach-input.mjs" "$tdir/scripts/pull-attach-input.mjs" && chmod +x "$tdir/scripts/pull-attach-input.mjs"
 # room MCP 定義は project root の .mcp.json が正（channels は --mcp-config を解決しない。決定44）
 added_root_mcp=false
 if [ -f "$proj/.mcp.json" ]; then
