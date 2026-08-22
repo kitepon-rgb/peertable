@@ -17,6 +17,7 @@ import { existsSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { resolveSeatObservation, tmuxArgv } from './seat-usage.mjs'
+import { keysForCodexPane } from './codex-dialog.mjs'
 import { BROADCAST_RECIPIENT, formatWakeNotice, isIdleSelfWake, isWakeupBridgeTarget, shouldDeferGrokWake } from './wakeup-delivery.mjs'
 import { bridgeRecordLive } from './bridge-record-live.mjs'
 
@@ -271,9 +272,20 @@ async function wake(seat, msgs) {
     error.code = code
     throw error
   }
+  const pane = await run('tmux', tmuxArgv(['capture-pane', '-t', observation.target, '-p'], { socket: observation.socket }))
+  const screen = String(pane.stdout ?? '')
+  if (member.vendor === 'codex') {
+    const dialog = keysForCodexPane(screen)
+    if (dialog?.kind === 'mcp-allow') {
+      for (const key of dialog.keys) {
+        await run('tmux', tmuxArgv(['send-keys', '-t', observation.target, key], { socket: observation.socket }))
+      }
+      log(`Codex MCP Allow を Always allow で通した: ${seat}`)
+      return 'deferred'
+    }
+  }
   if (member.vendor === 'grok') {
-    const pane = await run('tmux', tmuxArgv(['capture-pane', '-t', observation.target, '-p'], { socket: observation.socket }))
-    const tail = String(pane.stdout).split('\n').slice(-14).join('\n')
+    const tail = screen.split('\n').slice(-14).join('\n')
     if (shouldDeferGrokWake(member.vendor, tail)) {
       if (!deferredBusy.has(seat)) {
         log(`Grok席が実行中なのでidleまで待つ: ${seat} ← ${msgs.length} 件`)

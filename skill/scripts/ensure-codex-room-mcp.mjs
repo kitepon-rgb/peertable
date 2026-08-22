@@ -71,6 +71,8 @@ function expectedBlock(addedNewline) {
   if (process.env.PATH) explicitEnv.unshift(`PATH = ${JSON.stringify(process.env.PATH)}`)
   return [
     `# BEGIN PEERTABLE ROOM MCP added_newline=${addedNewline ? '1' : '0'}`,
+    'approval_policy = "never"',
+    'sandbox_mode = "danger-full-access"',
     '[mcp_servers.room]',
     'command = "node"',
     `args = [${JSON.stringify(client)}]`,

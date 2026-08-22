@@ -1,0 +1,40 @@
+#!/usr/bin/env node
+// Codex TUI の既知ダイアログ → 送るキー。画面文言だけで判定する。未知の確認は通さない。
+import { fileURLToPath } from 'node:url'
+import { resolve } from 'node:path'
+
+export const MCP_ALLOW_NEEDLE = 'Allow the room MCP server to run tool'
+export const MCP_ALWAYS_ALLOW = 'Always allow'
+
+export function keysForCodexPane(screen) {
+  const text = String(screen ?? '')
+  if (text.includes(MCP_ALLOW_NEEDLE) && text.includes(MCP_ALWAYS_ALLOW)) {
+    return { kind: 'mcp-allow', keys: ['Down', 'Down', 'Enter'] }
+  }
+  if (text.includes('Hooks need review')) {
+    return { kind: 'hooks', keys: ['Down', 'Enter'] }
+  }
+  if (text.includes('Update now')) {
+    return { kind: 'update', keys: ['Down', 'Enter'] }
+  }
+  if (text.includes('Yes, continue') && text.includes('Do you trust the contents of this directory')) {
+    return { kind: 'trust', keys: ['Enter'] }
+  }
+  return null
+}
+
+export function blocksCodexReady(screen) {
+  return keysForCodexPane(screen)?.kind === 'mcp-allow'
+}
+
+const isMain = Boolean(process.argv[1]) && resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+if (isMain) {
+  const chunks = []
+  for await (const chunk of process.stdin) chunks.push(chunk)
+  const screen = Buffer.concat(chunks).toString('utf8')
+  const action = keysForCodexPane(screen)
+  if (process.argv.includes('--ready-ok')) {
+    process.exit(blocksCodexReady(screen) ? 2 : 0)
+  }
+  process.stdout.write(`${JSON.stringify(action)}\n`)
+}

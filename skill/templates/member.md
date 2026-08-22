@@ -96,6 +96,8 @@ lattice run intake --run .lattice/runs/<run-id> --task <id>
     "started_identity":…,"argv_digest":…,"recorded_at":…}
    ```
    **pid を自分で推定しない。** その file だけが正で、無ければ room で言う（黙って別の値を渡さない）。**他の席の seats file を読まない。**
+   `lattice run intake` 自体は pid を取らない。attach の前に CLI の `process.pid` や死んだ子 pid を渡すと `ADAPTER_CONTROLLER_UNAVAILABLE: process start identity観測失敗` になる。それは実行層の死亡ではない。席 file の pid で打ち直す。
+   pull run の `driver_state=stopped` かつ `intakes=[]` は、まだ intake していない平常である。親へ「可視性を復旧して」と求めない。
 4. **intake は1本ずつ。** 前の intake が accepted / closed / released になるまで次を取らない。**席は1つの process なので、2本 intake すると片方の hold がもう片方を巻き込む**——制御の粒度が壊れる。
 5. **worktree の中だけを、絶対パスで触る。** `cd` しない・env を書き換えない・別 project へ移らない。席の room 接続と MCP 解決は cwd と env に乗っているので、動かすと卓から落ちる。git は `git -C <worktree> …`、編集は絶対パスで開く
 6. **commit してよい。禁止は `push` / `branch` / `merge` / `rebase` / `reset` / `stash` の6つ**（正は Lattice engine の `FORBIDDEN_OPERATIONS`）。worktree は `base_sha` の detached HEAD なので、そこへ積む commit は base の子孫のままで canonical branch を動かさない。逆に6つは HEAD を base の子孫から外すか、外部へ効果を出す操作なので、観測の前提か公開契約のどちらかを壊す

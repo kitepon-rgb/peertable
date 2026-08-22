@@ -441,42 +441,43 @@ codex_hooks_accepted=false
 codex_update_accepted=false
 codex_trust_accepted=false
 claude_trust_accepted=false
+codex_dialog_helper="$peertable_script_dir/codex-dialog.mjs"
+pass_codex_pane() {
+  local json key
+  json=$(printf '%s' "$1" | node "$codex_dialog_helper" || true)
+  [ -n "$json" ] && [ "$json" != "null" ] || return 1
+  while IFS= read -r key; do
+    [ -n "$key" ] || continue
+    tmux_at send-keys -t "$sess" "$key" || return 1
+  done < <(python3 -c 'import json,sys
+a=json.loads(sys.stdin.read() or "null")
+print("\n".join(a.get("keys") or []) if isinstance(a, dict) else "")' <<<"$json")
+  return 0
+}
+codex_pane_blocks_ready() {
+  printf '%s' "$1" | node "$codex_dialog_helper" --ready-ok
+}
 while [ $SECONDS -lt "$room_ready_deadline" ]; do
   # Grok Build は初めて開く作業treeで、room MCPを初期化する前にworkspace trustを尋ねる。
   # Peertableが正式に着席させるtreeなので、この既知文言だけを一度通す。未知の確認画面を
   # 汎用的に承認するfallbackにはしない。承認後のMCP初期化時間は改めて30秒確保する。
   if [ "$vendor" = codex ]; then
     codex_screen=$(tmux_at capture-pane -t "$sess" -p 2>/dev/null || true)
-    if [ "$codex_update_accepted" != true ]; then
+    if pass_codex_pane "$codex_screen"; then
+      room_ready_deadline=$((SECONDS + 90))
       case "$codex_screen" in
-        *"Update now"*)
-          if tmux_at send-keys -t "$sess" Down && tmux_at send-keys -t "$sess" Enter; then
-            codex_update_accepted=true
-            room_ready_deadline=$((SECONDS + 90))
-            echo "codex update prompt: skipped"
-          fi
-          ;;
-      esac
-    fi
-    if [ "$codex_hooks_accepted" != true ]; then
-      case "$codex_screen" in
+        *"Allow the room MCP server to run tool"*) echo "codex mcp allow: always allow" ;;
         *"Hooks need review"*)
-          if tmux_at send-keys -t "$sess" Down && tmux_at send-keys -t "$sess" Enter; then
-            codex_hooks_accepted=true
-            room_ready_deadline=$((SECONDS + 90))
-            echo "codex hooks prompt: trust all"
-          fi
+          codex_hooks_accepted=true
+          echo "codex hooks prompt: trust all"
           ;;
-      esac
-    fi
-    if [ "$codex_trust_accepted" != true ]; then
-      case "$codex_screen" in
+        *"Update now"*)
+          codex_update_accepted=true
+          echo "codex update prompt: skipped"
+          ;;
         *"Yes, continue"*)
-          if tmux_at send-keys -t "$sess" Enter; then
-            codex_trust_accepted=true
-            room_ready_deadline=$((SECONDS + 90))
-            echo "codex directory trust: accepted"
-          fi
+          codex_trust_accepted=true
+          echo "codex directory trust: accepted"
           ;;
       esac
     fi
@@ -529,6 +530,13 @@ while [ $SECONDS -lt "$room_ready_deadline" ]; do
   fi
   room_members=$(curl -sf "$url/api/$room/members" 2>/dev/null || true)
   if printf '%s' "$room_members" | python3 -c 'import json,sys; name=sys.argv[1]; members=json.load(sys.stdin).get("members",[]); raise SystemExit(0 if any(m.get("name") == name for m in members) else 1)' "$name"; then
+    if [ "$vendor" = codex ]; then
+      codex_screen=$(tmux_at capture-pane -t "$sess" -p 2>/dev/null || true)
+      if ! codex_pane_blocks_ready "$codex_screen"; then
+        sleep 1
+        continue
+      fi
+    fi
     room_ready=true
     break
   fi
@@ -541,6 +549,24 @@ if [ "$room_ready" != true ]; then
   exit 1
 fi
 echo "room ready: ${room}/${name}"
+if [ "$vendor" = codex ]; then
+  # member 登録後の最初の tool 呼び出しで MCP Allow が出る。出ている間だけ通し、沈黙5秒で抜ける。
+  codex_post_ready_deadline=$((SECONDS + 90))
+  codex_post_ready_idle=0
+  while [ $SECONDS -lt "$codex_post_ready_deadline" ]; do
+    codex_screen=$(tmux_at capture-pane -t "$sess" -p 2>/dev/null || true)
+    if pass_codex_pane "$codex_screen"; then
+      case "$codex_screen" in
+        *"Allow the room MCP server to run tool"*) echo "codex mcp allow: always allow" ;;
+      esac
+      codex_post_ready_idle=0
+    else
+      codex_post_ready_idle=$((codex_post_ready_idle + 1))
+      [ "$codex_post_ready_idle" -ge 5 ] && break
+    fi
+    sleep 1
+  done
+fi
 if [ "$brief_dispatched" = true ]; then
   brief_completed=true
   echo "briefed: ${sess}（Aiterm launch prompt）"
