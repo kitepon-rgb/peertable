@@ -85,7 +85,7 @@ lattice run intake --run .lattice/runs/<run-id> --task <id>
 空のまま**である。作った席が他の席の仕事を決めたことにはならない。
 
 1. **`todo start` を先に済ませてから intake する。** 装置は Todo 正本の start event へ束縛するので、start していない task は intake できない。**逆順にしない。**
-2. **`intervention.state` を読む。** `none` なら worktree を使ってそのまま進める。`hold` の理由が `record_stale` または `artifact_binding_mismatch`（並列記録の失効・再 compile との交差）なら、親へ退席も待ちも出さない。未受理 intake を解放し、canonical で `.team/scripts/independence-refresh.sh {{PLAN_KEY}}` を通してから intake を打ち直す。**他の着手済み task と同じ書き込み資源でぶつかった hold** だけが退席対象である。その場合、新しく起きた席または次工程を探した席で既存WIPが無ければ、競合理由と未着手を room へ一度記録し、未受理 intake を解放して `leave-seat.sh` で直ちに退席する。既存WIPがある席だけは工程正本へhandoffを残してから畳む。**hold を無視して進めず、競合解除 poll のために席を温存しない。**
+2. **`intervention.state` を読む。** `none` なら worktree を使ってそのまま進める。`hold` の理由が `record_stale` または `artifact_binding_mismatch`（並列記録の失効・再 compile との交差）なら、未受理 intake を解放し、canonical で `.team/scripts/independence-refresh.sh {{PLAN_KEY}}` を通してから intake を打ち直す。他の着手済み task と同じ書き込み資源でぶつかった hold は、**担当 ToDo を手放す理由にならず、退席の理由にもならない**（旧規約の「hold＝退席」は 2026-08-22 に廃止。卓を空にしただけだった）。未受理 intake を解放し、競合相手の task と理由を room へ一度記録して、その task のクローズを待つ。待つ間に自分の別の active WIP があればそれを進める。解消は `lattice run intake intervention --run <ref> --task <id>` の読み直しで確認してから intake を打ち直す。**hold を無視して進めない。**
 3. **worktree を受け取ったら、自分の pid を装置へ渡す（attach）。** これをしないと、装置は競合時に「留まれ」と言うことはできても、実際に止めることができない（協調 hold のまま）。
    ```
    lattice run intake attach --run <ref> --task <id> --input <file>

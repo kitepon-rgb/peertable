@@ -118,10 +118,7 @@ script は内部で Aiterm の公開 `claude_agent` / `codex_agent` / `grok_agen
 - **席と spool は接触しない。** 席が触るのは room と worktree だけで、`.lattice/` の直読み・直書き禁止の契約はそのまま
 - **席の作法の正本は `templates/member.md` の「Lattice の実行層へ自分の着手を載せる」節**（intake→intervention 判定→attach→作業→監査担当が `done.sh`→intake 席が accept の順・1席1 intake・禁止操作・検証の回し方・成果の正本）。ここに二重化しない
 - **席は自分の pid を装置へ渡す（attach）。** その pid は `.team/seats/<名前>.json`（`launch-seat.sh` が着席直後に書く）が持ち、席は読んで `schema` を足すだけで attach input になる。**raw argv を保存しない**——token値をargvから除いた後も、将来の引数を無条件に複製しない。持つのはdigestだけ。Lattice の再観測は `/bin/ps -o command=`。pid/lstart が一致して digest だけ違うときは親が `skill/scripts/refresh-seat-identity.mjs <project> <name>` で揃える。席は席 file を書き換えない
-- **run-bridge は可視化の中継であって、必須経路ではない**（決定63）。落ちていても席は自分で intake / attach / accept を打てるし、介入も `lattice run intake intervention --run <ref> --task <id>` で自分で読める。**見えなくなるだけ**である
-- **ブリッジの起動**: `scripts/ensure-bridge.sh <project> run [--lattice <path>]`。停止は `node scripts/run-bridge.mjs <project> --stop`（**teardown.sh が自動で行う**）。**spool dir も席名も取らない**（配車をしないので要らない。渡すと typed error で落ちる）。ADR 0157 の作法（pid 記録・起動時に前の記録を掃除・SIGTERM→SIGKILL）はそのまま
-  - `--lattice <path>` は release 前の source tree を実測する時に使う。**PATH の install は version 表示が同じでも未 publish の schema を読めない**（2026-08-09 に卓で3件実測）
-  - bridge が返すのは2つだけで**どちらも読み取り**: `[run] <run-id> intake=[…] accepted=[…] hold=[…] closed=…`（変化時だけ）と、`hold` になった intake をその作業を始めた席宛へ返す `[介入]`
+- **run-bridge は退役した（2026-08-22・オーナー裁定）。** 介入（hold）は席が自分の Lattice コマンド応答（intake / attach / accept / `run intake intervention`）で受け取る——これが唯一の経路である。装置の介入を DM で先回り通知する中継は、凍った席には届かず、届いた席を退席させ、死んだ席の shell へ打鍵する事故だけを生んだので廃止した。ブリッジは wakeup と seat-status の2本だけ
 
 運用側が踏みやすい所（実測で確認した挙動）:
 

@@ -6,7 +6,7 @@
 #   1. room サーバー到達性（GET /api/<room>/summary）
 #   2. room members と .team/seats/*.json の突合
 #   3. 各席の tmux セッション（peer-<name>）の存在と、席file の pid+lstart による本人性
-#   4. 3ブリッジ（wakeup / seat-status / run）の record 生存と、record にある識別情報だけで
+#   4. 2ブリッジ（wakeup / seat-status）の record 生存と、record にある識別情報だけで
 #      判定できる範囲の本人性・鮮度（判定できないものは「判定不能」と正直に出す。偽の生存判定を作らない）
 #   5. Lattice 併用モード（mode=lattice）なら `lattice status --json` の state / active_runs
 #
@@ -137,7 +137,7 @@ for (const [name, seat] of seatFiles) {
   line('OK', `席 ${name}: tmux ${target} 生存・pid ${seat.pid} 本人性確認`)
 }
 
-// 4. 3ブリッジ。record の形式がそれぞれ違うので、判定できる範囲だけ判定する
+// 4. 2ブリッジ（run-bridge は 2026-08-22 退役）。record の形式が違うので判定できる範囲だけ判定する
 function judgeWakeup() {
   const path = join(team, 'wakeup-bridge.json')
   if (!existsSync(path)) return { level: 'NG', text: 'wakeup-bridge: record が無い（起動していない）' }
@@ -147,33 +147,6 @@ function judgeWakeup() {
     return { level: 'OK', text: `wakeup-bridge: 生存 pid=${record.pid} last_progress ${age}秒前` }
   }
   return { level: 'NG', text: `wakeup-bridge: pid=${record.pid} が死んでいるか last_progress_at が古い` }
-}
-
-// run-bridge.mjs の processFacts と同じ観測規約（LC_ALL=C の /bin/ps）
-function psFacts(pid) {
-  try {
-    const out = execFileSync('/bin/ps', ['-o', 'lstart=,command=', '-p', String(pid)],
-      { encoding: 'utf8', env: { ...process.env, LC_ALL: 'C' } })
-    const text = out.split('\n')[0]?.trim() ?? ''
-    if (!text) return null
-    const parts = text.split(/\s+/)
-    return { startIdentity: parts.slice(0, 5).join(' '), command: parts.slice(5).join(' ') }
-  } catch { return null }
-}
-
-function judgeRunBridge() {
-  const path = join(team, 'run-bridge.json')
-  if (!existsSync(path)) return { level: 'NG', text: 'run-bridge: record が無い（起動していない）' }
-  const record = JSON.parse(readFileSync(path, 'utf8'))
-  const facts = psFacts(record.pid)
-  if (!facts) return { level: 'NG', text: `run-bridge: pid=${record.pid} を観測できない（死亡）` }
-  if (record.start_identity === undefined) {
-    return { level: '判定不能', text: `run-bridge: pid=${record.pid} は生存しているが旧形式recordで本人性を確認できない` }
-  }
-  const same = facts.startIdentity === record.start_identity
-    && facts.command.includes('run-bridge.mjs') && facts.command.includes(proj)
-  if (!same) return { level: 'NG', text: `run-bridge: pid=${record.pid} は再利用されている（本人ではない）` }
-  return { level: 'OK', text: `run-bridge: pid+lstart 一致 pid=${record.pid}（record に last_progress_at が無く鮮度は判定不能）` }
 }
 
 function judgeSeatStatusBridge() {
@@ -186,7 +159,7 @@ function judgeSeatStatusBridge() {
   return { level: '判定不能', text: `seat-status-bridge: pid=${record.pid} は生存しているが record に lstart が無く本人性を確認できない` }
 }
 
-for (const [name, judge] of [['wakeup', judgeWakeup], ['seat-status', judgeSeatStatusBridge], ['run', judgeRunBridge]]) {
+for (const [name, judge] of [['wakeup', judgeWakeup], ['seat-status', judgeSeatStatusBridge]]) {
   let result = judge()
   if (result.level === 'NG' && repair) {
     const res = spawnSync(join(scriptDir, 'ensure-bridge.sh'), [proj, name], { encoding: 'utf8' })

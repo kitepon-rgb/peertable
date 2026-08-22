@@ -15,7 +15,7 @@ export function hashArgv(argv) {
 }
 
 // 記録済み pid そのものの lstart / argv を観測する（pane からの席特定はしない）。
-// refresh-seat-identity・doctor・run-bridge が使う。
+// refresh-seat-identity・doctor が使う。
 export function observePidCommand(pid) {
   if (!Number.isSafeInteger(pid) || pid < 1) {
     const error = new Error('pid が正整数でない')

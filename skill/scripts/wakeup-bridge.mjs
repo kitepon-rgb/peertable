@@ -272,6 +272,17 @@ async function wake(seat, msgs) {
     error.code = code
     throw error
   }
+  // **agent CLI が死んで pane が素の shell に戻っていたら、1バイトも打たない。**
+  // shell へ room の本文を send-keys すると、本文がそのまま shell コマンドとして実行される
+  // （実被弾 2026-08-22: codex 終了後の bash へ配達され `command not found` が走った。
+  // 本文次第では席の権限で任意コマンドになる）。配達は止め、毎周期 typed log で叫ぶ。
+  const fg = await run('tmux', tmuxArgv(['display-message', '-p', '-t', observation.target, '#{pane_current_command}'], { socket: observation.socket }))
+  const fgCommand = String(fg.stdout ?? '').trim()
+  if (['bash', 'zsh', 'sh', 'dash', 'fish', 'tcsh', 'csh', 'ksh'].includes(fgCommand)) {
+    log(`SEAT_TUI_GONE: ${seat} の pane は shell（${fgCommand}）に戻っている＝agent CLI が終了済み。`
+      + 'shell へのコマンド実行を防ぐため配達しない。席を立て直すか leave-seat で畳むこと')
+    return 'deferred'
+  }
   const pane = await run('tmux', tmuxArgv(['capture-pane', '-t', observation.target, '-p'], { socket: observation.socket }))
   const screen = String(pane.stdout ?? '')
   if (member.vendor === 'codex') {
