@@ -1,11 +1,11 @@
 #!/usr/bin/env node
-// 席 file の argv_digest を、Lattice attach と同じ /bin/ps -o command= 観測へ揃える。
-// pid / lstart が席 file と違うときは書き換えず終わる（pid 推定も再利用も禁止）。
-import { randomBytes } from 'node:crypto'
-import { execFileSync } from 'node:child_process'
-import { chmodSync, closeSync, fsyncSync, openSync, readFileSync, renameSync, unlinkSync, writeSync } from 'node:fs'
+// 台帳（room member 行）の argv_digest を、Lattice attach と同じ /bin/ps -o command= 観測へ揃える。
+// pid / lstart が台帳と違うときは書き換えず終わる（pid 推定も再利用も禁止）。
+import { execFileSync, execFile } from 'node:child_process'
+import { readFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { promisify } from 'node:util'
 
 // ps 観測と digest 計算は seat-identity.mjs（OS観測ライブラリ）が唯一の所有者。再実装しない。
 export { hashArgv, observePidCommand } from './seat-identity.mjs'
@@ -13,17 +13,17 @@ import { observePidCommand } from './seat-identity.mjs'
 
 export function refreshSeatRecord(raw, observed, recordedAt) {
   if (!Number.isSafeInteger(raw?.pid) || raw.pid < 1) {
-    const error = new Error('席 file に pid が無い')
+    const error = new Error('台帳の member 行に pid が無い')
     error.code = 'SEAT_IDENTITY_NO_PID'
     throw error
   }
   if (observed.pid !== raw.pid) {
-    const error = new Error(`live pid ${observed.pid} は席 file の pid ${raw.pid} と違う`)
+    const error = new Error(`live pid ${observed.pid} は台帳の pid ${raw.pid} と違う`)
     error.code = 'SEAT_IDENTITY_PID_CHANGED'
     throw error
   }
   if (observed.started_identity !== raw.started_identity) {
-    const error = new Error('pid の lstart が席 file と一致しない')
+    const error = new Error('pid の lstart が台帳と一致しない')
     error.code = 'SEAT_IDENTITY_LSTART_CHANGED'
     throw error
   }
@@ -32,25 +32,8 @@ export function refreshSeatRecord(raw, observed, recordedAt) {
     name: raw.name,
     pid: raw.pid,
     recorded_at: recordedAt,
-    session: raw.session,
     started_identity: raw.started_identity,
   }
-}
-
-function atomicWrite(out, body) {
-  const tmp = join(dirname(out), `.seat-${randomBytes(6).toString('hex')}.tmp`)
-  const fd = openSync(tmp, 'w')
-  try {
-    writeSync(fd, body)
-    fsyncSync(fd)
-  } catch (error) {
-    closeSync(fd)
-    try { unlinkSync(tmp) } catch {}
-    throw error
-  }
-  closeSync(fd)
-  chmodSync(tmp, 0o600)
-  renameSync(tmp, out)
 }
 
 function utcRecordedAt() {
@@ -64,14 +47,20 @@ if (isCli) {
     process.stderr.write('usage: refresh-seat-identity.mjs <project> <name>\n')
     process.exit(2)
   }
-  const out = join(resolve(project), '.team', 'seats', `${name}.json`)
-  let raw
+  let setup
   try {
-    raw = JSON.parse(readFileSync(out, 'utf8'))
+    setup = JSON.parse(readFileSync(join(resolve(project), '.team', 'setup-state.json'), 'utf8'))
   } catch (error) {
-    process.stderr.write(`SEAT_IDENTITY_UNREADABLE: ${error.message}\n`)
+    process.stderr.write(`SEAT_IDENTITY_STATE_UNREADABLE: ${error.message}\n`)
     process.exit(2)
   }
+  const api = `${setup.server_url.replace(/\/$/u, '')}/api/${encodeURIComponent(setup.room)}`
+  const memberResponse = await fetch(`${api}/members/${encodeURIComponent(name)}`)
+  if (!memberResponse.ok) {
+    process.stderr.write(`SEAT_IDENTITY_UNREADABLE: 台帳に ${name} が無い（HTTP ${memberResponse.status}）\n`)
+    process.exit(2)
+  }
+  const raw = (await memberResponse.json()).member
   let observed
   try {
     observed = observePidCommand(raw.pid)
@@ -90,14 +79,14 @@ if (isCli) {
     process.stdout.write(`${JSON.stringify({ outcome: 'unchanged', name, pid: raw.pid, argv_digest: raw.argv_digest })}\n`)
     process.exit(0)
   }
-  atomicWrite(out, `${JSON.stringify({
-    argv_digest: next.argv_digest,
-    name: next.name,
-    pid: next.pid,
-    recorded_at: next.recorded_at,
-    session: next.session,
-    started_identity: next.started_identity,
-  })}\n`)
+  // 書込は席別 credential 経由（秘密値を argv/env に載せない既存境界を使う）
+  const credentialHelper = join(dirname(fileURLToPath(import.meta.url)), 'seat-credential.mjs')
+  const run = promisify(execFile)
+  const credential = (await run('node', [credentialHelper, 'prepare', resolve(project), setup.room, name],
+    { env: { ...process.env, PEERTABLE_POST_TOKEN: undefined } })).stdout.trim()
+  const body = JSON.stringify({ name, argv_digest: next.argv_digest, identity_recorded_at: next.recorded_at })
+  await run('node', [credentialHelper, 'request', credential, 'POST', `${api}/members`, body],
+    { env: { ...process.env, PEERTABLE_POST_TOKEN: undefined } })
   process.stdout.write(`${JSON.stringify({
     outcome: 'updated',
     name,

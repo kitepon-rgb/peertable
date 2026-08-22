@@ -202,18 +202,13 @@ function observeSelf() {
 const observe = observeSelf()
 const parseRoles = (raw) => String(raw ?? '').split(/[,、]/u).map((item) => item.trim()).filter(Boolean)
 const roles = parseRoles(process.env.PEERTABLE_ROLES || process.env.PEERTABLE_ROLE)
-const settings = Object.fromEntries(Object.entries({
-  vendor: process.env.PEERTABLE_VENDOR,
-  model: process.env.PEERTABLE_MODEL,
-  effort: process.env.PEERTABLE_EFFORT,
-}).filter(([, v]) => v))
+// 台帳（room server の SQLite）へは canonical 欄だけを登録する。settings / role（単数）の
+// 重複欄は 2026-08-22 に廃止——同一情報の重複管理禁止（オーナー裁定）。
 const IDENTITY = Object.fromEntries(Object.entries({
   vendor: process.env.PEERTABLE_VENDOR,
   model: process.env.PEERTABLE_MODEL,
   effort: process.env.PEERTABLE_EFFORT,
-  role: roles[0],
   roles,
-  settings: Object.keys(settings).length ? settings : undefined,
   mission: process.env.PEERTABLE_MISSION,
   aiterm_session_id: process.env.AITERM_SESSION_ID,
   observe,

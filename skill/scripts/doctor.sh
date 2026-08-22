@@ -4,7 +4,7 @@
 #
 # 判定するのは5点だけ:
 #   1. room サーバー到達性（GET /api/<room>/summary）
-#   2. room members と .team/seats/*.json の突合
+#   2. 台帳（room member 行）の素性・本人性の完全性
 #   3. 各席の tmux セッション（peer-<name>）の存在と、席file の pid+lstart による本人性
 #   4. 2ブリッジ（wakeup / seat-status）の record 生存と、record にある識別情報だけで
 #      判定できる範囲の本人性・鮮度（判定できないものは「判定不能」と正直に出す。偽の生存判定を作らない）
@@ -81,37 +81,27 @@ try {
   line('NG', `room members を取得できない（${error.message}）`)
 }
 
-// 2. room members と .team/seats/*.json の突合。tmux 席を持たない member（親など）は対象外
+// 2. 台帳の完全性。tmux 席を持つ member（親以外）は本人性欄（pid 等）も台帳に載っている
+// はず（席file は 2026-08-22 廃止・正本は member 行だけ）
 function hasDescriptor(member) {
   return Boolean(member?.observe && typeof member.observe === 'object'
     && typeof member.observe.tmux_target === 'string' && member.observe.tmux_target.length > 0)
 }
-const seatsDir = join(team, 'seats')
-const seatFiles = new Map()
-if (existsSync(seatsDir)) {
-  for (const entry of readdirSync(seatsDir)) {
-    if (!entry.endsWith('.json')) continue
-    const name = entry.slice(0, -'.json'.length)
-    try { seatFiles.set(name, JSON.parse(readFileSync(join(seatsDir, entry), 'utf8'))) } catch { /* 個別席の解析失敗は3.で拾う */ }
-  }
-}
+const seatRows = new Map()
 if (membersOk) {
-  const seatedMembers = members.filter(hasDescriptor).map(m => m.name)
-  const missingSeatFile = seatedMembers.filter(name => !seatFiles.has(name))
-  const orphanSeatFile = [...seatFiles.keys()].filter(name => !seatedMembers.includes(name))
-  if (missingSeatFile.length === 0 && orphanSeatFile.length === 0) {
-    line('OK', `room members と .team/seats/*.json が一致（${seatedMembers.length} 席）`)
+  const seated = members.filter(hasDescriptor)
+  const missingIdentity = seated.filter(m => !Number.isSafeInteger(m.pid) || !m.started_identity || !m.argv_digest)
+  for (const m of seated) seatRows.set(m.name, m)
+  if (missingIdentity.length === 0) {
+    line('OK', `台帳の member 行に素性・本人性が揃っている（${seated.length} 席）`)
   } else {
-    const detail = []
-    if (missingSeatFile.length) detail.push(`席fileが無い member: ${missingSeatFile.join(',')}`)
-    if (orphanSeatFile.length) detail.push(`member に居ない席file: ${orphanSeatFile.join(',')}`)
-    line('NG', `room members と .team/seats/*.json が不一致（${detail.join(' / ')}）`)
+    line('NG', `台帳の本人性欄が欠けている member: ${missingIdentity.map(m => m.name).join(',')}`)
   }
 }
 
-// 3. 各席の tmux セッション（peer-<name>）の存在と、席file の pid+lstart による本人性
-for (const [name, seat] of seatFiles) {
-  const member = members.find(m => m.name === name)
+// 3. 各席の tmux セッション（peer-<name>）の存在と、台帳の pid+lstart による本人性
+for (const [name, seat] of seatRows) {
+  const member = seat
   const socket = member?.observe?.tmux_socket || resolveTmuxSocket(process.env).socket
   const target = member?.observe?.tmux_target || `peer-${name}`
   let sessionExists = false

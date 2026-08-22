@@ -59,7 +59,8 @@ name=sys.argv[1]
 member=next((m for m in json.load(sys.stdin).get("members",[]) if m.get("name")==name),None)
 if not member or member.get("vendor") not in ("claude","codex","grok") or not member.get("model"):
     raise SystemExit(1)
-print("\t".join((member["vendor"],member["model"],member.get("effort") or "",member.get("aiterm_session_id") or "",member.get("role") or "")))
+roles=member.get("roles") or []
+print("\t".join((member["vendor"],member["model"],member.get("effort") or "",member.get("aiterm_session_id") or "",",".join(roles))))
 ' "$name") || { echo "SEAT_CHANGE_MEMBER_METADATA_MISSING: ${name} のvendor/modelが要る" >&2; exit 1; }
 IFS=$'\t' read -r old_vendor old_model old_effort aiterm_session_id old_role <<EOF
 $meta

@@ -34,21 +34,14 @@ fi
 member=$(python3 - "$name" "$model" "$effort" "$parent_vendor" "$mission" <<'PY'
 import json, sys
 name, model, effort, vendor, mission = sys.argv[1:6]
-body = {'name': name, 'roles': ['統括'], 'role': '統括'}
+# 台帳には canonical 欄だけを登録する（settings / role 単数の重複欄は 2026-08-22 廃止）
+body = {'name': name, 'roles': ['統括']}
 if vendor:
     body['vendor'] = vendor
 if model:
     body['model'] = model
-settings = {}
-if vendor:
-    settings['vendor'] = vendor
-if model:
-    settings['model'] = model
 if effort:
     body['effort'] = effort
-    settings['effort'] = effort
-if settings:
-    body['settings'] = settings
 if mission:
     body['mission'] = mission
 body['observe'] = None

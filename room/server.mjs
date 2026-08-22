@@ -2,9 +2,10 @@
 // Peertable room サーバー。チャットルームの正本を所有し、Web UI を内蔵する。
 // 起動: node server.mjs（PEERTABLE_PORT / PEERTABLE_DATA / PEERTABLE_POST_TOKEN で設定）
 import http from 'node:http'
-import { mkdirSync, readFileSync, writeFileSync, appendFileSync, existsSync, rmSync, readdirSync } from 'node:fs'
+import { mkdirSync, readFileSync, appendFileSync, existsSync, rmSync, readdirSync, renameSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { DatabaseSync } from 'node:sqlite'
 
 const SERVER_USAGE = 'usage: peertable-room\n設定は環境変数: PEERTABLE_PORT（既定8790）/ PEERTABLE_DATA（既定./peertable-data）/ PEERTABLE_POST_TOKEN（設定時のみ書込に要求）\n'
 const serverArg = process.argv[2]
@@ -29,8 +30,77 @@ const HEARTBEAT_MS = 25000 // SSE 心拍。中間の proxy が落とす前・cli
 
 mkdirSync(DATA, { recursive: true })
 
-// room 状態はプロセスが所有する（正本ファイルへの書込はこのプロセスだけ）
-const rooms = new Map() // name -> { seq, members: Map<name, joined_at>, streams: Set<res> }
+// **member の唯一の台帳**（オーナー裁定 2026-08-22）。member に帰属する情報は全部この
+// SQLite の1行へ入れ、席file・settings欄・role単数欄などへの重複管理を禁止する。
+// 読者・書き手は全員この台帳（HTTP API 経由）だけを見る。
+const db = new DatabaseSync(join(DATA, 'room.db'))
+db.exec(`
+  PRAGMA journal_mode=WAL;
+  CREATE TABLE IF NOT EXISTS members (
+    room TEXT NOT NULL,
+    name TEXT NOT NULL,
+    joined_at TEXT NOT NULL,
+    vendor TEXT, model TEXT, effort TEXT,
+    roles TEXT,
+    mission TEXT,
+    delivery TEXT,
+    observe TEXT,
+    aiterm_session_id TEXT,
+    status TEXT, status_at TEXT, busy_since TEXT,
+    pane_token_hint INTEGER, usage_source TEXT,
+    pid INTEGER, started_identity TEXT, argv_digest TEXT, identity_recorded_at TEXT,
+    PRIMARY KEY (room, name)
+  )
+`)
+
+const MEMBER_COLUMNS = [
+  'joined_at', 'vendor', 'model', 'effort', 'roles', 'mission', 'delivery', 'observe',
+  'aiterm_session_id', 'status', 'status_at', 'busy_since', 'pane_token_hint', 'usage_source',
+  'pid', 'started_identity', 'argv_digest', 'identity_recorded_at',
+]
+const MEMBER_JSON_COLUMNS = new Set(['roles', 'delivery', 'observe'])
+
+function rowToMember(row) {
+  const member = { name: row.name }
+  for (const column of MEMBER_COLUMNS) {
+    const value = row[column]
+    if (value === null || value === undefined) continue
+    member[column] = MEMBER_JSON_COLUMNS.has(column) ? JSON.parse(value) : value
+  }
+  return member
+}
+const listMembers = roomName => db.prepare('SELECT * FROM members WHERE room = ? ORDER BY joined_at').all(roomName).map(rowToMember)
+const getMember = (roomName, name) => {
+  const row = db.prepare('SELECT * FROM members WHERE room = ? AND name = ?').get(roomName, name)
+  return row ? rowToMember(row) : null
+}
+function putMember(roomName, member) {
+  const values = { room: roomName, name: member.name }
+  for (const column of MEMBER_COLUMNS) {
+    const value = member[column]
+    values[column] = value === undefined || value === null ? null
+      : MEMBER_JSON_COLUMNS.has(column) ? JSON.stringify(value) : value
+  }
+  db.prepare(`INSERT OR REPLACE INTO members (room, name, ${MEMBER_COLUMNS.join(', ')})
+    VALUES (:room, :name, ${MEMBER_COLUMNS.map(c => `:${c}`).join(', ')})`).run(values)
+}
+
+// 旧形式（settings/role の重複欄）を canonical へ畳む。台帳には canonical だけを置く。
+function normalizeMemberMeta(meta) {
+  const { role, settings, ...rest } = meta
+  const out = { ...rest }
+  if (out.roles === undefined && role) out.roles = [role]
+  if (settings && typeof settings === 'object') {
+    for (const key of ['vendor', 'model', 'effort']) {
+      if (out[key] === undefined && settings[key] !== undefined) out[key] = settings[key]
+    }
+  }
+  for (const key of Object.keys(out)) if (out[key] === undefined) delete out[key]
+  return out
+}
+
+// room 状態はプロセスが所有する（member 正本は上の SQLite、ログは append-only file）
+const rooms = new Map() // name -> { seq, streams: Set<res> }
 
 // create=true は書込系だけが渡す。読み取りは room を作らない
 function loadRoom(name, create = false) {
@@ -48,19 +118,21 @@ function loadRoom(name, create = false) {
   // 壊れた末尾行で throw すると loadRoom は全エンドポイントの入口なので巻き添えで死ぬ→null に落とす
   let lastTs = null
   if (lines.length) { try { lastTs = JSON.parse(lines.at(-1)).ts ?? null } catch { lastTs = null } }
+  // 旧 members.json は一度だけ台帳へ取り込み、以後は台帳だけを正とする（file は .migrated へ退避）
   const membersPath = join(dir, 'members.json')
-  // members の値は `{ joined_at, …任意欄 }`。旧形式（値が ISO 文字列）もそのまま読める
-  const stored = existsSync(membersPath) ? Object.entries(JSON.parse(readFileSync(membersPath, 'utf8'))) : []
-  const members = new Map(stored.map(([n, v]) => [n, typeof v === 'string' ? { joined_at: v } : v]))
-  const room = {
-    name, dir, logPath, membersPath, seq, last_ts: lastTs, members, streams: new Set(),
+  if (existsSync(membersPath)) {
+    const stored = Object.entries(JSON.parse(readFileSync(membersPath, 'utf8')))
+    for (const [memberName, value] of stored) {
+      if (getMember(name, memberName)) continue
+      const meta = typeof value === 'string' ? { joined_at: value } : value
+      putMember(name, { name: memberName, joined_at: meta.joined_at ?? new Date().toISOString(),
+        ...normalizeMemberMeta(meta) })
+    }
+    renameSync(membersPath, `${membersPath}.migrated`)
   }
+  const room = { name, dir, logPath, seq, last_ts: lastTs, streams: new Set() }
   rooms.set(name, room)
   return room
-}
-
-function saveMembers(room) {
-  writeFileSync(room.membersPath, JSON.stringify(Object.fromEntries(room.members)) + '\n')
 }
 
 function readMessages(room, since = 0) {
@@ -76,7 +148,7 @@ const recipientError = (code, message) => ({
 const WAITING_WORDS = ['待機する', '待機します', '待機。']
 
 function parentName(room) {
-  return [...room.members].find(([, meta]) => meta.delivery?.kind === 'parent_watch')?.[0]
+  return listMembers(room.name).find(m => m.delivery?.kind === 'parent_watch')?.name
 }
 
 // `all` は room 全体、名前は DM、配列は明示した複数人宛。いずれも同じ通常発言である。
@@ -99,8 +171,11 @@ function normalizeAudience(to, toNames) {
   return { to: null, to_names: names }
 }
 
-// SSE の member イベントで押し込む欄。閲覧者が気づく欄だけに絞る（POST /members 参照）
-const MEMBER_EVENT_FIELDS = ['status', 'busy_since', 'vendor', 'model', 'effort', 'role', 'roles', 'settings', 'mission']
+// SSE の member イベントで押し込む欄。閲覧者が気づく欄だけに絞る（POST /members 参照）。
+// roles は配列なので JSON 比較で差分を見る
+const MEMBER_EVENT_FIELDS = ['status', 'busy_since', 'vendor', 'model', 'effort', 'roles', 'mission']
+const memberFieldChanged = (before, after) =>
+  MEMBER_EVENT_FIELDS.some(f => JSON.stringify(before?.[f] ?? null) !== JSON.stringify(after?.[f] ?? null))
 
 // room ログへは書かない・system 発言も出さない稼働状態の push。post() とは別の経路
 function emitMember(room, name, meta) {
@@ -152,13 +227,20 @@ http.createServer(async (req, res) => {
 
     if (req.method === 'GET' && rest === 'members')
       return json(res, 200, {
-        members: [...room.members].map(([name, meta]) => ({ name, ...meta })),
-        capabilities: { member_observation_v1: true },
+        members: listMembers(room.name),
+        capabilities: { member_observation_v1: true, member_ledger_v1: true },
       }, CORS)
+
+    // 単独 member の読み出し。席の attach 入力・診断はここから取る（席fileは廃止・台帳が唯一の正）
+    if (req.method === 'GET' && seg[2] === 'members' && seg[3]) {
+      const member = getMember(room.name, decodeURIComponent(seg[3]))
+      if (!member) return json(res, 404, { error: 'member_not_found' }, CORS)
+      return json(res, 200, { member }, CORS)
+    }
 
     if (req.method === 'GET' && rest === 'summary')
       return json(res, 200, {
-        schema: 'peertable.summary.v1', room: room.name, seq: room.seq, last_ts: room.last_ts, member_count: room.members.size,
+        schema: 'peertable.summary.v1', room: room.name, seq: room.seq, last_ts: room.last_ts, member_count: listMembers(room.name).length,
       }, CORS)
 
     if (req.method === 'GET' && rest === 'events') {
@@ -195,27 +277,28 @@ http.createServer(async (req, res) => {
       // 登録するので、これが無いと再接続のたびに素性が消える。`joined_at` は最初の登録を保つ。
       // observe:null は「取れなかった」であって「記述子を消せ」ではない。上書きすると
       // wakeup-bridge が席を飛ばす（2026-08-20 なぎ）。
-      const known = room.members.get(name)
-      if (meta.observe == null && known?.observe) delete meta.observe
-      const merged = { joined_at: known?.joined_at ?? new Date().toISOString(), ...known, ...meta }
-      room.members.set(name, merged)
-      saveMembers(room)
+      const normalized = normalizeMemberMeta(meta)
+      const known = getMember(room.name, name)
+      if (normalized.observe == null && known?.observe) delete normalized.observe
+      const merged = { name, joined_at: known?.joined_at ?? new Date().toISOString(), ...known, ...normalized }
+      putMember(room.name, merged)
       // **system 発言は本当に新規の時だけ**。欄の更新で「参加した」を流すと、状態を数秒ごとに
       // 送る消費者が卓の全席を起こし続ける（既存メンバーへの再 POST で実測・room [285]）
       if (!known) post(room, 'system', name, `${name} が参加した`)
       // 閲覧者が気づく欄が変わった時だけ member イベントを流す。status_at（心拍のたび必ず変わる）と
       // pane_token_hint（作業中に刻み変わる）は対象外——含めると数秒ごとに再描画が走り稼働アニメがちらつく
-      else if (MEMBER_EVENT_FIELDS.some(f => known[f] !== merged[f]))
+      else if (memberFieldChanged(known, merged))
         emitMember(room, name, merged)
       return json(res, 200, { ok: true })
     }
     if (req.method === 'DELETE' && seg[2] === 'members' && seg[3]) {
-      room.members.delete(decodeURIComponent(seg[3])); saveMembers(room)
+      db.prepare('DELETE FROM members WHERE room = ? AND name = ?').run(room.name, decodeURIComponent(seg[3]))
       return json(res, 200, { ok: true })
     }
     if (req.method === 'DELETE' && seg.length === 2) {
       for (const s of room.streams) s.end()
       rooms.delete(room.name); rmSync(room.dir, { recursive: true, force: true })
+      db.prepare('DELETE FROM members WHERE room = ?').run(room.name)
       return json(res, 200, { ok: true })
     }
     return json(res, 404, { error: 'not_found' })
@@ -467,9 +550,8 @@ async function refreshMembers(){
     const c=el('span','chip'+(m.name===recent?' recent':''))
     const color=avatarColor(m.name)
     c.style.setProperty('--h',color.h);c.style.setProperty('--av-bg',color.bg);c.style.setProperty('--av-fg',color.fg);c.dataset.name=m.name
-    const rolesText=Array.isArray(m.roles)&&m.roles.length?m.roles.join('・'):(m.role||'')
-    const settingsObj=m.settings&&typeof m.settings==='object'?m.settings:{}
-    const settingsText=[settingsObj.model||m.model,settingsObj.effort||m.effort].filter(Boolean).join('×')
+    const rolesText=Array.isArray(m.roles)&&m.roles.length?m.roles.join('・'):''
+    const settingsText=[m.model,m.effort].filter(Boolean).join('×')
     const meta=[rolesText,settingsText,m.mission].filter(Boolean)
     // 稼働状態は**報告が新しい時だけ**採る。途絶えたら unknown へ落とす——古い状態を出し続けるのが
     // いちばん悪い（動いていない席を「動いている」と見せる）。閾値は bridge の心拍30秒の3倍

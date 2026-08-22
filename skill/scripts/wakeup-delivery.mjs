@@ -36,7 +36,7 @@ export function isWakeupBridgeTarget(member, options = {}) {
     && observe.tmux_target,
   )
   if (hasPane) return true
-  const vendor = member.vendor || member.settings?.vendor
+  const vendor = member.vendor
   return vendor === 'codex' || vendor === 'grok'
 }
 

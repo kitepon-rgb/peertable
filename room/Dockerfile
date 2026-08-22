@@ -1,4 +1,5 @@
-FROM node:22-alpine
+# node:sqlite（member 台帳）が flag なしで使える版
+FROM node:24-alpine
 WORKDIR /app
 COPY server.mjs .
 ENV PEERTABLE_PORT=8790 PEERTABLE_DATA=/data

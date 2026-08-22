@@ -107,7 +107,7 @@ sock=""
 sess=""
 url=""
 room=""
-seat_file="$proj/.team/seats/$name.json"
+# 席の本人性は room 台帳の member 行が持つ（席file廃止 2026-08-22）。rollback は member DELETE が兼ねる
 cleanup_brief() {
   if [ -n "$brief_file" ]; then rm -f "$brief_file"; fi
   return 0
@@ -142,13 +142,6 @@ rollback_brief() {
     # rollback済みに見せない。credential cleanupはon_exitにもさせない。
     credential_persist=true
     return 1
-  fi
-
-  if [ -n "$seat_file" ] && [ -e "$seat_file" ]; then
-    if ! rm -f "$seat_file"; then
-      rollback_failed=1
-      echo "LAUNCH_BRIEF_ROLLBACK_FAILED: seat identity を撤去できない: ${seat_file}" >&2
-    fi
   fi
 
   if [ -n "$url" ] && [ -n "$room" ]; then
@@ -360,7 +353,6 @@ fi
 # direct CLI launch へ戻るfallbackは置かない。Aiterm が作る同名PTYと launch receipt が、
 # 以後の `pty_read` / `agent_configure` / room metadata を同じsessionへ束縛する。
 tmux_at kill-session -t "$sess" 2>/dev/null || true
-rm -f "$proj/.team/seats/$name.json"
 
 launch_env=(
   "PEERTABLE_URL=$url"
@@ -677,15 +669,12 @@ if [ -n "$brief" ] && [ "$brief_dispatched" != true ]; then
 fi
 fi
 
-# 席の素性を `.team/seats/<name>.json` へ置く。**席が自分の pid を知るための唯一の経路**である
-# （Lattice の `run intake attach` は expected identity を要求し、pid を推定しない）。
+# 席の本人性（pid / 起動時刻 / argv digest）を room 台帳の member 行へ登録する。
+# member に帰属する情報の正本は台帳だけ（オーナー裁定 2026-08-22・席fileは廃止）。
 # 着席の**後**に取る——起動途中の process を掴むと、ダイアログ通過で子が入れ替わりうる。
-#
-# 持たせるのは6欄だけで、**`lattice.pull_worker_attach_input.v1` の exact 集合から `schema` を
-# 除いたもの**と一致する。席は読んで `schema` を被せるだけで attach input になる（変換不要）。
-# **raw argv を持たせない**——秘密値はargvから除いたが、将来の引数も含めて複製しない。digest だけを持つ。
-# この file が主張するのは「この pid はこの席だった」という**識別**であって、生死ではない。
-# 生きているかは attach する側（Lattice）が lstart+argv の再観測で確かめる。
+# **raw argv を持たせない**——digest だけを持つ。この記録が主張するのは「この pid は
+# この席だった」という**識別**であって、生死ではない。生きているかは attach する側
+# （Lattice）が lstart+argv の再観測で確かめる。
 seat_pid=""
 pane_pid=$(tmux_at list-panes -t "$sess" -F '#{pane_pid}' 2>/dev/null | head -1 || true)
 seat_ident=""
@@ -702,82 +691,45 @@ if [ -z "$seat_pid" ]; then
   # 記録が無ければ席は attach できず、装置の介入は協調 hold のままになる。**黙らない。**
   echo "seat identity を記録できなかった: ${sess} の process group leader を1つに確定できない（席は着席済み）" >&2
 else
-  mkdir -p "$proj/.team/seats"
-  # **`session` に tmux 名（`peer-<name>`）を入れてはいけない。** Lattice の attach は
-  # `input.session === actor.session` を要求し（`runtime-pull-intake.mjs:674`）、actor session は
-  # 上の env_line が入れる `LATTICE_TODO_ACTOR_SESSION=$name` である。tmux 識別子を混ぜると
-  # attach が必ず `WORKER_ACTOR_MISMATCH` で拒否される（mio の監査で発覚・room [937]）。
-  if ! python3 - "$proj/.team/seats/$name.json" "$name" "$name" "$seat_ident" <<'PY'
-import json, os, subprocess, sys, tempfile
-out, name, session, ident_raw = sys.argv[1:5]
+  ident_body=$(python3 - "$name" "$seat_ident" <<'PY'
+import json, subprocess, sys
+name, ident_raw = sys.argv[1:3]
 ident = json.loads(ident_raw)
-pid = int(ident['pid'])
-started = ident['started_identity']
-argv = ident['argv']
-# digest の計算は seat-identity.mjs（OS観測ライブラリ）が唯一の所有者。ここでは複製しない
-argv_digest = ident['argv_digest']
-if not started or not argv or not argv_digest:
+if not ident.get('started_identity') or not ident.get('argv') or not ident.get('argv_digest'):
     sys.exit('pid の lstart/args を観測できない')
-record = {
-    'argv_digest': argv_digest,
+print(json.dumps({
     'name': name,
-    'pid': pid,
-    'recorded_at': subprocess.run(['date', '-u', '+%Y-%m-%dT%H:%M:%S.000Z'],
-                                  capture_output=True, text=True, check=True).stdout.strip(),
-    'session': session,
-    'started_identity': started,
-}
-# canonical JSON（key 昇順・空白なし）＋ 0600 ＋ 一時file→fsync→rename で原子的に置く。
-# 着席直後に席が読むので、部分読取が起きない形にする。
-body = json.dumps(record, ensure_ascii=False, sort_keys=True, separators=(',', ':')) + '\n'
-fd, tmp = tempfile.mkstemp(dir=os.path.dirname(out), prefix='.seat-', suffix='.tmp')
-try:
-    with os.fdopen(fd, 'w') as handle:
-        handle.write(body)
-        handle.flush()
-        os.fsync(handle.fileno())
-    os.chmod(tmp, 0o600)
-    os.replace(tmp, out)
-except BaseException:
-    os.unlink(tmp)
-    raise
+    'pid': int(ident['pid']),
+    'started_identity': ident['started_identity'],
+    'argv_digest': ident['argv_digest'],
+    'identity_recorded_at': subprocess.run(['date', '-u', '+%Y-%m-%dT%H:%M:%S.000Z'],
+                                           capture_output=True, text=True, check=True).stdout.strip(),
+}, ensure_ascii=False))
 PY
-  then
-    echo "seat identity を記録できなかった: ${sess}（席は着席済み・attach は協調 hold のままになる）" >&2
+) || ident_body=""
+  if [ -z "$ident_body" ] || ! env -u PEERTABLE_POST_TOKEN node "$credential_helper" request "$credential_file" POST \
+      "$url/api/$room/members" "$ident_body" >/dev/null; then
+    echo "seat identity を台帳へ登録できなかった: ${sess}（席は着席済み・attach は協調 hold のままになる）" >&2
   fi
 fi
 
-# 席の素性（roles / settings / mission）を room へ渡す。一覧チップと席の名簿が同じ欄を見る。
-tmux_ns=$(node "$(dirname "$0")/tmux-socket.mjs" --namespace)
-# python stdout は Windows で cp932 になり 実装 が壊れる。Node が UTF-8 JSON を出す。
-meta=$(node "$(dirname "$0")/seat-metadata.mjs" "$name" "$vendor" "$model" "$effort" "$sock" "$sess" "$role" "$mission" "$aiterm_session_id" "$tmux_ns")
-if env -u PEERTABLE_POST_TOKEN node "$credential_helper" request "$credential_file" POST \
-    "$url/api/$room/members" "$meta" >/dev/null; then
-  # **200 は保存の証拠にならない**。素性欄を知らない server も 200 {"ok":true} を返して黙って捨てる
-  # （登録が `if (!members.has(name))` の no-op になる経路もある）。読み返して実際に載ったかを見る。
-  # **パイプと heredoc を同じ stdin へ重ねない**。`curl | python3 - <<'PY'` は
-  # 「プログラムを stdin から読む」と「データを stdin から読む」が衝突して、必ず失敗する
-  # （そして try/except で包むと、失敗が「保存されていない」という**もっともらしい答え**に化ける。実測）
-  listing=$(curl -sf "$url/api/$room/members" || true)
-  stored=$(python3 - "$name" "$listing" <<'PY'
+# 素性（vendor/model/roles/mission/observe/aiterm ID）の書き手は**席の room client だけ**。
+# ランチャーはここで台帳を読み返し、実際に載ったかを確認するだけにする（重複書込の禁止）。
+member_row=$(curl -sf "$url/api/$room/members/$(python3 -c 'import sys,urllib.parse;print(urllib.parse.quote(sys.argv[1],safe=""))' "$name")" || true)
+stored=$(python3 - "$member_row" <<'PY'
 import json, sys
-# 読み返しに失敗しても生の traceback を出さない。ここは「保存されたか」を見るだけの確認段で、
-# 判定不能は「保存されていない」と同じ扱いでよい（席は既に着席している）
 try:
-    members = json.loads(sys.argv[2])['members']
+    m = json.loads(sys.argv[1])['member']
 except Exception:
-    members = []
-m = next((x for x in members if x.get('name') == sys.argv[1]), {})
-print('yes' if m.get('model') and (m.get('roles') or m.get('role')) and m.get('aiterm_session_id') and m.get('observe', {}).get('tmux_target') else 'no')
+    m = {}
+print('yes' if m.get('model') and m.get('roles') and m.get('aiterm_session_id')
+      and (m.get('observe') or {}).get('tmux_target') and m.get('pid') else 'no')
 PY
 )
-  if [ "$stored" = yes ]; then
-    echo "metadata: ${vendor} / ${model}${effort:+ / $effort}${role:+ / $role}"
-  else
-    echo "metadata は保存されなかった: この room サーバーは素性欄を持たない版（席は着席済み・一覧に素性が出ないだけ）" >&2
-  fi
+if [ "$stored" = yes ]; then
+  echo "台帳確認: ${vendor} / ${model}${effort:+ / $effort}${role:+ / $role}（素性・本人性とも登録済み）"
 else
-  echo "metadata の登録に失敗した: 席は着席済みで、参加者一覧に素性が出ないだけ（room の到達性とトークンを確認）" >&2
+  echo "SEAT_LEDGER_INCOMPLETE: 台帳の member 行に素性または本人性が欠けている（席は着席済み。doctor で確認）" >&2
 fi
 
 if PEERTABLE_CREDENTIAL_FILE="$credential_file" "$(dirname "$0")/ensure-bridge.sh" "$proj" seat-status; then

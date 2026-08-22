@@ -90,14 +90,14 @@ lattice run intake --run .lattice/runs/<run-id> --task <id>
    ```
    lattice run intake attach --run <ref> --task <id> --input <file>
    ```
-   input は **`.team/seats/<あなたの名前>.json` を読んで `schema` を足すだけ**である（変換も再計算も要らない）。
+   input は **`.team/scripts/pull-attach-input.mjs <project> <あなたの名前>` が room 台帳（member 行の本人性欄）から作る**（席file は 2026-08-22 廃止・変換も再計算も要らない）。
    ```json
    {"schema":"lattice.pull_worker_attach_input.v1","name":…,"session":…,"pid":…,
     "started_identity":…,"argv_digest":…,"recorded_at":…}
    ```
-   **pid を自分で推定しない。** その file だけが正で、無ければ room で言う（黙って別の値を渡さない）。**他の席の seats file を読まない。**
-   **argv_digest も席が計算し直さない。** pid と lstart が席 file と一致するのに digest だけ live と違うときは実行層死亡ではない。room で親へ「digest 更新が要る」とだけ言い、親が `refresh-seat-identity.mjs` で Lattice と同じ `/bin/ps -o command=` 観測へ揃える。
-   `lattice run intake` 自体は pid を取らない。attach の前に CLI の `process.pid` や死んだ子 pid を渡すと `ADAPTER_CONTROLLER_UNAVAILABLE: process start identity観測失敗` になる。それは実行層の死亡ではない。席 file の pid で打ち直す。
+   **pid を自分で推定しない。** 台帳の member 行だけが正で、無ければ room で言う（黙って別の値を渡さない）。**他の席の本人性欄を使わない。**
+   **argv_digest も席が計算し直さない。** pid と lstart が台帳と一致するのに digest だけ live と違うときは実行層死亡ではない。room で親へ「digest 更新が要る」とだけ言い、親が `refresh-seat-identity.mjs` で Lattice と同じ `/bin/ps -o command=` 観測へ揃える。
+   `lattice run intake` 自体は pid を取らない。attach の前に CLI の `process.pid` や死んだ子 pid を渡すと `ADAPTER_CONTROLLER_UNAVAILABLE: process start identity観測失敗` になる。それは実行層の死亡ではない。台帳の pid で打ち直す。
    pull run の `driver_state=stopped` かつ `intakes=[]` は、まだ intake していない平常である。親へ「可視性を復旧して」と求めない。
 4. **intake は1本ずつ。** 前の intake が accepted / closed / released になるまで次を取らない。**席は1つの process なので、2本 intake すると片方の hold がもう片方を巻き込む**——制御の粒度が壊れる。
 5. **worktree の中だけを、絶対パスで触る。** `cd` しない・env を書き換えない・別 project へ移らない。席の room 接続と MCP 解決は cwd と env に乗っているので、動かすと卓から落ちる。git は `git -C <worktree> …`、編集は絶対パスで開く

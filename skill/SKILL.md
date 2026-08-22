@@ -103,7 +103,7 @@ script は内部で Aiterm の公開 `claude_agent` / `codex_agent` / `grok_agen
 
 ## doctor
 
-卓の再開・引き継ぎ・「動いてるか分からない」時は、最初に `scripts/doctor.sh <project> [--repair]` を打つ。room 到達性・members と `.team/seats/*.json` の突合・各席の tmux セッションと pid+lstart による本人性・3ブリッジ（wakeup/seat-status/run）の生存と本人性・（Lattice 併用モードなら）工程正本の state を1行ずつ機械判定する。判定できない項目は偽の生存判定を作らず「判定不能」と出す。`--repair` は死んでいるブリッジだけ `ensure-bridge.sh` で立て直す——**席の再起動はしない**（人の判断が要るため。NG 表示に `launch-seat.sh` を促す一言が付くだけ）。
+卓の再開・引き継ぎ・「動いてるか分からない」時は、最初に `scripts/doctor.sh <project> [--repair]` を打つ。room 到達性・台帳（member 行）の素性と本人性の完全性・各席の tmux セッションと pid+lstart による本人性・2ブリッジ（wakeup/seat-status）の生存と本人性・（Lattice 併用モードなら）工程正本の state を1行ずつ機械判定する。判定できない項目は偽の生存判定を作らず「判定不能」と出す。`--repair` は死んでいるブリッジだけ `ensure-bridge.sh` で立て直す——**席の再起動はしない**（人の判断が要るため。NG 表示に `launch-seat.sh` を促す一言が付くだけ）。
 
 ## Lattice の実行層へ席の着手を載せる（pull 型・Lattice 併用モードだけ）
 
@@ -117,7 +117,7 @@ script は内部で Aiterm の公開 `claude_agent` / `codex_agent` / `grok_agen
 - **worktree と lease は設備の供給である。** 席が要求すれば出てくるもので、出してもらうものではない
 - **席と spool は接触しない。** 席が触るのは room と worktree だけで、`.lattice/` の直読み・直書き禁止の契約はそのまま
 - **席の作法の正本は `templates/member.md` の「Lattice の実行層へ自分の着手を載せる」節**（intake→intervention 判定→attach→作業→監査担当が `done.sh`→intake 席が accept の順・1席1 intake・禁止操作・検証の回し方・成果の正本）。ここに二重化しない
-- **席は自分の pid を装置へ渡す（attach）。** その pid は `.team/seats/<名前>.json`（`launch-seat.sh` が着席直後に書く）が持ち、席は読んで `schema` を足すだけで attach input になる。**raw argv を保存しない**——token値をargvから除いた後も、将来の引数を無条件に複製しない。持つのはdigestだけ。Lattice の再観測は `/bin/ps -o command=`。pid/lstart が一致して digest だけ違うときは親が `skill/scripts/refresh-seat-identity.mjs <project> <name>` で揃える。席は席 file を書き換えない
+- **席は自分の pid を装置へ渡す（attach）。** その pid は room 台帳の member 行（`launch-seat.sh` が着席直後に登録する本人性欄）が持ち、席は `pull-attach-input.mjs` で読むだけで attach input になる（席file は 2026-08-22 廃止・member に帰属する情報の正本は台帳だけ）。**raw argv を保存しない**——token値をargvから除いた後も、将来の引数を無条件に複製しない。持つのはdigestだけ。Lattice の再観測は `/bin/ps -o command=`。pid/lstart が一致して digest だけ違うときは親が `skill/scripts/refresh-seat-identity.mjs <project> <name>` で揃える。席は台帳の本人性欄を書き換えない
 - **run-bridge は退役した（2026-08-22・オーナー裁定）。** 介入（hold）は席が自分の Lattice コマンド応答（intake / attach / accept / `run intake intervention`）で受け取る——これが唯一の経路である。装置の介入を DM で先回り通知する中継は、凍った席には届かず、届いた席を退席させ、死んだ席の shell へ打鍵する事故だけを生んだので廃止した。ブリッジは wakeup と seat-status の2本だけ
 
 運用側が踏みやすい所（実測で確認した挙動）:

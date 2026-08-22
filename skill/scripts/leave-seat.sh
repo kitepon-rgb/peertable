@@ -76,10 +76,7 @@ if ! env -u PEERTABLE_POST_TOKEN node "$credential_helper" request "$credential_
   failed=1
 fi
 
-if ! rm -f "$proj/.team/seats/$name.json"; then
-  echo "SEAT_LEAVE_IDENTITY_FAILED: $name" >&2
-  failed=1
-fi
+# 席の本人性は台帳の member 行が持つ（席file廃止 2026-08-22）。上の member DELETE が identity も撤去する
 rm -rf "$proj/.team/seats/${name}.grok-home"
 rm -rf "$proj/.team/seats/${name}.codex"
 if ! env -u PEERTABLE_POST_TOKEN node "$credential_helper" remove "$proj" "$credential_file"; then
