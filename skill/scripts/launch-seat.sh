@@ -479,6 +479,9 @@ while [ $SECONDS -lt "$room_ready_deadline" ]; do
           codex_trust_accepted=true
           echo "codex directory trust: accepted"
           ;;
+        *"Would you like to run the following command?"*)
+          echo "codex command approval: don't ask again"
+          ;;
       esac
     fi
   fi

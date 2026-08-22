@@ -276,11 +276,11 @@ async function wake(seat, msgs) {
   const screen = String(pane.stdout ?? '')
   if (member.vendor === 'codex') {
     const dialog = keysForCodexPane(screen)
-    if (dialog?.kind === 'mcp-allow') {
+    if (dialog) {
       for (const key of dialog.keys) {
         await run('tmux', tmuxArgv(['send-keys', '-t', observation.target, key], { socket: observation.socket }))
       }
-      log(`Codex MCP Allow を Always allow で通した: ${seat}`)
+      log(`Codex ${dialog.kind} を通した: ${seat}`)
       return 'deferred'
     }
   }

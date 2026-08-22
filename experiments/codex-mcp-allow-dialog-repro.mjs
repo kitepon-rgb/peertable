@@ -43,6 +43,7 @@ assert.match(keysOut, /"Down"/)
 assert.match(launch, /codex-dialog\.mjs/)
 assert.match(launch, /blocksCodexReady|mcp-allow|Allow the room MCP server to run tool/)
 assert.match(wakeup, /codex-dialog/)
+assert.match(wakeup, /if \(dialog\) \{/)
 assert.match(mcpEnsure, /approval_policy = "never"/)
 
 console.log('codex mcp allow dialog: green')

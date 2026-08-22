@@ -5,11 +5,16 @@ import { resolve } from 'node:path'
 
 export const MCP_ALLOW_NEEDLE = 'Allow the room MCP server to run tool'
 export const MCP_ALWAYS_ALLOW = 'Always allow'
+export const COMMAND_APPROVAL_NEEDLE = 'Would you like to run the following command?'
+export const COMMAND_APPROVAL_DONT_ASK = "don't ask again"
 
 export function keysForCodexPane(screen) {
   const text = String(screen ?? '')
   if (text.includes(MCP_ALLOW_NEEDLE) && text.includes(MCP_ALWAYS_ALLOW)) {
     return { kind: 'mcp-allow', keys: ['Down', 'Down', 'Enter'] }
+  }
+  if (text.includes(COMMAND_APPROVAL_NEEDLE) && text.toLowerCase().includes(COMMAND_APPROVAL_DONT_ASK)) {
+    return { kind: 'command-approval', keys: ['Down', 'Enter'] }
   }
   if (text.includes('Hooks need review')) {
     return { kind: 'hooks', keys: ['Down', 'Enter'] }
@@ -24,7 +29,8 @@ export function keysForCodexPane(screen) {
 }
 
 export function blocksCodexReady(screen) {
-  return keysForCodexPane(screen)?.kind === 'mcp-allow'
+  const kind = keysForCodexPane(screen)?.kind
+  return kind === 'mcp-allow' || kind === 'command-approval'
 }
 
 const isMain = Boolean(process.argv[1]) && resolve(process.argv[1]) === fileURLToPath(import.meta.url)

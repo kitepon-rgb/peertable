@@ -35,7 +35,7 @@ function posixIdentity(pid) {
   })
   const chosen = leaders.length === 1 ? leaders[0] : String(pid)
   const started = execFileSync('/bin/ps', ['-o', 'lstart=', '-p', chosen], { encoding: 'utf8' }).trim()
-  const argv = execFileSync('/bin/ps', ['-o', 'args=', '-p', chosen], { encoding: 'utf8' }).trim()
+  const argv = execFileSync('/bin/ps', ['-o', 'command=', '-p', chosen], { encoding: 'utf8' }).trim()
   if (!started || !argv) throw new Error('pid の lstart/args を観測できない')
   return { pid: Number(chosen), started_identity: started, argv }
 }
