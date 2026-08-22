@@ -305,11 +305,6 @@ if ! node "$room_mcp_helper" "$proj" "$peertable_repo" "$mcp_ownership"; then
   echo "SEAT_ROOM_MCP_INVALID: Aiterm席のroom clientをcurrent treeへ束縛できない（席は立てない）" >&2
   exit 1
 fi
-if ! credential_file=$(env -u PEERTABLE_POST_TOKEN node "$credential_helper" prepare "$proj" "$room" "$name"); then
-  echo "SEAT_CREDENTIAL_PREPARE_FAILED: 席別credentialを用意できない（席は立てない）" >&2
-  exit 1
-fi
-
 # 同名の古いroom memberが残っていると、Codexの新しいroom clientが一度も登録していなくても
 # 下のready確認を通ってしまう。古いmemberを別席のまま黙って消すのは危険なので、起動前に同名を
 # conflictとして拒否し、明示的な退席後に再実行させる。一覧を読めない時も着席前に止める。
@@ -338,6 +333,15 @@ case "$stale_member_rc" in
     exit 1
     ;;
 esac
+
+# credential は同名掃除の**後**に用意する。leave-seat は member ごと credential file
+# （path は project/room/member から決定的）を撤去するので、先に作ると同名再着席の
+# 初回だけ「消えた credential を席へ渡して client が initialize 前に死ぬ」レースになる
+# （実被弾 2026-08-22: さくら再着席の初回必敗・再走で成功、の正体）。
+if ! credential_file=$(env -u PEERTABLE_POST_TOKEN node "$credential_helper" prepare "$proj" "$room" "$name"); then
+  echo "SEAT_CREDENTIAL_PREPARE_FAILED: 席別credentialを用意できない（席は立てない）" >&2
+  exit 1
+fi
 
 # leave-seat が席専用 GROK_HOME を消す。同名再着席では preflight 後に空になるので、
 # live 起動の直前に auth と ui だけを書き直す（user booth MCP は載せない）。
