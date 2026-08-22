@@ -189,6 +189,11 @@ export const BLOCKED_MARKERS = [
   '1. I am using this for local development',
   '1. Yes, continue',
   'Do you want to proceed?',
+  // Codex v0.148 のコマンド承認ダイアログ（2026-08-22 実測: 承認待ちの席が idle と
+  // 誤表示され、オーナーが「動いているのに表示が変わらない」と気づいた）
+  'Would you like to run the following command?',
+  '1. Yes, proceed',
+  'Press enter to confirm or esc to cancel',
 ]
 
 /** Grok TUI の SpaceXAI coding-data バナー（2026-08-21 実測。入力は通るが席が死んだように見える）。 */
