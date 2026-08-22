@@ -78,6 +78,7 @@ fi
 if [ -f "$proj/.team/roles/parent.md" ]; then
   echo "親役割は $proj/.team/roles/parent.md を読むこと"
 fi
+echo "親の権限境界: 各ToDoのクローズは監査担当が行い、親は裁定しない。親の仕事はオーナー窓口・環境修理・終端監査だけ（オーナー裁定 2026-08-22。詳細は skill/SKILL.md「親の operating notes」冒頭）"
 
 # parent-watchが初回headを固定する。以後のDMはwatcher不在時間を含め
 # 永続cursorからcatch-upされる。host内のbackground task自体は親セッションだけが所有できる。

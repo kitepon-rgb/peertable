@@ -244,8 +244,8 @@ const FAVICON = `<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://
 // 発言者ごとの色は名前ハッシュ（--h）から作る。彩度・明度だけテーマで持ち替えれば dark/light 両方が成立する
 const STYLE = `
 *{box-sizing:border-box}
-:root{color-scheme:light dark;--fg:#1a1a1a;--bg:#f7f6f3;--surface:#fff;--line:#e4e2dc;--accent:#1d4ed8;--dim:#8a877f;--sat:55%;--lum:45%;--name:32%;--tint:96%;--edge:82%;--busy:#1f9d55;--idle:#b9b6ae;--dead:#d03b3b;--blocked:#d97706}
-@media(prefers-color-scheme:dark){:root{--fg:#e8e6e0;--bg:#141418;--surface:#1e1e24;--line:#2c2c33;--accent:#7aa2ff;--dim:#8b8892;--sat:48%;--lum:56%;--name:75%;--tint:18%;--edge:32%;--busy:#3ecf7e;--idle:#4d4b52;--dead:#ff6b6b;--blocked:#f0a63a}}
+:root{color-scheme:light dark;--fg:#1a1a1a;--bg:#f7f6f3;--surface:#fff;--line:#e4e2dc;--accent:#1d4ed8;--dim:#8a877f;--sat:55%;--lum:45%;--name:32%;--tint:96%;--edge:82%;--busy:#d03b3b;--idle:#1f9d55;--dead:#57534e;--blocked:#d97706}
+@media(prefers-color-scheme:dark){:root{--fg:#e8e6e0;--bg:#141418;--surface:#1e1e24;--line:#2c2c33;--accent:#7aa2ff;--dim:#8b8892;--sat:48%;--lum:56%;--name:75%;--tint:18%;--edge:32%;--busy:#ff6b6b;--idle:#3ecf7e;--dead:#6f6c76;--blocked:#f0a63a}}
 body{margin:0;font-family:ui-sans-serif,system-ui,-apple-system,"Hiragino Kaku Gothic ProN","Noto Sans JP",sans-serif;font-size:14px;line-height:1.65;color:var(--fg);background:var(--bg)}
 a{color:var(--accent)}
 .brand{display:flex;align-items:center;gap:8px;font-size:15px;font-weight:650;letter-spacing:.01em}
@@ -261,7 +261,8 @@ const UI = room => `<!doctype html><html lang="ja"><head><meta charset="utf-8"><
 .members{display:flex;gap:6px;overflow-x:auto;padding:10px 0;scrollbar-width:thin}
 .chip.has-meta{cursor:pointer}
 /* 稼働状態の点。報告が途絶えたら unknown（中空）へ落として、古い状態を出し続けない */
-.chip .st{flex:none;width:7px;height:7px;border-radius:50%;margin-left:1px;background:var(--dim)}
+.chip .nm{display:inline-flex;align-items:center;gap:5px}
+.chip .st{flex:none;display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--dim)}
 .chip .st.busy{background:var(--busy)}
 .chip .st.idle{background:var(--idle)}
 .chip .st.dead{background:var(--dead)}
@@ -283,7 +284,7 @@ const UI = room => `<!doctype html><html lang="ja"><head><meta charset="utf-8"><
 @keyframes seat-working{0%,100%{transform:translateY(0) rotate(-2deg)}50%{transform:translateY(-2px) rotate(2deg)}}
 @keyframes seat-beat{from{transform:scale(.78);opacity:.7}to{transform:scale(1.28);opacity:1}}
 @keyframes seat-blocked{0%,100%{opacity:1}50%{opacity:.5}}
-.victory{position:fixed;z-index:30;left:var(--victory-x);top:var(--victory-y);pointer-events:none;color:var(--busy);font-size:13px;font-weight:800;letter-spacing:.03em;text-shadow:0 1px 0 var(--surface);animation:victory-rise 1.45s cubic-bezier(.18,.8,.3,1) both}
+.victory{position:fixed;z-index:30;left:var(--victory-x);top:var(--victory-y);pointer-events:none;color:var(--idle);font-size:13px;font-weight:800;letter-spacing:.03em;text-shadow:0 1px 0 var(--surface);animation:victory-rise 1.45s cubic-bezier(.18,.8,.3,1) both}
 @keyframes victory-rise{0%{opacity:0;transform:translate(-50%,8px) scale(.75)}18%{opacity:1;transform:translate(-50%,-7px) scale(1.08)}72%{opacity:1;transform:translate(-50%,-15px) scale(1)}100%{opacity:0;transform:translate(-50%,-27px) scale(.92)}}
 @keyframes pulse{from{box-shadow:0 0 0 0 hsl(var(--h) var(--sat) var(--lum)/.6)}to{box-shadow:0 0 0 9px hsl(var(--h) var(--sat) var(--lum)/0)}}
 .log{max-width:760px;margin:0 auto;padding:14px 16px 40px;display:flex;flex-direction:column;gap:10px}
