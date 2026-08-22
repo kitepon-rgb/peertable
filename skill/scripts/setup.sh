@@ -119,6 +119,8 @@ else
   cp "$tpl/done.sh" "$tdir/scripts/done.sh" && chmod +x "$tdir/scripts/done.sh"
   cp "$tpl/independence-refresh.sh" "$tdir/scripts/independence-refresh.sh" && chmod +x "$tdir/scripts/independence-refresh.sh"
 fi
+# 目覚まし係の登録口は全モード共通で配る（member.md の待機作法が参照する）
+cp "$repo/skill/scripts/alarm-set.sh" "$tdir/scripts/alarm-set.sh" && chmod +x "$tdir/scripts/alarm-set.sh"
 # room MCP 定義は project root の .mcp.json が正（channels は --mcp-config を解決しない。決定44）
 added_root_mcp=false
 if [ -f "$proj/.mcp.json" ]; then
@@ -197,6 +199,7 @@ printf '{"room":"%s","server_url":"%s","public_url":"%s","mode":"%s","plan_key":
 # 4時間 HTTP 403 を撃ち続け、参加者一覧には点が1つも出なかった＝起こしていないのと見分けがつかない）。
 # AI は使わず席へも1バイト送らないので卓の作業を邪魔しない。**書けない時は常駐せずに死ぬ**ので、
 # ここで壊れた常駐が黙って残ることは無い。setup-state.json を読むので、必ずその後で起こす。
+"$repo/skill/scripts/ensure-bridge.sh" "$proj" alarm || echo "alarm-bridge の起動確認に失敗した（席は使える・目覚まし係だけ後で ensure-bridge.sh で立てる）" >&2
 if "$repo/skill/scripts/ensure-bridge.sh" "$proj" seat-status; then
   echo "seat-status-bridge: ready_at を確認した（ログ $tdir/seat-status-bridge.log・停止は teardown が行う）"
 else

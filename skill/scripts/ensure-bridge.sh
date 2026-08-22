@@ -3,7 +3,7 @@
 set -euo pipefail
 
 proj="$1"; name="$2"; shift 2
-case "$name" in seat-status) script="seat-status-bridge.mjs" ;; wakeup) script="wakeup-bridge.mjs" ;; run) echo "ENSURE_BRIDGE_RETIRED: run-bridge は退役した（2026-08-22）。介入は席が自分の Lattice コマンド応答で受け取る" >&2; exit 1 ;; *) echo "usage: ensure-bridge.sh <project> <seat-status|wakeup> [args...]" >&2; exit 1 ;; esac
+case "$name" in seat-status) script="seat-status-bridge.mjs" ;; wakeup) script="wakeup-bridge.mjs" ;; alarm) script="alarm-bridge.mjs" ;; run) echo "ENSURE_BRIDGE_RETIRED: run-bridge は退役した（2026-08-22）。介入は席が自分の Lattice コマンド応答で受け取る" >&2; exit 1 ;; *) echo "usage: ensure-bridge.sh <project> <seat-status|wakeup|alarm> [args...]" >&2; exit 1 ;; esac
 team="$proj/.team"; record="$team/$name-bridge.json"; log="$team/$name-bridge.log"
 force=false
 if [ "${1:-}" = "--force" ]; then force=true; shift; fi

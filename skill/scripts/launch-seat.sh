@@ -735,6 +735,7 @@ else
   echo "SEAT_LEDGER_INCOMPLETE: 台帳の member 行に素性または本人性が欠けている（席は着席済み。doctor で確認）" >&2
 fi
 
+PEERTABLE_CREDENTIAL_FILE="$credential_file" "$(dirname "$0")/ensure-bridge.sh" "$proj" alarm   || echo "alarm-bridge の起動確認に失敗した（席は着席済み）" >&2
 if PEERTABLE_CREDENTIAL_FILE="$credential_file" "$(dirname "$0")/ensure-bridge.sh" "$proj" seat-status; then
   echo "seat-status-bridge: 起動確認済み"
 else

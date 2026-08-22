@@ -146,6 +146,39 @@ async function serverKeepsStatus() {
   return supportsMemberObservation(await res.json())
 }
 
+// ---- 継続番犬（2026-08-22 オーナー設計）----
+// 「AI は ToDo が終わっていなくてもターンを終えてしまう」への機械保証。busy が一定時間
+// 続いた席が停止宣言（[待機]/[監査提出]等）なしに idle 化したら、継続指示を配達する。
+// 自己DM（席の自己規律）は保険として残るが、継続の保証はこの番犬が持つ。
+// busy 2分未満は情報読取だけの正当な無宣言ターンがあるため起こさない（誤爆の代償は
+// 待機宣言1ターンで、宣言後の episode は declared 判定で再起こしされない）。
+const STOP_DECLARATION = /\[待機\]|\[監査提出\]|待機します|散会/u
+const NUDGE_MIN_BUSY_MS = 120_000
+const nudgedEpisodes = new Map() // name -> busySince（同一エピソード1回だけ）
+async function nudgeIfDropped(name, busySince) {
+  if (!busySince || nudgedEpisodes.get(name) === busySince) return
+  if (Date.now() - Date.parse(busySince) < NUDGE_MIN_BUSY_MS) return
+  nudgedEpisodes.set(name, busySince)
+  let messages
+  try {
+    messages = (await (await fetch(`${url}/api/${encodeURIComponent(room)}/messages`)).json()).messages ?? []
+  } catch { return }
+  const since = Date.parse(busySince)
+  if (messages.some(m => m.from === name && Date.parse(m.ts) >= since && STOP_DECLARATION.test(m.body ?? ''))) return
+  try {
+    const res = await fetch(`${url}/api/${encodeURIComponent(room)}/messages`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...(token ? { 'X-Peertable-Token': token } : {}) },
+      body: JSON.stringify({ from: 'alarm', to: name,
+        body: '[継続] 停止宣言なしにターンが終了した。未完の作業があれば続行すること。手番が無いなら規約どおり [待機] を宣言してから沈黙すること。' }),
+    })
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    console.error(`seat-status-bridge: 継続番犬が ${name} を起こした（停止宣言なしの busy→idle）`)
+  } catch (e) {
+    console.error(`seat-status-bridge: 継続番犬の起こしに失敗: ${e.message}`)
+  }
+}
+
 const last = new Map()   // name -> { status, at }
 let supported = null     // server が status を保持する版か（未判定は null）
 const tokenBucket = value => value === null ? null : Math.floor(value / 1_000)
@@ -221,6 +254,7 @@ async function tick() {
       await send(name, observation, observedAt)
       last.set(name, { ...observation, at: now })
       sent++
+      if (prev?.status === 'busy' && observation.status === 'idle') await nudgeIfDropped(name, prev.busySince)
       if (changed) console.error(`seat-status-bridge: ${name} → ${observation.status}${prev ? `（${prev.status} から）` : ''}`)
     } catch (e) {
       failed++
