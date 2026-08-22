@@ -26,6 +26,7 @@ import { join } from 'node:path'
 import { promisify } from 'node:util'
 
 import { resolvePostToken } from './seat-usage.mjs'
+import { observePidCommand } from './seat-identity.mjs'
 
 const run = promisify(execFile)
 const [proj, ...rest] = process.argv.slice(2)
@@ -43,14 +44,11 @@ const log = line => console.log(`[${new Date().toISOString()}] ${line}`)
 // 起動時刻（ps の lstart）と command line を照合し、通った相手にだけ送る。照合が合わない記録は
 // 「自分の常駐ではない誰か」なので、掃除はしても**殺さない**。
 async function processFacts(pid) {
-  let stdout
-  try { ({ stdout } = await run('/bin/ps', ['-o', 'lstart=,command=', '-p', String(pid)], { env: { ...process.env, LC_ALL: 'C' } })) }
-  catch { return null }
-  const line = stdout.split('\n')[0]?.trim() ?? ''
-  if (line.length === 0) return null
-  // lstart は固定幅の `Sun Aug  9 08:11:02 2026`（5 token）。残りが command line
-  const parts = line.split(/\s+/)
-  return { startIdentity: parts.slice(0, 5).join(' '), command: parts.slice(5).join(' ') }
+  // ps 観測は seat-identity.mjs（OS観測ライブラリ）が唯一の所有者
+  try {
+    const { started_identity: startIdentity, argv: command } = observePidCommand(pid)
+    return { startIdentity, command }
+  } catch { return null }
 }
 
 async function stopRecorded({ strict = false } = {}) {

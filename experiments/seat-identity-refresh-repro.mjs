@@ -12,7 +12,9 @@ const member = readFileSync(join(root, 'skill/templates/member.md'), 'utf8')
 
 assert.match(identSrc, /'-o', 'command='/)
 assert.doesNotMatch(identSrc, /'-o', 'args='/)
-assert.match(refreshSrc, /'-o', 'command='/)
+// ps 観測は seat-identity.mjs（OS観測ライブラリ）だけが持つ。refresh は import で使う
+assert.doesNotMatch(refreshSrc, /'-o', 'command='/)
+assert.match(refreshSrc, /from '\.\/seat-identity\.mjs'/)
 assert.match(member, /refresh-seat-identity\.mjs/)
 
 const raw = {

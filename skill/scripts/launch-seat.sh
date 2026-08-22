@@ -674,16 +674,18 @@ else
   # 上の env_line が入れる `LATTICE_TODO_ACTOR_SESSION=$name` である。tmux 識別子を混ぜると
   # attach が必ず `WORKER_ACTOR_MISMATCH` で拒否される（mio の監査で発覚・room [937]）。
   if ! python3 - "$proj/.team/seats/$name.json" "$name" "$name" "$seat_ident" <<'PY'
-import hashlib, json, os, subprocess, sys, tempfile
+import json, os, subprocess, sys, tempfile
 out, name, session, ident_raw = sys.argv[1:5]
 ident = json.loads(ident_raw)
 pid = int(ident['pid'])
 started = ident['started_identity']
 argv = ident['argv']
-if not started or not argv:
+# digest の計算は seat-identity.mjs（OS観測ライブラリ）が唯一の所有者。ここでは複製しない
+argv_digest = ident['argv_digest']
+if not started or not argv or not argv_digest:
     sys.exit('pid の lstart/args を観測できない')
 record = {
-    'argv_digest': hashlib.sha256(argv.encode()).hexdigest(),
+    'argv_digest': argv_digest,
     'name': name,
     'pid': pid,
     'recorded_at': subprocess.run(['date', '-u', '+%Y-%m-%dT%H:%M:%S.000Z'],

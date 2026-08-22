@@ -1,33 +1,15 @@
 #!/usr/bin/env node
 // 席 file の argv_digest を、Lattice attach と同じ /bin/ps -o command= 観測へ揃える。
 // pid / lstart が席 file と違うときは書き換えず終わる（pid 推定も再利用も禁止）。
-import { createHash, randomBytes } from 'node:crypto'
+import { randomBytes } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
 import { chmodSync, closeSync, fsyncSync, openSync, readFileSync, renameSync, unlinkSync, writeSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-export function hashArgv(argv) {
-  return createHash('sha256').update(String(argv), 'utf8').digest('hex')
-}
-
-export function observePidCommand(pid) {
-  if (!Number.isSafeInteger(pid) || pid < 1) {
-    const error = new Error('pid が正整数でない')
-    error.code = 'SEAT_IDENTITY_NO_PID'
-    throw error
-  }
-  // locale で lstart 書式・非ASCII argv のエスケープが変わるため C に固定（Lattice 観測と同一規約）
-  const psEnv = { ...process.env, LC_ALL: 'C' }
-  const started = execFileSync('/bin/ps', ['-o', 'lstart=', '-p', String(pid)], { encoding: 'utf8', env: psEnv }).trim()
-  const argv = execFileSync('/bin/ps', ['-o', 'command=', '-p', String(pid)], { encoding: 'utf8', env: psEnv }).trim()
-  if (!started || !argv) {
-    const error = new Error('pid の lstart/command を観測できない')
-    error.code = 'SEAT_IDENTITY_UNOBSERVABLE'
-    throw error
-  }
-  return { pid, started_identity: started, argv, argv_digest: hashArgv(argv) }
-}
+// ps 観測と digest 計算は seat-identity.mjs（OS観測ライブラリ）が唯一の所有者。再実装しない。
+export { hashArgv, observePidCommand } from './seat-identity.mjs'
+import { observePidCommand } from './seat-identity.mjs'
 
 export function refreshSeatRecord(raw, observed, recordedAt) {
   if (!Number.isSafeInteger(raw?.pid) || raw.pid < 1) {
