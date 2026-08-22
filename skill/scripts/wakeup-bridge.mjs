@@ -303,6 +303,33 @@ async function wake(seat, msgs) {
   await run('tmux', tmuxArgv(['send-keys', '-l', '-t', observation.target, text], { socket: observation.socket }))
   await sleep(750)
   await run('tmux', tmuxArgv(['send-keys', '-t', observation.target, 'Enter'], { socket: observation.socket }))
+  // 送信検証。Codex v0.148 は長文入力後に「Create a plan?」popup が出て Enter を呑むことがあり、
+  // 本文が入力欄に残ったまま席が沈黙する（2026-08-22 実測: 2席が無音停止し、人が画面を見るまで
+  // 誰も気づけなかった）。打鍵成功＝配達成功とみなさず、画面で送信成立を確認する。
+  // 残っていれば Escape（popup解除）→ Enter で再送信し、それでも残るなら受領を確定せず
+  // 次周期に再試行する（毎回ログに残るので沈黙しない）。
+  const markerSource = text.replace(/\s+/gu, '')
+  const marker = markerSource.slice(-24)
+  for (let attempt = 0; attempt < 3; attempt++) {
+    await sleep(1200)
+    const after = await run('tmux', tmuxArgv(['capture-pane', '-t', observation.target, '-p'], { socket: observation.socket }))
+    const tailLines = String(after.stdout ?? '').split('\n').slice(-14)
+    const tailJoined = tailLines.join(' ')
+    // 折返しはcapture上で行分割されるだけで空白は挟まらないため、空白除去で復元して照合する
+    const tailSquashed = tailLines.join('').replace(/\s+/gu, '')
+    const queuedOrRunning = tailJoined.includes('esc to interrupt') || tailJoined.includes('to queue message')
+    const stuck = tailJoined.includes('esc dismiss')
+      || (marker.length >= 8 && tailSquashed.includes(marker) && !queuedOrRunning)
+    if (!stuck) break
+    if (attempt === 2) {
+      log(`DELIVERY_STUCK: ${seat} の入力欄に本文が残ったまま送信できない（popup／入力詰まり）。受領を確定せず次周期に再試行する`)
+      return 'deferred'
+    }
+    log(`配達が送信されていない（popup／入力詰まり）: ${seat}。Escape→Enter で再送信する`)
+    await run('tmux', tmuxArgv(['send-keys', '-t', observation.target, 'Escape'], { socket: observation.socket }))
+    await sleep(300)
+    await run('tmux', tmuxArgv(['send-keys', '-t', observation.target, 'Enter'], { socket: observation.socket }))
+  }
   log(`TUIへ入れた: ${seat} ← ${msgs.length} 件（最新 seq ${last.seq}）`)
 }
 
