@@ -424,7 +424,34 @@ then
   exit 1
 fi
 aiterm_session_id="$sess"
-brief_dispatched=true
+# **launch が返った事実は brief 配達の証拠にならない。** aiterm は TUI が入力受付前
+# （update/trust ダイアログ表示中など）だと prompt を送らず、receipt の event_cursor=null で
+# それを申告する。読まずに配達済み扱いにすると席が白紙のまま「briefed」と報告される
+# （実被弾 2026-08-22: さくら再着席。席は起動したが着任指示ゼロで放置）。
+# event_cursor が数値 → turn 開始をaitermが確認済み。submit_residue=true → 本文は
+# composer に残ったが Enter が落ちた＝後段で Enter だけ打ち直す。null → 未送信＝後段で貼る。
+brief_in_composer=false
+if [ -n "$brief" ]; then
+  brief_receipt_state=$(python3 - "$launch_receipt" <<'PY'
+import json, sys
+r = json.loads(sys.argv[1])
+cursor = r.get('event_cursor')
+residue = r.get('submit_residue')
+print('dispatched' if cursor is not None and residue is not True
+      else 'residue' if residue is True else 'not_sent')
+PY
+)
+  case "$brief_receipt_state" in
+    dispatched) brief_dispatched=true ;;
+    residue)
+      brief_in_composer=true
+      echo "SEAT_BRIEF_SUBMIT_RESIDUE: brief は入力欄に残り submit が落ちた。着席確認後に submit し直す" >&2
+      ;;
+    *)
+      echo "SEAT_BRIEF_LAUNCH_PROMPT_NOT_SENT: aiterm は TUI 入力受付前で brief を送っていない。着席確認後に貼り直す" >&2
+      ;;
+  esac
+fi
 seat_tmux=$(tmux_at display-message -p -t "$sess" '#{socket_path}')
 
 # Aiterm管理席の process 起動は公開launch receiptで確定している。旧direct CLI launch向けの
@@ -608,17 +635,20 @@ if [ -n "$brief" ] && [ "$brief_dispatched" != true ]; then
     sleep 1
 
   brief_before=$(tmux_at capture-pane -S -1000 -t "$sess" -p 2>/dev/null || true)
-  brief_buffer="peertable-brief-${name}-$$"
-  if ! tmux_at load-buffer -b "$brief_buffer" "$brief_file"; then
-    echo "LAUNCH_BRIEF_SEND_FAILED: brief の tmux buffer 読み込みに失敗（席は着席済み）" >&2
-    exit 1
+  # submit_residue の席は本文が composer に残っている。貼り直すと二重になるので Enter だけ打つ。
+  if [ "$brief_in_composer" != true ]; then
+    brief_buffer="peertable-brief-${name}-$$"
+    if ! tmux_at load-buffer -b "$brief_buffer" "$brief_file"; then
+      echo "LAUNCH_BRIEF_SEND_FAILED: brief の tmux buffer 読み込みに失敗（席は着席済み）" >&2
+      exit 1
+    fi
+    if ! tmux_at paste-buffer -b "$brief_buffer" -d -t "$sess"; then
+      tmux_at delete-buffer -b "$brief_buffer" 2>/dev/null || true
+      echo "LAUNCH_BRIEF_SEND_FAILED: brief の tmux paste に失敗（席は着席済み）" >&2
+      exit 1
+    fi
+    sleep 1
   fi
-  if ! tmux_at paste-buffer -b "$brief_buffer" -d -t "$sess"; then
-    tmux_at delete-buffer -b "$brief_buffer" 2>/dev/null || true
-    echo "LAUNCH_BRIEF_SEND_FAILED: brief の tmux paste に失敗（席は着席済み）" >&2
-    exit 1
-  fi
-  sleep 1
   if ! tmux_at send-keys -t "$sess" Enter; then
     echo "LAUNCH_BRIEF_SEND_FAILED: brief の submit に失敗（席は着席済み）" >&2
     exit 1
