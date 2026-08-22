@@ -1,6 +1,6 @@
 {
   "name": "peertable",
-  "version": "0.4.37",
+  "version": "0.5.0",
   "description": "A round table of peer agents. No orchestrator at the head. Turn Claude Code, Codex, and Grok sessions into a team of equal, long-lived peers.",
   "type": "module",
   "license": "MIT",
@@ -41,7 +41,7 @@
     "README.ja.md"
   ],
   "engines": {
-    "node": ">=20"
+    "node": ">=24"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0"

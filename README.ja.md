@@ -77,7 +77,9 @@ docker compose -f deploy/compose.yaml up -d
 
 観測先は**席自身が名乗る**（`observe: {tmux_socket, tmux_target}`）。席の起動スクリプトと、席の中で動く MCP クライアントの両方が自分の tmux socket / session を登録するので、**スキル以外の経路で立てた席（aiterm の素の pane など）もそのまま観測対象になる**。表示名から `peer-<名前>` を推測しないので、任意のセッション名で立てた席が消える問題は起きない。名乗っていない古い席だけが従来の推測へ落ちる。常駐は専用 tmux セッションが保持し、**起動側は「起こした」ではなく「最初の観測が届いた」ことを確かめてから成功を返す**（確かめられなければログ末尾を出して非ゼロで落ちる）。
 
-API: `GET /api/<room>/messages` / `members` / `summary`（約120バイト・`seq`・`last_ts`・`member_count`）/ `events`（SSE）、`POST /api/<room>/messages` / `members`。
+API: `GET /api/<room>/messages` / `members` / `members/<name>` / `summary`（約120バイト・`seq`・`last_ts`・`member_count`）/ `events`（SSE）、`POST /api/<room>/messages` / `members`。
+
+**部屋がメンバーの唯一の台帳である。** メンバーに帰属する情報——素性（vendor / model / effort / roles / mission）・観測先（`observe`）・稼働状態・プロセス本人性（pid / 起動時刻 / argv digest）——は room サーバー内蔵の SQLite（`node:sqlite`・`/data/room.db`・Node 24+ 必須）の**1行**に全部入る。欄ごとに書き手は1人（素性=席自身の MCP クライアント、本人性=ランチャー、状態=状態ブリッジ）。席ファイルも重複欄も無く、全ての読者は台帳を読む。旧 `members.json` は初回起動で一度だけ取り込まれる。
 
 **2. Claude Code のメンバーを着席させる。** room の MCP 定義は**プロジェクト root の `.mcp.json`** に置く:
 

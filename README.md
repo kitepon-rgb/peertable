@@ -113,7 +113,9 @@ The live view shows, per member: vendor / model / reasoning effort / role, and a
 
 Seats **declare where to watch them** (`observe: {tmux_socket, tmux_target}`). Both the seat launcher and the MCP client running inside the seat register their own tmux socket and session, so **a seat you started outside the skill — a bare aiterm pane, say — is observed too**. Nothing infers `peer-<name>` from the display name, so a seat under an arbitrary session name no longer vanishes from the view; only seats that never declared fall back to the old guess. The state feed lives in its own tmux session, and whatever starts it waits for the **first observation to land** before reporting success — not merely for a process to exist. If it never lands, the starter prints the log tail and exits non-zero.
 
-Endpoints: `GET /api/<room>/messages` · `GET /api/<room>/members` · `GET /api/<room>/summary` (≈120 bytes: `seq`, `last_ts`, `member_count`) · `GET /api/<room>/events` (SSE) · `POST /api/<room>/messages` · `POST /api/<room>/members`.
+Endpoints: `GET /api/<room>/messages` · `GET /api/<room>/members` · `GET /api/<room>/members/<name>` · `GET /api/<room>/summary` (≈120 bytes: `seq`, `last_ts`, `member_count`) · `GET /api/<room>/events` (SSE) · `POST /api/<room>/messages` · `POST /api/<room>/members`.
+
+**The room is the single member ledger.** Everything that belongs to a member — identity (vendor / model / effort / roles / mission), where to observe it (`observe`), its working state, and its process identity (pid / start time / argv digest) — lives in one SQLite row inside the room server (`node:sqlite`, `/data/room.db`; requires Node 24+). One writer per field group: the seat's own MCP client registers identity, the launcher registers process identity, the state feed writes status. No seat files, no duplicated fields — every consumer reads the ledger. A legacy `members.json` is imported once on first boot.
 
 **2. Seat a Claude Code member session.** The room MCP definition must live in the **project-root `.mcp.json`**:
 

@@ -5,7 +5,7 @@
 親（オーケストレーター）に最終判断が集中しない、メンバー並列型のマルチエージェント作業システム。
 
 作成日: 2026-08-08
-状態: 設計確定 / V0〜V3 通過・V4 封印（決定41）/ スキル化完了 / GitHub・npm 公開済み。Grok 4.6正規席を含む`0.4.0`出荷完了（決定84・85）。Grok起床とbroadcast本文は決定86。配送修正は`0.4.1`（決定87）。Windows psmux 着席は`0.4.2`（決定88）。parent-watch の DEP0190 回避は`0.4.3`。着座メンバー一覧の素性行に role を出すのは`0.4.10`（決定89）。Windows 着席の残穴は決定90。着席の役割必須と 02_models 機械解決は決定91（`0.4.12`）。ターン終了の自己DMを MCP 毎回面へ載せるのは決定92（`0.4.13`）。親番犬の件数比較と切れた follow は決定93（`0.4.14`）。待機自己DMの無限起こし禁止は決定94（`0.4.15`）。Claude channel の同じ穴は決定95（`0.4.16`）。役割・settings・mission の機械強制とチップ掲載は決定96（`0.4.17`）
+状態: 設計確定 / V0〜V3 通過・V4 封印（決定41）/ スキル化完了 / GitHub・npm 公開済み。Grok 4.6正規席を含む`0.4.0`出荷完了（決定84・85）。Grok起床とbroadcast本文は決定86。配送修正は`0.4.1`（決定87）。Windows psmux 着席は`0.4.2`（決定88）。parent-watch の DEP0190 回避は`0.4.3`。着座メンバー一覧の素性行に role を出すのは`0.4.10`（決定89）。Windows 着席の残穴は決定90。着席の役割必須と 02_models 機械解決は決定91（`0.4.12`）。ターン終了の自己DMを MCP 毎回面へ載せるのは決定92（`0.4.13`）。親番犬の件数比較と切れた follow は決定93（`0.4.14`）。待機自己DMの無限起こし禁止は決定94（`0.4.15`）。Claude channel の同じ穴は決定95（`0.4.16`）。役割・settings・mission の機械強制とチップ掲載は決定96（`0.4.17`）。member 台帳の SQLite 一本化・run-bridge 退役・hold 退席廃止は決定97〜99（`0.5.0`）
 リポジトリ: github.com/kitepon/peertable（**公開済み 2026-08-08・MIT・public**）/ npm: **peertable@0.4.37**（2026-08-21）。Claude 席は `notifications/claude/channel`。Codex / Grok は同じ経路で席 TUI へ新着を入れる。親の再着卓投稿も `post-message.mjs` の UTF-8（Windows python stdout の cp932 で本文を壊さない）。工程クローズは監査担当の `done.sh`（feat SHA が origin/main の祖先でなければ script が着地する。親は着地しない）。mission の更新は席の `set-mission.sh`（chip と `[mission]` 1行。再起動しない）。Fable ツール実行中の稼働チップは経過時間行と `/btw` 固定句で判定する。Grok 作業中は `Waiting for response` / `[stop]`。privacy バナーは `GROK_PRIVACY_NOTICE_ROLLOUT=0`
 工場: dotagents 開発工場の管理対象（**自作コア11製品の1つ**・wire v7 の固定15製品目）。統合契約は dotagents 側が所有し、本 repo の source・state・skill 配布・release は Peertable が所有し続ける
 
@@ -1632,3 +1632,12 @@ patch `0.4.37`。
 
 
 
+
+## 53. member 台帳の SQLite 一本化・run-bridge 退役・hold 退席の廃止（2026-08-22・決定97〜99）
+
+**決定97（オーナー裁定）: 部屋の管理機構が member の唯一の台帳である。** member に帰属する情報（素性 vendor/model/effort/roles/mission・観測先 observe・稼働状態・プロセス本人性 pid/lstart/argv_digest）は room サーバー内蔵 SQLite（`node:sqlite`・`/data/room.db`・Node 24+）の1行へ全部入れ、これ以上の分散と同一情報の重複管理を禁止する。廃止: `.team/seats/<name>.json`（本人性は member 行へ・attach 入力は `pull-attach-input.mjs <project> <name>` が台帳から生成）、`settings`/`role`（単数）の重複欄（canonical は vendor/model/effort/roles 配列・API 境界で旧形式を畳む）、ランチャーの素性二重登録（素性の書き手は席の room client だけ。ランチャーは本人性の登録と読み返し確認だけ）。旧 `members.json` は初回起動で一度だけ台帳へ移行し `.migrated` へ退避。`GET /api/<room>/members/<name>` 新設。複数 role が change-seat の再起動で欠落するバグも読者の canonical 統一で解消。
+
+**決定98（オーナー裁定）: タスクの競合制御は Lattice が全部担い、Peertable はメンバー間と親の情報連携だけを行う。** run-bridge は退役（script 削除・doctor/teardown/ensure-bridge から除去）。介入（hold）は席が自分の Lattice コマンド応答で受け取る一本。member.md の「資源競合 hold＝退席」規約は廃止——hold された席は担当 ToDo に留まり、競合相手のクローズを待って intake を打ち直す（旧規約は 2026-08-22 に卓を空にしただけだった）。
+
+**決定99: 配達と着席の思い込み根絶。** ①launch-seat は aiterm receipt の `event_cursor`/`submit_residue` を読み、brief が実際に送られた時だけ配達済みとする（未送信は着席確認後に貼り直し・turn 開始の実観測だけを完了とする）。②wakeup-bridge は pane の前面プロセスが shell に戻った席へは1バイトも打たない（room 本文が shell コマンドとして実行される穴の遮断・`SEAT_TUI_GONE`）。③parent-watch に停滞警報（工程があるのに busy 席ゼロが3分継続→`parent_table_stalled` を1回）。④親の着卓は parent-join の耳疎通 probe を監視イベントとして受信するまで完了としない。⑤同名再着席の初回必敗（credential 準備を stale member 掃除より先に行うと leave-seat が消す）は順序修正で根治。
+minor `0.5.0`（member 台帳の canonical 化・席file廃止・run-bridge 退役を含む互換変更）。
