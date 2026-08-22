@@ -7,7 +7,7 @@ name: peertable
 
 services:
   room:
-    image: peertable-room:20260822-ac47ad3
+    image: peertable-room:20260822-a4dce9b
     container_name: peertable-room
     restart: unless-stopped
     environment:
