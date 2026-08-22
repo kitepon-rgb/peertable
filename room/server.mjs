@@ -270,10 +270,9 @@ const UI = room => `<!doctype html><html lang="ja"><head><meta charset="utf-8"><
 .metapop{position:fixed;z-index:20;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:8px 10px;font-size:12px;box-shadow:0 6px 20px rgba(0,0,0,.18);max-width:70vw}
 .metapop .metaname{font-weight:600;margin-bottom:2px}
 .metapop .metaline{color:var(--dim)}
-.chip{position:relative;flex:none;display:flex;align-items:flex-start;gap:7px;padding:5px 11px 5px 5px;border:1px solid var(--line);border-radius:12px;background:var(--surface);font-size:12px;font-weight:600}
+.chip{position:relative;flex:none;display:flex;align-items:center;gap:7px;padding:5px 11px 5px 5px;border:1px solid var(--line);border-radius:12px;background:var(--surface);font-size:12px;font-weight:600}
 .chip .av{width:22px;height:22px;font-size:11px;flex:none}
 .chip .id{display:flex;flex-direction:column;gap:1px;min-width:0;line-height:1.25}
-.chip .roles,.chip .settings,.chip .mission{font-weight:500;font-size:11px;color:var(--dim)}
 .chip.recent{border-color:hsl(var(--h) var(--sat) var(--edge))}
 .chip.recent .nm{color:hsl(var(--h) var(--sat) var(--name))}
 .chip.pulse .av{animation:pulse 1.6s ease-out 2}
@@ -476,7 +475,7 @@ async function refreshMembers(){
     const age=m.status_at?Date.now()-Date.parse(m.status_at):Infinity
     const st=(m.status&&age<STATUS_STALE_MS)?m.status:(m.status?'unknown':null)
     if(st)c.classList.add('is-'+st)
-    if(st)meta.push('状態 '+({busy:'作業中',idle:'待機',dead:'停止',blocked:'承認待ち',unknown:'不明(報告が途絶えている)'}[st]??st))
+    meta.push(st?'状態 '+({busy:'作業中',idle:'待機',dead:'停止',blocked:'承認待ち',unknown:'不明(報告が途絶えている)'}[st]??st):'状態 未報告(seat-status bridge が動いていない)')
     const usage=[]
     const busyAge=m.busy_since?Date.now()-Date.parse(m.busy_since):NaN
     if((st==='busy'||st==='blocked')&&Number.isFinite(busyAge)&&busyAge>=0)usage.push('継続 '+elapsed(busyAge))
@@ -486,11 +485,11 @@ async function refreshMembers(){
     c.appendChild(el('span','av',initial(m.name)))
     const id=el('span','id')
     const nameRow=el('span','nm',m.name)
-    if(st)nameRow.appendChild(el('span','st '+st))
+    // チップの常設表示は「アバター・名前・◉」だけ。◉は状態が新鮮な時だけ色が付き、
+    // 途絶・未報告は中空リング＝bridge が動いていないことがひと目で分かる。
+    // roles / settings / mission は title（ホバー）とタップ popover にだけ出す。
+    nameRow.appendChild(el('span','st '+(st??'unknown')))
     id.appendChild(nameRow)
-    if(rolesText)id.appendChild(el('span','roles',rolesText))
-    if(settingsText)id.appendChild(el('span','settings',settingsText))
-    if(m.mission)id.appendChild(el('span','mission',m.mission))
     c.appendChild(id)
     // タップ環境には hover が無いので、押した時に同じ内容を出す（ホバーは title が担う）
     if(meta.length){c.classList.add('has-meta');c.addEventListener('click',ev=>{ev.stopPropagation();showMeta(c,m,meta)})}
