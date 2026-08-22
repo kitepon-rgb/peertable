@@ -2,6 +2,8 @@
 # 目覚まし係へ待機解放条件を登録する（席が待機に入る前に使う）。
 # usage: alarm-set.sh <project_dir> <seat> <note> <script...>
 #   script は bash -c で実行され、exit 0 で条件成立とみなされる。
+#   **script はシングルクォートで渡すこと**。ダブルクォートだと `$()` や変数が登録側の
+#   shell で先に展開され、判定コマンドでなく展開結果が登録される（かえで実測 2026-08-22）。
 #   成立すると席へ「[待機解放条件成立] <note>」が配達され、登録は自動で消える。
 set -eu
 proj="${1:?project_dir}"; seat="${2:?seat}"; note="${3:?note}"; shift 3
@@ -17,4 +19,4 @@ with open(out, 'w') as f:
     json.dump({'seat': seat, 'note': note, 'script': script, 'interval_s': 10,
                'created_at': __import__('datetime').datetime.utcnow().isoformat() + 'Z'}, f, ensure_ascii=False)
 PY
-echo "ALARM_SET_OK: $dir/$id.json（seat=$seat note=$note）"
+echo "ALARM_SET_OK: ${dir}/${id}.json（seat=${seat} note=${note}）"
