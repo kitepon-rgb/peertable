@@ -6,6 +6,7 @@ import {
 } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { execFileSync } from 'node:child_process'
+import { repairSplicedBegin } from './codex-seat-toml.mjs'
 
 const fail = (code, message) => {
   process.stderr.write(`${code}: ${message}\n`)
@@ -122,7 +123,7 @@ try {
     const missing = requiredSeatEnv.filter((name) => !process.env[name])
     if (missing.length > 0)
       fail('SEAT_CODEX_ROOM_MCP_ENV_MISSING', `seat環境が無い: ${missing.join(',')}`)
-    const current = existsSync(configFile) ? readFileSync(configFile, 'utf8') : ''
+    const current = repairSplicedBegin(existsSync(configFile) ? readFileSync(configFile, 'utf8') : '')
     const range = markerRange(current)
     let next
     if (range) {
