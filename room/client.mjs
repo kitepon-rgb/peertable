@@ -13,7 +13,7 @@ import { findModelsDoc, resolveSeatIdentity } from '../skill/scripts/resolve-sea
 
 // client.mjs 側のハードコード版数。package.json の version と一致していることを
 // diagnostics の version_consistency が見る（2 つの版数源の drift 検出。決定45）
-const MCP_VERSION = '0.4.37'
+const MCP_VERSION = '0.5.0'
 const PKG_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 
 const USAGE = `usage:
@@ -111,9 +111,8 @@ mcp.setRequestHandler(ListToolsRequestSchema, async () => ({
 
 const fmt = m => `[${m.seq}] ${m.from} → ${Array.isArray(m.to_names) ? m.to_names.join(', ') : m.to} (${m.ts}): ${m.body}`
 const memberLine = (m) => {
-  const rolesText = Array.isArray(m.roles) && m.roles.length ? m.roles.join('・') : (m.role || '')
-  const settingsObj = m.settings && typeof m.settings === 'object' ? m.settings : {}
-  const settingsText = [settingsObj.model || m.model, settingsObj.effort || m.effort].filter(Boolean).join('×')
+  const rolesText = Array.isArray(m.roles) && m.roles.length ? m.roles.join('・') : ''
+  const settingsText = [m.model, m.effort].filter(Boolean).join('×')
   const parts = [m.name]
   if (rolesText) parts.push(`役割=${rolesText}`)
   if (settingsText) parts.push(`設定=${settingsText}`)
