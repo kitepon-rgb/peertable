@@ -25,8 +25,12 @@ export function parseWinCreationDate(value) {
   return parsed.toISOString()
 }
 
+// ps の lstart 書式（LC_TIME）と非ASCII argv のエスケープ（LC_CTYPE）は locale で変わり、
+// 観測者ごとに digest が割れる（2026-08-22 実測）。Lattice 側の観測も LC_ALL=C に固定している。
+const psEnv = () => ({ ...process.env, LC_ALL: 'C' })
+
 function posixIdentity(pid) {
-  const table = execFileSync('ps', ['-Ao', 'pid=,ppid=,pgid='], { encoding: 'utf8' })
+  const table = execFileSync('/bin/ps', ['-Ao', 'pid=,ppid=,pgid='], { encoding: 'utf8', env: psEnv() })
   const leaders = table.split('\n').flatMap((line) => {
     const match = /^\s*(\d+)\s+(\d+)\s+(\d+)\s*$/u.exec(line)
     if (!match) return []
@@ -34,8 +38,8 @@ function posixIdentity(pid) {
     return ppid === String(pid) && child === pgid ? [child] : []
   })
   const chosen = leaders.length === 1 ? leaders[0] : String(pid)
-  const started = execFileSync('/bin/ps', ['-o', 'lstart=', '-p', chosen], { encoding: 'utf8' }).trim()
-  const argv = execFileSync('/bin/ps', ['-o', 'command=', '-p', chosen], { encoding: 'utf8' }).trim()
+  const started = execFileSync('/bin/ps', ['-o', 'lstart=', '-p', chosen], { encoding: 'utf8', env: psEnv() }).trim()
+  const argv = execFileSync('/bin/ps', ['-o', 'command=', '-p', chosen], { encoding: 'utf8', env: psEnv() }).trim()
   if (!started || !argv) throw new Error('pid の lstart/args を観測できない')
   return { pid: Number(chosen), started_identity: started, argv }
 }

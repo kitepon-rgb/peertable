@@ -44,7 +44,7 @@ const log = line => console.log(`[${new Date().toISOString()}] ${line}`)
 // 「自分の常駐ではない誰か」なので、掃除はしても**殺さない**。
 async function processFacts(pid) {
   let stdout
-  try { ({ stdout } = await run('/bin/ps', ['-o', 'lstart=,command=', '-p', String(pid)])) }
+  try { ({ stdout } = await run('/bin/ps', ['-o', 'lstart=,command=', '-p', String(pid)], { env: { ...process.env, LC_ALL: 'C' } })) }
   catch { return null }
   const line = stdout.split('\n')[0]?.trim() ?? ''
   if (line.length === 0) return null

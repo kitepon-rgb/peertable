@@ -17,8 +17,10 @@ export function observePidCommand(pid) {
     error.code = 'SEAT_IDENTITY_NO_PID'
     throw error
   }
-  const started = execFileSync('/bin/ps', ['-o', 'lstart=', '-p', String(pid)], { encoding: 'utf8' }).trim()
-  const argv = execFileSync('/bin/ps', ['-o', 'command=', '-p', String(pid)], { encoding: 'utf8' }).trim()
+  // locale で lstart 書式・非ASCII argv のエスケープが変わるため C に固定（Lattice 観測と同一規約）
+  const psEnv = { ...process.env, LC_ALL: 'C' }
+  const started = execFileSync('/bin/ps', ['-o', 'lstart=', '-p', String(pid)], { encoding: 'utf8', env: psEnv }).trim()
+  const argv = execFileSync('/bin/ps', ['-o', 'command=', '-p', String(pid)], { encoding: 'utf8', env: psEnv }).trim()
   if (!started || !argv) {
     const error = new Error('pid の lstart/command を観測できない')
     error.code = 'SEAT_IDENTITY_UNOBSERVABLE'
