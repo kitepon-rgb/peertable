@@ -209,7 +209,6 @@ const IDENTITY = Object.fromEntries(Object.entries({
   effort: process.env.PEERTABLE_EFFORT,
   roles,
   mission: process.env.PEERTABLE_MISSION,
-  aiterm_session_id: process.env.AITERM_SESSION_ID,
   observe,
 }).filter(([, v]) => v != null && v !== '' && !(Array.isArray(v) && v.length === 0)))
 {

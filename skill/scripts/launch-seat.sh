@@ -691,9 +691,11 @@ if [ -z "$seat_pid" ]; then
   # 記録が無ければ席は attach できず、装置の介入は協調 hold のままになる。**黙らない。**
   echo "seat identity を記録できなかった: ${sess} の process group leader を1つに確定できない（席は着席済み）" >&2
 else
-  ident_body=$(python3 - "$name" "$seat_ident" <<'PY'
+  # aiterm_session_id の書き手はランチャー（launch receipt の所有者）。席の client は
+  # Codex closed-mode env で AITERM_SESSION_ID を受け取れないため、ここで台帳へ載せる。
+  ident_body=$(python3 - "$name" "$seat_ident" "$aiterm_session_id" <<'PY'
 import json, subprocess, sys
-name, ident_raw = sys.argv[1:3]
+name, ident_raw, aiterm_session = sys.argv[1:4]
 ident = json.loads(ident_raw)
 if not ident.get('started_identity') or not ident.get('argv') or not ident.get('argv_digest'):
     sys.exit('pid の lstart/args を観測できない')
@@ -702,6 +704,7 @@ print(json.dumps({
     'pid': int(ident['pid']),
     'started_identity': ident['started_identity'],
     'argv_digest': ident['argv_digest'],
+    'aiterm_session_id': aiterm_session,
     'identity_recorded_at': subprocess.run(['date', '-u', '+%Y-%m-%dT%H:%M:%S.000Z'],
                                            capture_output=True, text=True, check=True).stdout.strip(),
 }, ensure_ascii=False))
