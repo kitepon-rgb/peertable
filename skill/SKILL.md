@@ -76,7 +76,7 @@ script は内部で Aiterm の公開 `claude_agent` / `codex_agent` / `grok_agen
    - 同じvendor内のmodel / effort変更はAitermが同一sessionと会話contextを保って行う。vendor変更だけは再起動を伴うため、本人はrole・工程正本・roomログから再着任する
 6.8 **mission 更新（席が自分で実行）**: 工程が変わったら席が `env -u PEERTABLE_POST_TOKEN skill/scripts/set-mission.sh <project> <name> <text>` を打つ。`POST /members` で chip を更新し、`[mission] <name>: <text>` を全員へ1行出す。席は再起動しない。親は代行しない。`change-seat.sh` に mission を足さない。
 
-7. **親の着卓**（このセッション）: `scripts/parent-join.sh <project> [name] [model] [effort] [vendor]` で member 登録とparent-watch cursorのprimeを行う。**`effort` は任意のまま据え置く**——席は `launch-seat.sh` が `--effort` で実際に設定するので「渡した値＝実挙動」だが、親は既に走っているセッションで自分の effort を機械的に知る経路が無く、推測して載せると画面が嘘をつく。続けて、ClaudeとGrokはMonitor、Codexはyieldしたbackground tool taskとして**親宛DM番犬**を1世代だけ張る（形は下記「親の operating notes」の番犬仕様）。通常席用wakeup-bridgeに親を載せない。broadcastのkickoffは廃止済み。以後の post も API 直（同 notes）
+7. **親の着卓**（このセッション）: `scripts/parent-join.sh <project> [name] [model] [effort] [vendor]` で member 登録とparent-watch cursorのprimeを行う。**`effort` は任意のまま据え置く**——席は `launch-seat.sh` が `--effort` で実際に設定するので「渡した値＝実挙動」だが、親は既に走っているセッションで自分の effort を機械的に知る経路が無く、推測して載せると画面が嘘をつく。続けて、ClaudeとGrokはMonitor、Codexはyieldしたbackground tool taskとして**親宛DM番犬**を1世代だけ張る（形は下記「親の operating notes」の番犬仕様）。**着卓完了の条件は、parent-join が投稿する耳疎通probe（`EAR_PROBE_SENT` の nonce）を自分の監視イベントとして受信すること**——番犬プロセスの生存は耳の証拠にならない（前セッションの耳へ吠え続け親宛DMが全損した実被弾 2026-08-22）。受信できないなら監視を張り直す。通常席用wakeup-bridgeに親を載せない。broadcastのkickoffは廃止済み。以後の post も API 直（同 notes）
 8. **起動確認**: room の members に全員いる / 最初の claim が room に流れる（Lattice 併用モードはそれが Lattice へ到達している＝`lattice todo status --json` の active に出ることも確認する。単独モードは room の claim 宣言だけが到達の証拠）/ Web UI で観測できる、をチェックして報告する
 
 ## teardown
@@ -207,6 +207,9 @@ witness をどう生成するかは**対象 project 側の作法に従う**（La
     通常席用wakeup-bridge、tmux、`codex exec resume`を親へ流用しない。**Grok**はpersistent
     Monitorで同じ`--follow`を1回だけ実行する。Grok親をwakeup-bridgeの対象にしない
   - 親以外宛・ping・親自身の発言は捨てる。watcher不在中のDMは永続cursorから次回起動時にcatch-upする
+  - **停滞警報**: 番犬は「着手可能・着手中の工程があるのに作業中（busy）の席が1つも無い」状態が
+    3分（`PEERTABLE_STALL_ALARM_MS`）続くと `parent_table_stalled` を1回出す（状態が変わるまで再警報しない）。
+    親はこれを受けたら席の状態一覧を実観測し、止まっている原因（brief不達・承認待ち・hold）を特定して動かす
   - **世代は常に1匹**。Claudeは旧MonitorをTaskStop、Codexは旧background taskを停止してから張り替える。
     Grokも旧Monitorを止めてから張り替える。`watch_error`は親へ通知し、沈黙死させない
   - claimと工程完了は`to: "all"`、ターン終了時の次の行動は自分宛DM、誰かへの用事はその人宛DM、誰に聞くか分からない時は`to: "all"`を使う
@@ -221,7 +224,7 @@ witness をどう生成するかは**対象 project 側の作法に従う**（La
   1. **room ログを読む**——`curl -s "$URL/api/$ROOM/messages?since=<最後に読んだ seq>"`。`since` を持っていなければ 0 から。**会話が卓の正本**なので、まずここで現在地（誰が何を claim し、どこまで done か）を作る
   2. **工程正本で照合する**——`lattice todo status --json`（Lattice 併用）。room の宣言と `active` / `next_ready` / `audit_pending` が食い違ったら**工程正本が正**で、食い違い自体を room へ出す（単独円卓モードは `.team/tasks.md` と room ログの突き合わせ）
   3. **member 登録は残っている**ので `parent-join.sh` を再実行しない。`curl -s $URL/api/$ROOM/members` で自分の名前を確認するだけでよい（実測: 親の登録はセッションを跨いで残る）。**再実行しても `<名前> が参加した` は流れない**——`POST /members` は本当に新規追加の時だけ本人宛のsystem発言を出す
-  4. **番犬を張り直す**——ClaudeとGrokは`--follow`を1回起動する。Codexは1秒ごとの`codex-parent-watch.sh` loopをbackground taskで起動する。生きた旧世代が残っていれば先に止める（世代は常に1匹）。永続cursorが不在時間のDMを回収する
+  4. **番犬を張り直す**——ClaudeとGrokは`--follow`を1回起動する。Codexは1秒ごとの`codex-parent-watch.sh` loopをbackground taskで起動する。生きた旧世代が残っていれば先に止める（世代は常に1匹）。永続cursorが不在時間のDMを回収する。**張り直したら耳の疎通を実測する**——自分宛のprobe DM（差出人は自分以外なら何でもよい）を1通投稿し、それが監視イベントとして届くのを確認するまで再着卓完了と言わない
   - **再着卓の契機は番犬taskの終了通知または`watch_error`**。親の側には「途絶した」と教える別経路が無いので、届いたら再着卓の手順に入る
   - **順序の要点は「room と工程正本を読み終えるまで発言しない」**。読む前に喋ると、自分が行き違いを作る側になる（実例あり）
   - **やらないこと**: 復帰の挨拶で席を起こさない。作業の再確認を席へ聞いて回らない——**現在地は上の1〜2で取れる**ので、聞くのは席の時間を奪うだけである

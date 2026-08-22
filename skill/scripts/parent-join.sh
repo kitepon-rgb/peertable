@@ -91,6 +91,25 @@ if PEERTABLE_PARENT_HOST="$parent_vendor" node "$here/parent-watch.mjs" "$proj" 
   else
     echo "PARENT_WATCH_START_REQUIRED: Claude Monitor（persistent）で ${here}/parent-watch.mjs ${proj} ${name} --follow を1回だけ起動し、通知後も同じMonitorで待機を続けること"
   fi
+  # 耳の疎通probe: 番犬が生きていても、その出力を受け取る監視（Monitor等）が現在の
+  # 親セッションに繋がっている保証はない（番犬が前セッションの耳へ吠え続け、親宛DMが
+  # 全損する実被弾 2026-08-22）。cursor確定後に親宛のprobe DMを1通置き、
+  # 「監視イベントとしてこのnonceを受信した」ことを着卓完了の条件にする。
+  probe_nonce="$(date +%s)-$$"
+  probe_body=$(python3 - "$name" "$probe_nonce" <<'PY'
+import json, sys
+name, nonce = sys.argv[1:3]
+print(json.dumps({'from': 'ear-probe', 'to': name,
+  'body': f'[耳疎通probe {nonce}] この通知を監視イベントとして受信できていれば耳は接続済み。受信するまで着卓完了と言わないこと。'}, ensure_ascii=False))
+PY
+)
+  if curl -sf -X POST "$url/api/$room/messages" \
+    -H "X-Peertable-Token: $PEERTABLE_POST_TOKEN" -H 'content-type: application/json' \
+    -d "$probe_body" > /dev/null; then
+    echo "EAR_PROBE_SENT: nonce=${probe_nonce}。着卓完了の条件は、上記の監視経由でこのnonceを受信すること。受信できないなら耳は繋がっていない＝着卓失敗として扱い、監視を張り直す"
+  else
+    echo "WARN: EAR_PROBE_POST_FAILED: 耳疎通probeを投稿できない（監視の受信確認ができないまま）" >&2
+  fi
 else
   echo "WARN: PARENT_WATCH_PRIME_FAILED: 親（${name}）のDM cursorを準備できない" >&2
 fi

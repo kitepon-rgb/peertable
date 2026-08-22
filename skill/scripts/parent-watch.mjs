@@ -11,7 +11,7 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { resolveLatticeExecutable } from './seat-usage.mjs'
-import { addressedToParent as messageAddressedToParent, latticeStaffingChanged } from './parent-watch-logic.mjs'
+import { addressedToParent as messageAddressedToParent, latticeStaffingChanged, tableStallUpdate } from './parent-watch-logic.mjs'
 
 const args = process.argv.slice(2)
 const project = args.shift()
@@ -231,8 +231,40 @@ async function acceptMessage(message) {
   return matched
 }
 
+// 「工程があるのに作業中の席が1つも無い」を親へ知らせる停滞警報。席の状態は
+// seat-status-bridge が room members へ書く status を使う（親は延べ配信対象外）。
+// members か Lattice を読めない tick は判定を進めず、前回の stall 状態を保つ。
+const stallHoldMs = Number(process.env.PEERTABLE_STALL_ALARM_MS ?? 180_000)
+async function checkStall() {
+  const lattice = state.lattice
+  if (!lattice || lattice.error !== undefined) return false
+  let members
+  try { members = (await readJson('/members')).members ?? [] } catch { return false }
+  const workers = members
+    .filter(m => m.name !== parent && m.delivery?.kind !== 'parent_watch')
+    .map(m => ({ name: m.name, status: m.status ?? null }))
+  const { stall, event } = tableStallUpdate(
+    state.stall ?? null,
+    { ready: lattice.ready, active: lattice.active, workers },
+    Date.now(),
+    stallHoldMs,
+  )
+  if (JSON.stringify(stall) !== JSON.stringify(state.stall ?? null)) {
+    state = { ...state, stall, last_event_at: event ? now() : state.last_event_at }
+    saveState(state)
+  }
+  if (!event) return false
+  await writeEvent({
+    schema: 'peertable.parent-watch-event.v1',
+    parent,
+    ...event,
+  })
+  return true
+}
+
 async function catchUp() {
   if (await acceptLatticeState(readLatticeState(state.lattice)) && mode === '--next') return true
+  if (await checkStall() && mode === '--next') return true
   const body = await readJson(`/messages?since=${state.last_seq}`)
   for (const message of body.messages ?? []) {
     if (await acceptMessage(message) && mode === '--next') return true
@@ -295,6 +327,7 @@ for (;;) {
           if (eventName === 'ping') {
             const head = Number(data)
             if (await acceptLatticeState(readLatticeState(state.lattice)) && mode === '--next') process.exit(0)
+            if (await checkStall() && mode === '--next') process.exit(0)
             if (Number.isSafeInteger(head) && head > state.last_seq && await catchUp()) process.exit(0)
             continue
           }
