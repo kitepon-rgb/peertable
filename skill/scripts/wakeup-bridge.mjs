@@ -346,6 +346,13 @@ async function wake(seat, msgs) {
   // 次周期に再試行する（毎回ログに残るので沈黙しない）。
   const markerSource = text.replace(/\s+/gu, '')
   const marker = markerSource.slice(-24)
+  // Claude Code は長文入力を折り畳んで本文を画面から消し（"paste again to expand" /
+  // "[Pasted text"）、ターン実行中は "esc to interrupt" でなくスピナー（✻✽·）を出す。
+  // この2つで旧検証は「未送信」と誤判定し、しかも回復に撃つ Escape が **Claude の実行中
+  // ターンを中断**していた（実被弾 2026-08-22: 監査席が2秒ごとに中断され、監査が進まなかった）。
+  // Claude 席は「受理された兆候」を成功とみなし、回復キーに Escape を使わない。
+  const CLAUDE_ACCEPTED = /paste again to expand|\[Pasted text|esc to interrupt|✻|✽|✳|·\s*\w+ing…/u
+  const isClaude = member.vendor === 'claude'
   for (let attempt = 0; attempt < 3; attempt++) {
     await sleep(1200)
     const after = await run('tmux', tmuxArgv(['capture-pane', '-t', observation.target, '-p'], { socket: observation.socket }))
@@ -354,12 +361,19 @@ async function wake(seat, msgs) {
     // 折返しはcapture上で行分割されるだけで空白は挟まらないため、空白除去で復元して照合する
     const tailSquashed = tailLines.join('').replace(/\s+/gu, '')
     const queuedOrRunning = tailJoined.includes('esc to interrupt') || tailJoined.includes('to queue message')
-    const stuck = tailJoined.includes('esc dismiss')
+      || (isClaude && CLAUDE_ACCEPTED.test(tailJoined))
+    const stuck = (!isClaude && tailJoined.includes('esc dismiss'))
       || (marker.length >= 8 && tailSquashed.includes(marker) && !queuedOrRunning)
     if (!stuck) break
     if (attempt === 2) {
       log(`DELIVERY_STUCK: ${seat} の入力欄に本文が残ったまま送信できない（popup／入力詰まり）。受領を確定せず次周期に再試行する`)
       return 'deferred'
+    }
+    if (isClaude) {
+      // Escape は撃たない（実行中ターンを殺す）。Enter だけ打ち直す
+      log(`配達が送信されていない: ${seat}（Claude 席のため Escape は使わず Enter を打ち直す）`)
+      await run('tmux', tmuxArgv(['send-keys', '-t', observation.target, 'Enter'], { socket: observation.socket }))
+      continue
     }
     log(`配達が送信されていない（popup／入力詰まり）: ${seat}。Escape→Enter で再送信する`)
     await run('tmux', tmuxArgv(['send-keys', '-t', observation.target, 'Escape'], { socket: observation.socket }))
